@@ -4,8 +4,10 @@ import { homedir } from 'node:os';
 
 export interface BridgeConfig {
   token?: string;
+  agentId?: string;
   defaultAgentType?: string;
   gatewayUrl?: string;
+  gatewayToken?: string;
   bridgeUrl?: string;
 }
 
