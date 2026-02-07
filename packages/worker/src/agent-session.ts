@@ -148,6 +148,9 @@ export class AgentSession implements DurableObject {
         // Update KV for global status queries
         await this.updateKV(registerMsg.agent_id);
 
+        // Notify platform: agent is online
+        await this.updatePlatformStatus(registerMsg.agent_id, true);
+
         server.send(JSON.stringify({ type: 'registered', status: 'ok' } satisfies Registered));
         return;
       }
@@ -168,18 +171,21 @@ export class AgentSession implements DurableObject {
     });
 
     server.addEventListener('close', async () => {
+      const agentId = this.agentId;
       this.ws = null;
       this.authenticated = false;
       this.cleanupAllRelays();
-      // agentId is embedded in the DO id, extract from KV
       await this.removeKV();
+      if (agentId) await this.updatePlatformStatus(agentId, false);
     });
 
     server.addEventListener('error', async () => {
+      const agentId = this.agentId;
       this.ws = null;
       this.authenticated = false;
       this.cleanupAllRelays();
       await this.removeKV();
+      if (agentId) await this.updatePlatformStatus(agentId, false);
     });
 
     return new Response(null, { status: 101, webSocket: client });
@@ -341,6 +347,34 @@ export class AgentSession implements DurableObject {
       return false;
     } catch {
       return false;
+    }
+  }
+
+  // ========================================================
+  // Platform DB status update (replaces health cron polling)
+  // ========================================================
+  private async updatePlatformStatus(agentId: string, online: boolean): Promise<void> {
+    try {
+      const now = new Date().toISOString();
+      const body = online
+        ? { is_online: true, bridge_connected_at: now, last_heartbeat: now }
+        : { is_online: false };
+
+      await fetch(
+        `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${agentId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': this.env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify(body),
+        }
+      );
+    } catch {
+      // Best-effort: don't break the connection flow
     }
   }
 
