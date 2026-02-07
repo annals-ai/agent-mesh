@@ -16,7 +16,7 @@ const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 function ensureDir(): void {
   if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true });
+    mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
   }
 }
 
@@ -31,7 +31,7 @@ export function loadConfig(): BridgeConfig {
 
 export function saveConfig(config: BridgeConfig): void {
   ensureDir();
-  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
 }
 
 export function updateConfig(partial: Partial<BridgeConfig>): void {

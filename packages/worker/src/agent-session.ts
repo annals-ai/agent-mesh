@@ -91,12 +91,9 @@ export class AgentSession implements DurableObject {
 
     server.accept();
 
-    // Close existing connection if any
-    if (this.ws) {
-      try { this.ws.close(1000, 'Replaced by new connection'); } catch {}
-      this.ws = null;
-      this.authenticated = false;
-    }
+    // Track whether this connection has been promoted to primary.
+    // Do NOT close the existing authenticated connection until the new one passes auth.
+    let promoted = false;
 
     server.addEventListener('message', async (event) => {
       let msg: BridgeToWorkerMessage;
@@ -109,8 +106,8 @@ export class AgentSession implements DurableObject {
         return;
       }
 
-      // First message must be register
-      if (!this.authenticated) {
+      // First message from this connection must be register
+      if (!promoted) {
         if (msg.type !== 'register') {
           server.send(JSON.stringify({ type: 'registered', status: 'error', error: 'First message must be register' } satisfies Registered));
           server.close(1008, 'Expected register');
@@ -134,9 +131,15 @@ export class AgentSession implements DurableObject {
         if (!valid) {
           server.send(JSON.stringify({ type: 'registered', status: 'error', error: 'Authentication failed' } satisfies Registered));
           server.close(1008, 'Auth failed');
-          return;
+          return; // Old connection stays intact
         }
 
+        // Auth succeeded — NOW replace old connection
+        if (this.ws && this.ws !== server) {
+          try { this.ws.close(1000, 'Replaced by new connection'); } catch {}
+        }
+
+        promoted = true;
         this.authenticated = true;
         this.ws = server;
         this.agentId = registerMsg.agent_id;
@@ -171,6 +174,8 @@ export class AgentSession implements DurableObject {
     });
 
     server.addEventListener('close', async () => {
+      // Only clean up if this is the current primary connection
+      if (this.ws !== server) return;
       const agentId = this.agentId;
       this.ws = null;
       this.authenticated = false;
@@ -180,6 +185,7 @@ export class AgentSession implements DurableObject {
     });
 
     server.addEventListener('error', async () => {
+      if (this.ws !== server) return;
       const agentId = this.agentId;
       this.ws = null;
       this.authenticated = false;
@@ -274,7 +280,6 @@ export class AgentSession implements DurableObject {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   }
@@ -316,6 +321,9 @@ export class AgentSession implements DurableObject {
   // Token validation
   // ========================================================
   private async validateToken(token: string, agentId: string): Promise<boolean> {
+    // Reject empty tokens immediately
+    if (!token || token.length === 0) return false;
+
     try {
       // Try JWT first
       const userRes = await fetch(`${this.env.SUPABASE_URL}/auth/v1/user`, {
@@ -325,7 +333,7 @@ export class AgentSession implements DurableObject {
       if (userRes.ok) {
         const user = await userRes.json() as { id: string };
         const agentRes = await fetch(
-          `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${agentId}&author_id=eq.${user.id}&select=id`,
+          `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${encodeURIComponent(agentId)}&author_id=eq.${encodeURIComponent(user.id)}&select=id`,
           { headers: { 'apikey': this.env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}` } },
         );
         if (agentRes.ok) {
@@ -337,7 +345,7 @@ export class AgentSession implements DurableObject {
 
       // Fall back to bridge_token
       const tokenRes = await fetch(
-        `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${agentId}&bridge_token=eq.${token}&select=id`,
+        `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${encodeURIComponent(agentId)}&bridge_token=eq.${encodeURIComponent(token)}&select=id`,
         { headers: { 'apikey': this.env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}` } },
       );
       if (tokenRes.ok) {
@@ -419,6 +427,6 @@ export class AgentSession implements DurableObject {
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    headers: { 'Content-Type': 'application/json' },
   });
 }

@@ -27,24 +27,26 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    const json = (status: number, body: unknown) => jsonResponse(status, body, request);
+
     // CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders() });
+      return new Response(null, { headers: corsHeaders(request) });
     }
 
     // Health check (no auth)
     if (path === '/health' && request.method === 'GET') {
-      return jsonResponse(200, { status: 'ok' });
+      return json(200, { status: 'ok' });
     }
 
     // WebSocket upgrade — route to Durable Object
     if (path === '/ws') {
       const agentId = url.searchParams.get('agent_id');
       if (!agentId) {
-        return jsonResponse(400, { error: 'missing_agent_id', message: 'WebSocket URL must include ?agent_id=<uuid>' });
+        return json(400, { error: 'missing_agent_id', message: 'WebSocket URL must include ?agent_id=<uuid>' });
       }
       if (!isValidAgentId(agentId)) {
-        return jsonResponse(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
       }
 
       const id = env.AGENT_SESSIONS.idFromName(agentId);
@@ -56,7 +58,7 @@ export default {
 
     // All API routes require platform auth
     if (!authenticatePlatform(request, env)) {
-      return jsonResponse(401, { error: 'auth_failed', message: 'Invalid or missing X-Platform-Secret' });
+      return json(401, { error: 'auth_failed', message: 'Invalid or missing X-Platform-Secret' });
     }
 
     // Agent status — route to Durable Object
@@ -64,7 +66,7 @@ export default {
     if (statusMatch && request.method === 'GET') {
       const agentId = statusMatch[1];
       if (!isValidAgentId(agentId)) {
-        return jsonResponse(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
       }
       const id = env.AGENT_SESSIONS.idFromName(agentId);
       const stub = env.AGENT_SESSIONS.get(id);
@@ -77,14 +79,14 @@ export default {
       try {
         body = await request.clone().json() as typeof body;
       } catch {
-        return jsonResponse(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+        return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
       }
 
       if (!body.agent_id) {
-        return jsonResponse(400, { error: 'invalid_message', message: 'Missing agent_id' });
+        return json(400, { error: 'invalid_message', message: 'Missing agent_id' });
       }
       if (!isValidAgentId(body.agent_id)) {
-        return jsonResponse(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
       }
 
       const id = env.AGENT_SESSIONS.idFromName(body.agent_id);
@@ -96,7 +98,7 @@ export default {
       }));
     }
 
-    return jsonResponse(404, { error: 'not_found', message: 'Route not found' });
+    return json(404, { error: 'not_found', message: 'Route not found' });
   },
 } satisfies ExportedHandler<Env>;
 
@@ -105,13 +107,18 @@ function authenticatePlatform(request: Request, env: Env): boolean {
   if (!secret || !env.PLATFORM_SECRET || secret.length === 0 || env.PLATFORM_SECRET.length === 0) {
     return false;
   }
-  return secret === env.PLATFORM_SECRET;
+  // Constant-time comparison to prevent timing attacks
+  const encoder = new TextEncoder();
+  const a = encoder.encode(secret);
+  const b = encoder.encode(env.PLATFORM_SECRET);
+  if (a.byteLength !== b.byteLength) return false;
+  return crypto.subtle.timingSafeEqual(a, b);
 }
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(status: number, body: unknown, request?: Request): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(request), 'Content-Type': 'application/json' },
   });
 }
 
@@ -121,10 +128,18 @@ function isValidAgentId(id: string): boolean {
   return UUID_RE.test(id);
 }
 
-function corsHeaders(): Record<string, string> {
+const ALLOWED_ORIGINS = new Set([
+  'https://skills.hot',
+  'https://www.skills.hot',
+]);
+
+function corsHeaders(request?: Request): Record<string, string> {
+  const origin = request?.headers.get('Origin') || '';
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : '';
   return {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Platform-Secret',
+    'Vary': 'Origin',
   };
 }
