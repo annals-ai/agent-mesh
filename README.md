@@ -1,84 +1,130 @@
 # Agent Bridge
 
-Unified agent connector -- connect any AI agent to the [skills.hot](https://skills.hot) platform.
+Connect your local AI agent to [skills.hot](https://skills.hot) — turn it into a SaaS service anyone can use.
 
 ```
-                                   Bridge Protocol v1 (WebSocket)
-
-  +------------------+       +-----+       +---------------------+       +----------+
-  |  OpenClaw Agent  | ----> |     |       |                     |       |          |
-  |  Claude Code     | ----> | CLI | ----> | bridge.skills.hot   | ----> | Platform |
-  |  Codex (planned) | ----> |     |       | (Cloudflare Worker) |       |          |
-  |  Gemini (planned)| ----> |     |       |                     |       |          |
-  +------------------+       +-----+       +---------------------+       +----------+
-                                                    |
-                                           Relay API (SSE)
-                                                    |
-                                           +--------+--------+
-                                           |  IM Channels    |
-                                           |  (coming soon)  |
-                                           |  Telegram       |
-                                           |  Discord        |
-                                           |  Slack          |
-                                           +-----------------+
+  Your machine                          Cloud                         Users
+  ┌──────────────────┐    outbound     ┌─────────────────────┐     ┌──────────┐
+  │  OpenClaw         │   WebSocket    │                     │     │          │
+  │  Claude Code      ├──────────────► │  bridge.skills.hot  │ ◄── │ Platform │
+  │  Codex (planned)  │   (no inbound  │  (Cloudflare Worker)│     │ IM bots  │
+  │  Gemini (planned) │    ports)      │                     │     │ API      │
+  └──────────────────┘                 └─────────────────────┘     └──────────┘
+       agent stays                        Durable Objects            users chat
+       on localhost                       per-agent isolation        with agents
 ```
 
-The bridge CLI runs on your machine alongside your AI agent. It connects to the Bridge Worker via WebSocket, receives user messages from the platform, forwards them to your local agent, and streams back responses in real time.
+Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the cloud — no ports to open, no reverse proxy, no Tailscale needed.
 
 ## Quick Start
 
+### One-click setup (recommended)
+
+1. Create an agent on [skills.hot/settings](https://skills.hot/settings)
+2. Click the **Connect** button — copy the command
+3. Paste in your terminal:
+
 ```bash
-# Install
+npx @skills-hot/agent-bridge connect --setup https://skills.hot/api/connect/ct_xxxxx
+```
+
+Done. The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. The ticket is one-time use and expires in 15 minutes.
+
+### Manual setup
+
+```bash
+# Install globally
 npm install -g @skills-hot/agent-bridge
 
-# Authenticate
+# Authenticate with the platform
 agent-bridge login
 
-# Connect your agent
-agent-bridge connect openclaw --agent-id my-agent-id
-agent-bridge connect claude --agent-id my-agent-id --project /path/to/project
+# Connect an OpenClaw agent
+agent-bridge connect openclaw --agent-id <uuid>
+
+# Connect a Claude Code agent
+agent-bridge connect claude --agent-id <uuid> --project /path/to/project
 ```
+
+### Reconnect
+
+After the first setup, reconnect with just:
+
+```bash
+agent-bridge connect
+```
+
+Config is saved to `~/.agent-bridge/config.json` (permissions 0600).
+
+## How It Works
+
+1. **You run the CLI** alongside your agent on your machine
+2. **CLI connects outbound** to `bridge.skills.hot` via WebSocket (Bridge Protocol v1)
+3. **Users send messages** on skills.hot — the platform relays them through the Bridge Worker
+4. **Bridge Worker forwards** the message to your CLI via WebSocket
+5. **CLI passes it** to your local agent (OpenClaw, Claude Code, etc.)
+6. **Agent responds** with streaming text — the CLI sends chunks back through the bridge
+7. **User sees** the response in real time
+
+No API keys exposed. No ports opened. Your agent stays local.
 
 ## Supported Agents
 
-| Agent | Status | Adapter |
-|-------|--------|---------|
-| [OpenClaw](https://github.com/nicepkg/openclaw) | Available | WebSocket (Gateway Protocol v3) |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Available | stdio (stream-json) |
-| [Codex CLI](https://github.com/openai/codex) | Coming soon | MCP over stdio |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Coming soon | TBD |
+| Agent | Status | How it connects |
+|-------|--------|-----------------|
+| [OpenClaw](https://github.com/nicepkg/openclaw) | **Available** | WebSocket to local gateway (Protocol v3) |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **Available** | stdio (stream-json format) |
+| [Codex CLI](https://github.com/openai/codex) | Planned | MCP over stdio |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Planned | TBD |
 
-## Monorepo Packages
+## CLI Commands
+
+```bash
+agent-bridge connect [type]              # Connect agent to platform
+  --setup <url>                          #   One-click setup from ticket URL
+  --agent-id <id>                        #   Agent UUID on skills.hot
+  --project <path>                       #   Project path (Claude adapter)
+  --gateway-url <url>                    #   OpenClaw gateway URL
+  --gateway-token <token>                #   OpenClaw gateway token
+  --bridge-url <url>                     #   Custom Bridge Worker URL
+
+agent-bridge login                       # Authenticate with skills.hot
+agent-bridge status                      # Check connection status
+```
+
+## Security
+
+- **No inbound ports** — CLI initiates outbound WebSocket, your agent never listens on the network
+- **Bridge token authentication** — each agent gets a unique `bt_` token, validated on every connection
+- **One-time connect tickets** — `ct_` tickets expire in 15 minutes and can only be used once
+- **Constant-time secret comparison** — PLATFORM_SECRET validated with `timingSafeEqual`
+- **CORS restricted** — Bridge Worker only accepts cross-origin requests from `skills.hot`
+- **Config file protected** — `~/.agent-bridge/config.json` written with mode 0600
+
+## Packages
 
 | Package | Path | Description |
 |---------|------|-------------|
-| `@skills-hot/agent-bridge` | `packages/cli` | CLI tool -- login, connect agents, check status |
-| `@skills-hot/bridge-protocol` | `packages/protocol` | TypeScript type definitions for Bridge Protocol v1 |
-| `@skills-hot/bridge-worker` | `packages/worker` | Cloudflare Worker -- WebSocket hub and Relay API |
-| `@skills-hot/bridge-channels` | `packages/channels` | IM channel adapters (Telegram, Discord, Slack) |
-
-## Documentation
-
-- [Getting Started](docs/getting-started.md)
-- [Bridge Protocol v1 Specification](docs/protocol.md)
-- Adapters: [OpenClaw](docs/adapters/openclaw.md) | [Claude Code](docs/adapters/claude-code.md) | [Codex](docs/adapters/codex.md) | [Contributing an Adapter](docs/adapters/contributing-adapter.md)
-- Channels: [Telegram](docs/channels/telegram.md) | [Discord](docs/channels/discord.md) | [Contributing a Channel](docs/channels/contributing-channel.md)
+| `@skills-hot/agent-bridge` | `packages/cli` | CLI tool |
+| `@skills-hot/bridge-protocol` | `packages/protocol` | Bridge Protocol v1 type definitions |
+| `@skills-hot/bridge-worker` | `packages/worker` | Cloudflare Worker (Durable Objects) |
+| `@skills-hot/bridge-channels` | `packages/channels` | IM channel adapters (planned) |
 
 ## Development
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Build all packages
-pnpm build
-
-# Run tests
-pnpm test
-
-# Lint
-pnpm lint
+pnpm install          # Install dependencies
+pnpm build            # Build all packages
+pnpm test             # Run tests (vitest)
+pnpm lint             # Lint
 ```
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md)
+- [Bridge Protocol v1](docs/protocol.md)
+- Adapters: [OpenClaw](docs/adapters/openclaw.md) | [Claude Code](docs/adapters/claude-code.md)
+- Channels: [Telegram](docs/channels/telegram.md) | [Discord](docs/channels/discord.md)
 
 ## License
 
