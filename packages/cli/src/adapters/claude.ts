@@ -3,6 +3,8 @@ import { spawnAgent } from '../utils/process.js';
 import { log } from '../utils/logger.js';
 import { createInterface } from 'node:readline';
 import { which } from '../utils/which.js';
+import { createSessionWorkspace, destroySessionWorkspace, type SessionWorkspace } from '../utils/session-workspace.js';
+import { writeSessionSandboxConfig, removeSessionSandboxConfig } from '../utils/sandbox.js';
 
 const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
@@ -43,7 +45,10 @@ class ClaudeSession implements SessionHandle {
 
     try {
       // stdin=ignore: claude -p reads prompt from args, not stdin
-      this.process = spawnAgent('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      this.process = spawnAgent('claude', args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        sandboxConfigPath: this.config.sandboxConfigPath,
+      });
     } catch (err) {
       this.emitError(new Error(`Failed to spawn claude: ${err}`));
       return;
@@ -162,11 +167,16 @@ class ClaudeSession implements SessionHandle {
   }
 }
 
+interface SessionEntry {
+  session: ClaudeSession;
+  workspace: SessionWorkspace | null;
+}
+
 export class ClaudeAdapter extends AgentAdapter {
   readonly type = 'claude';
   readonly displayName = 'Claude Code';
 
-  private sessions = new Map<string, ClaudeSession>();
+  private sessions = new Map<string, SessionEntry>();
   private config: AdapterConfig;
 
   constructor(config: AdapterConfig = {}) {
@@ -180,15 +190,45 @@ export class ClaudeAdapter extends AgentAdapter {
 
   createSession(id: string, config: AdapterConfig): SessionHandle {
     const merged = { ...this.config, ...config };
-    const session = new ClaudeSession(id, merged);
-    this.sessions.set(id, session);
+    let workspace: SessionWorkspace | null = null;
+    let sessionConfig = merged;
+
+    // When sandbox is enabled, create an isolated workspace per session
+    if (merged.sandboxConfigPath && merged.project) {
+      workspace = createSessionWorkspace(id, merged.project);
+
+      // Git worktree: agent works in the isolated worktree
+      // Non-git: agent reads from original project, writes restricted to session dir
+      const projectPath = workspace.isWorktree ? workspace.path : merged.project;
+
+      // Per-session sandbox config: allowWrite scoped to workspace only
+      const sessionSandboxPath = writeSessionSandboxConfig('claude', id, workspace.path);
+
+      sessionConfig = {
+        ...merged,
+        project: projectPath,
+        sandboxConfigPath: sessionSandboxPath,
+      };
+
+      log.info(`Session ${id.slice(0, 8)}... workspace: ${workspace.path} (${workspace.isWorktree ? 'git worktree' : 'temp dir'})`);
+    }
+
+    const session = new ClaudeSession(id, sessionConfig);
+    this.sessions.set(id, { session, workspace });
     return session;
   }
 
   destroySession(id: string): void {
-    const session = this.sessions.get(id);
-    if (session) {
-      session.kill();
+    const entry = this.sessions.get(id);
+    if (entry) {
+      entry.session.kill();
+
+      // Clean up per-session workspace and sandbox config
+      if (entry.workspace) {
+        destroySessionWorkspace(id, this.config.project);
+        removeSessionSandboxConfig(id);
+      }
+
       this.sessions.delete(id);
     }
   }

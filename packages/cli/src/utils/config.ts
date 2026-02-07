@@ -9,6 +9,8 @@ export interface BridgeConfig {
   gatewayUrl?: string;
   gatewayToken?: string;
   bridgeUrl?: string;
+  /** Enable srt sandbox for spawned agent processes. */
+  sandbox?: boolean;
 }
 
 const CONFIG_DIR = join(homedir(), '.agent-bridge');

@@ -9,6 +9,7 @@ import { CodexAdapter } from '../adapters/codex.js';
 import { GeminiAdapter } from '../adapters/gemini.js';
 import type { AgentAdapter, AdapterConfig } from '../adapters/base.js';
 import { readOpenClawToken } from '../utils/openclaw-config.js';
+import { initSandbox } from '../utils/sandbox.js';
 import { log } from '../utils/logger.js';
 
 const DEFAULT_BRIDGE_URL = 'wss://bridge.skills.hot/ws';
@@ -38,6 +39,8 @@ export function registerConnectCommand(program: Command): void {
     .option('--gateway-url <url>', 'OpenClaw gateway URL (for openclaw adapter)')
     .option('--gateway-token <token>', 'OpenClaw gateway token')
     .option('--bridge-url <url>', 'Bridge Worker WebSocket URL')
+    .option('--sandbox', 'Run agent inside a sandbox (requires srt)')
+    .option('--no-sandbox', 'Disable sandbox even if enabled in config')
     .action(async (type: string | undefined, opts: {
       setup?: string;
       agentId?: string;
@@ -45,6 +48,7 @@ export function registerConnectCommand(program: Command): void {
       gatewayUrl?: string;
       gatewayToken?: string;
       bridgeUrl?: string;
+      sandbox?: boolean;
     }) => {
       const config = loadConfig();
 
@@ -130,10 +134,21 @@ export function registerConnectCommand(program: Command): void {
 
       const bridgeUrl = opts.bridgeUrl || config.bridgeUrl || DEFAULT_BRIDGE_URL;
 
+      // Sandbox: CLI flag takes precedence over saved config
+      const sandboxEnabled = opts.sandbox ?? config.sandbox ?? false;
+      let sandboxConfigPath: string | undefined;
+      if (sandboxEnabled) {
+        const result = await initSandbox(agentType);
+        if (result) {
+          sandboxConfigPath = result;
+        }
+      }
+
       const adapterConfig: AdapterConfig = {
         project: opts.project,
         gatewayUrl: opts.gatewayUrl || config.gatewayUrl,
         gatewayToken: opts.gatewayToken || config.gatewayToken,
+        sandboxConfigPath,
       };
 
       // Create adapter

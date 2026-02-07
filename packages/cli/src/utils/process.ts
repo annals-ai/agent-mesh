@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { buildCommandString } from './sandbox.js';
 
 export interface SpawnResult {
   child: ChildProcess;
@@ -8,14 +9,34 @@ export interface SpawnResult {
   kill: () => void;
 }
 
+export interface SpawnAgentOptions extends SpawnOptions {
+  /** Path to srt sandbox config. When set, the command is wrapped with `srt`. */
+  sandboxConfigPath?: string;
+}
+
 export function spawnAgent(
   command: string,
   args: string[],
-  options?: SpawnOptions
+  options?: SpawnAgentOptions
 ): SpawnResult {
-  const child = spawn(command, args, {
+  const { sandboxConfigPath, ...spawnOptions } = options ?? {};
+
+  let finalCommand: string;
+  let finalArgs: string[];
+
+  if (sandboxConfigPath) {
+    // Wrap with srt: srt --settings <config> "<command> <args...>"
+    const cmdString = buildCommandString(command, args);
+    finalCommand = 'srt';
+    finalArgs = ['--settings', sandboxConfigPath, cmdString];
+  } else {
+    finalCommand = command;
+    finalArgs = args;
+  }
+
+  const child = spawn(finalCommand, finalArgs, {
     stdio: ['pipe', 'pipe', 'pipe'],
-    ...options,
+    ...spawnOptions,
   });
 
   return {
