@@ -87,7 +87,7 @@ function spawnClaude(message) {
       '-p', message,
     ], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, HOME: process.env.HOME || '$HOME', PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}` },
+      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}` },
     });
 
     let stdout = '';

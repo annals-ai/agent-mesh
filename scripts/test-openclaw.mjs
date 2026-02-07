@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 /**
- * E2E 测试脚本：测试 OpenClaw adapter 直连 Mac Mini Gateway
+ * E2E 测试脚本：测试 OpenClaw adapter 直连本地 Gateway
  *
  * Usage: node scripts/test-openclaw.mjs [gateway-url] [token]
- * Default: ws://localhost:18789
+ *   gateway-url: OpenClaw Gateway WebSocket URL (default: ws://localhost:18789)
+ *   token: Gateway auth token (or set OPENCLAW_TOKEN env var)
  */
 import WebSocket from 'ws';
 import { randomUUID } from 'node:crypto';
 
-const GATEWAY_URL = process.argv[2] || 'ws://localhost:18789';
-const TOKEN = process.argv[3] || 'REDACTED_TOKEN';
+const GATEWAY_URL = process.argv[2] || process.env.OPENCLAW_GATEWAY_URL || 'ws://localhost:18789';
+const TOKEN = process.argv[3] || process.env.OPENCLAW_TOKEN || '';
+if (!TOKEN) {
+  console.error('[error] No token provided. Pass as argument or set OPENCLAW_TOKEN env var.');
+  process.exit(1);
+}
 const TEST_MESSAGE = '用一句话介绍你自己';
 
 console.log(`\n[test] Connecting to OpenClaw Gateway at ${GATEWAY_URL}...`);

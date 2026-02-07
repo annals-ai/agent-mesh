@@ -8,7 +8,7 @@ routes = [
 
 [[kv_namespaces]]
 binding = "BRIDGE_KV"
-id = "REDACTED_KV_ID"
+id = "" # Create your own: npx wrangler kv namespace create BRIDGE_KV
 
 [durable_objects]
 bindings = [
