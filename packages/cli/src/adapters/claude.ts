@@ -8,10 +8,10 @@ const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 interface ClaudeStreamEvent {
   type: string;
+  subtype?: string;
   content_block?: { type: string; text?: string };
   delta?: { type: string; text?: string };
-  result?: { type: string };
-  subtype?: string;
+  result?: string | { type: string };
   message?: { content?: { type: string; text?: string }[] };
 }
 
@@ -35,14 +35,15 @@ class ClaudeSession implements SessionHandle {
     // Attachments are silently ignored for now.
     this.resetIdleTimer();
 
-    // Spawn a new claude process for each message
-    const args = ['--output-format', 'stream-json', '--input-format', 'stream-json'];
+    // Use -p (print mode) with stream-json + verbose for non-TTY compatibility
+    const args = ['-p', message, '--output-format', 'stream-json', '--verbose', '--max-turns', '1'];
     if (this.config.project) {
       args.push('--project', this.config.project);
     }
 
     try {
-      this.process = spawnAgent('claude', args);
+      // stdin=ignore: claude -p reads prompt from args, not stdin
+      this.process = spawnAgent('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
       this.emitError(new Error(`Failed to spawn claude: ${err}`));
       return;
@@ -72,11 +73,6 @@ class ClaudeSession implements SessionHandle {
         this.emitError(new Error(`Claude process exited with code ${code}`));
       }
     });
-
-    // Send the message via stdin as NDJSON
-    const input = JSON.stringify({ type: 'user', content: message }) + '\n';
-    this.process.stdin.write(input);
-    this.process.stdin.end();
   }
 
   onChunk(cb: (delta: string) => void): void {
@@ -100,20 +96,43 @@ class ClaudeSession implements SessionHandle {
   }
 
   private handleEvent(event: ClaudeStreamEvent): void {
-    // Handle assistant text deltas
+    // Handle assistant text deltas (streaming)
     if (event.type === 'assistant' && event.subtype === 'text_delta' && event.delta?.text) {
       for (const cb of this.chunkCallbacks) cb(event.delta.text);
       return;
     }
 
-    // Handle content block deltas (alternative format)
+    // Handle content block deltas (alternative streaming format)
     if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta?.text) {
       for (const cb of this.chunkCallbacks) cb(event.delta.text);
       return;
     }
 
+    // Handle full assistant message (non-streaming / -p mode)
+    if (event.type === 'assistant' && event.message?.content) {
+      for (const block of event.message.content) {
+        if (block.type === 'text' && block.text) {
+          for (const cb of this.chunkCallbacks) cb(block.text);
+        }
+      }
+      return;
+    }
+
     // Handle message result / completion
-    if (event.type === 'result' || (event.type === 'assistant' && event.subtype === 'end')) {
+    if (event.type === 'result') {
+      // Fallback: if result text exists but no chunks were emitted
+      if (event.result?.type === 'string' || typeof (event as { result?: string }).result === 'string') {
+        const text = (event as { result?: string }).result;
+        if (text) {
+          for (const cb of this.chunkCallbacks) cb(text);
+        }
+      }
+      for (const cb of this.doneCallbacks) cb();
+      return;
+    }
+
+    // Handle end subtype
+    if (event.type === 'assistant' && event.subtype === 'end') {
       for (const cb of this.doneCallbacks) cb();
       return;
     }
