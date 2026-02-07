@@ -8,9 +8,4 @@ routes = [
 
 [[kv_namespaces]]
 binding = "BRIDGE_KV"
-id = "placeholder-kv-id"
-
-[vars]
-SUPABASE_URL = ""
-SUPABASE_SERVICE_KEY = ""
-PLATFORM_SECRET = ""
+id = "REDACTED_KV_ID"
