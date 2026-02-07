@@ -4,7 +4,7 @@ import { log } from '../utils/logger.js';
 import { createInterface } from 'node:readline';
 import { which } from '../utils/which.js';
 import { createSessionWorkspace, destroySessionWorkspace, type SessionWorkspace } from '../utils/session-workspace.js';
-import { writeSessionSandboxConfig, removeSessionSandboxConfig } from '../utils/sandbox.js';
+import { getSandboxPreset, type SandboxFilesystemConfig } from '../utils/sandbox.js';
 
 const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
@@ -21,15 +21,18 @@ class ClaudeSession implements SessionHandle {
   private chunkCallbacks: ((delta: string) => void)[] = [];
   private doneCallbacks: (() => void)[] = [];
   private errorCallbacks: ((error: Error) => void)[] = [];
-  private process: ReturnType<typeof spawnAgent> | null = null;
+  private process: Awaited<ReturnType<typeof spawnAgent>> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private config: AdapterConfig;
+  private sandboxFilesystem: SandboxFilesystemConfig | undefined;
 
   constructor(
     private sessionId: string,
-    config: AdapterConfig
+    config: AdapterConfig,
+    sandboxFilesystem?: SandboxFilesystemConfig,
   ) {
     this.config = config;
+    this.sandboxFilesystem = sandboxFilesystem;
   }
 
   send(message: string, _attachments?: { name: string; url: string; type: string }[]): void {
@@ -43,11 +46,17 @@ class ClaudeSession implements SessionHandle {
       args.push('--project', this.config.project);
     }
 
+    // spawnAgent is async now — launch and wire up event handlers
+    this.launchProcess(args);
+  }
+
+  private async launchProcess(args: string[]): Promise<void> {
     try {
       // stdin=ignore: claude -p reads prompt from args, not stdin
-      this.process = spawnAgent('claude', args, {
+      this.process = await spawnAgent('claude', args, {
         stdio: ['ignore', 'pipe', 'pipe'],
-        sandboxConfigPath: this.config.sandboxConfigPath,
+        sandboxEnabled: this.config.sandboxEnabled,
+        sandboxFilesystem: this.sandboxFilesystem,
       });
     } catch (err) {
       this.emitError(new Error(`Failed to spawn claude: ${err}`));
@@ -192,28 +201,33 @@ export class ClaudeAdapter extends AgentAdapter {
     const merged = { ...this.config, ...config };
     let workspace: SessionWorkspace | null = null;
     let sessionConfig = merged;
+    let sandboxFilesystem: SandboxFilesystemConfig | undefined;
 
     // When sandbox is enabled, create an isolated workspace per session
-    if (merged.sandboxConfigPath && merged.project) {
+    if (merged.sandboxEnabled && merged.project) {
       workspace = createSessionWorkspace(id, merged.project);
 
       // Git worktree: agent works in the isolated worktree
       // Non-git: agent reads from original project, writes restricted to session dir
       const projectPath = workspace.isWorktree ? workspace.path : merged.project;
 
-      // Per-session sandbox config: allowWrite scoped to workspace only
-      const sessionSandboxPath = writeSessionSandboxConfig('claude', id, workspace.path);
+      // Per-session filesystem: inherit denyRead from preset, scope allowWrite to workspace
+      const preset = getSandboxPreset('claude');
+      sandboxFilesystem = {
+        denyRead: preset.denyRead,
+        allowWrite: [workspace.path, '/tmp'],
+        denyWrite: preset.denyWrite,
+      };
 
       sessionConfig = {
         ...merged,
         project: projectPath,
-        sandboxConfigPath: sessionSandboxPath,
       };
 
       log.info(`Session ${id.slice(0, 8)}... workspace: ${workspace.path} (${workspace.isWorktree ? 'git worktree' : 'temp dir'})`);
     }
 
-    const session = new ClaudeSession(id, sessionConfig);
+    const session = new ClaudeSession(id, sessionConfig, sandboxFilesystem);
     this.sessions.set(id, { session, workspace });
     return session;
   }
@@ -223,10 +237,9 @@ export class ClaudeAdapter extends AgentAdapter {
     if (entry) {
       entry.session.kill();
 
-      // Clean up per-session workspace and sandbox config
+      // Clean up per-session workspace (no sandbox config files to clean up)
       if (entry.workspace) {
         destroySessionWorkspace(id, this.config.project);
-        removeSessionSandboxConfig(id);
       }
 
       this.sessions.delete(id);

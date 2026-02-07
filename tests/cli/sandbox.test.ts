@@ -1,127 +1,107 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-
-vi.mock('../../packages/cli/src/utils/which.js', () => ({
-  which: vi.fn(),
-}));
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return { ...actual, execSync: vi.fn() };
 });
 
-const SANDBOX_DIR = join(homedir(), '.agent-bridge', 'sandbox');
+// Mock SandboxManager
+function createMockSandboxManager() {
+  return {
+    isSupportedPlatform: vi.fn().mockReturnValue(true),
+    initialize: vi.fn().mockResolvedValue(undefined),
+    updateConfig: vi.fn(),
+    getConfig: vi.fn().mockReturnValue(null),
+    wrapWithSandbox: vi.fn().mockResolvedValue('sandbox-exec -f /tmp/profile.sb bash -c "echo hello"'),
+    reset: vi.fn().mockResolvedValue(undefined),
+  };
+}
 
-beforeEach(() => {
+let mockMgr: ReturnType<typeof createMockSandboxManager>;
+let sandboxModule: Awaited<typeof import('../../packages/cli/src/utils/sandbox.js')>;
+
+beforeEach(async () => {
   vi.resetModules();
   vi.clearAllMocks();
+  mockMgr = createMockSandboxManager();
+  sandboxModule = await import('../../packages/cli/src/utils/sandbox.js');
+  // Reset any leftover sandbox state
+  sandboxModule._setImportSandboxManager(null);
 });
 
-afterEach(() => {
-  try {
-    rmSync(join(SANDBOX_DIR, 'test-agent.json'), { force: true });
-    rmSync(join(SANDBOX_DIR, 'sessions'), { recursive: true, force: true });
-  } catch {
-    // ignore
+afterEach(async () => {
+  // Reset sandbox state
+  if (sandboxModule) {
+    sandboxModule._setImportSandboxManager(null);
+    await sandboxModule.resetSandbox();
   }
 });
 
-describe('isSandboxAvailable', () => {
-  it('should return true when srt is in PATH', async () => {
-    const { which } = await import('../../packages/cli/src/utils/which.js');
-    vi.mocked(which).mockResolvedValue('/usr/local/bin/srt');
-
-    const { isSandboxAvailable } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(await isSandboxAvailable()).toBe(true);
-  });
-
-  it('should return false when srt is not installed', async () => {
-    const { which } = await import('../../packages/cli/src/utils/which.js');
-    vi.mocked(which).mockResolvedValue(null);
-
-    const { isSandboxAvailable } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(await isSandboxAvailable()).toBe(false);
-  });
-});
-
 describe('getSandboxPreset', () => {
-  it('should return claude preset', async () => {
-    const { getSandboxPreset } = await import('../../packages/cli/src/utils/sandbox.js');
-    const preset = getSandboxPreset('claude');
-    expect(preset.network?.allowedDomains).toContain('api.anthropic.com');
-    expect(preset.filesystem?.denyRead).toContain('~/.ssh');
+  it('should return claude preset with filesystem config', () => {
+    const preset = sandboxModule.getSandboxPreset('claude');
+    expect(preset.denyRead).toContain('~/.ssh');
+    expect(preset.allowWrite).toContain('.');
+    expect(preset.allowWrite).toContain('/tmp');
+    expect(preset.denyWrite).toContain('.env');
   });
 
-  it('should return codex preset', async () => {
-    const { getSandboxPreset } = await import('../../packages/cli/src/utils/sandbox.js');
-    const preset = getSandboxPreset('codex');
-    expect(preset.network?.allowedDomains).toContain('api.openai.com');
+  it('should return openclaw preset without . in allowWrite', () => {
+    const preset = sandboxModule.getSandboxPreset('openclaw');
+    expect(preset.allowWrite).not.toContain('.');
+    expect(preset.allowWrite).toContain('/tmp');
   });
 
-  it('should return gemini preset', async () => {
-    const { getSandboxPreset } = await import('../../packages/cli/src/utils/sandbox.js');
-    const preset = getSandboxPreset('gemini');
-    expect(preset.network?.allowedDomains).toContain('generativelanguage.googleapis.com');
+  it('should fallback to claude preset for unknown types', () => {
+    const preset = sandboxModule.getSandboxPreset('unknown-agent');
+    expect(preset.denyRead).toContain('~/.ssh');
   });
 
-  it('should return openclaw preset with allowLocalBinding', async () => {
-    const { getSandboxPreset } = await import('../../packages/cli/src/utils/sandbox.js');
-    const preset = getSandboxPreset('openclaw');
-    expect(preset.network?.allowLocalBinding).toBe(true);
+  it('should not contain network config', () => {
+    const preset = sandboxModule.getSandboxPreset('claude');
+    expect(preset).not.toHaveProperty('network');
+    expect(preset).not.toHaveProperty('allowedDomains');
   });
 
-  it('should fallback to claude preset for unknown types', async () => {
-    const { getSandboxPreset } = await import('../../packages/cli/src/utils/sandbox.js');
-    const preset = getSandboxPreset('unknown-agent');
-    expect(preset.network?.allowedDomains).toContain('api.anthropic.com');
-  });
-});
-
-describe('writeSandboxConfig', () => {
-  it('should write config file and return path', async () => {
-    const { writeSandboxConfig } = await import('../../packages/cli/src/utils/sandbox.js');
-    const path = writeSandboxConfig('test-agent', {
-      network: { allowedDomains: ['example.com'] },
-      filesystem: { denyRead: ['~/.ssh'] },
-    });
-
-    expect(path).toBe(join(SANDBOX_DIR, 'test-agent.json'));
-    expect(existsSync(path)).toBe(true);
-
-    const content = JSON.parse(readFileSync(path, 'utf-8'));
-    expect(content.network.allowedDomains).toEqual(['example.com']);
+  it('should block all sensitive credential paths', () => {
+    const preset = sandboxModule.getSandboxPreset('claude');
+    const criticalPaths = [
+      '~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud',
+      '~/.openclaw', '~/.claude.json', '~/.claude/projects',
+      '~/.claude/history.jsonl', '~/.claude/settings.json',
+      '~/.agent-bridge', '~/.docker', '~/.npmrc', '~/.gitconfig',
+      '~/.netrc', '~/Library/Keychains',
+    ];
+    for (const p of criticalPaths) {
+      expect(preset.denyRead).toContain(p);
+    }
   });
 
-  it('should use default preset when no config provided', async () => {
-    const { writeSandboxConfig } = await import('../../packages/cli/src/utils/sandbox.js');
-    const path = writeSandboxConfig('claude');
-
-    const content = JSON.parse(readFileSync(path, 'utf-8'));
-    expect(content.network.allowedDomains).toContain('api.anthropic.com');
+  it('should NOT block ~/.claude/skills (needed for functionality)', () => {
+    const preset = sandboxModule.getSandboxPreset('claude');
+    // Skills are code/prompts, not secrets — must be readable in sandbox
+    expect(preset.denyRead).not.toContain('~/.claude');
+    expect(preset.denyRead).not.toContain('~/.claude/skills');
+    expect(preset.denyRead).not.toContain('~/.claude/agents');
+    expect(preset.denyRead).not.toContain('~/.claude/commands');
   });
 });
 
 describe('buildCommandString', () => {
-  it('should join simple command and args', async () => {
-    const { buildCommandString } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(buildCommandString('claude', ['-p', 'hello'])).toBe('claude -p hello');
+  it('should join simple command and args', () => {
+    expect(sandboxModule.buildCommandString('claude', ['-p', 'hello'])).toBe('claude -p hello');
   });
 
-  it('should quote args with spaces', async () => {
-    const { buildCommandString } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(buildCommandString('claude', ['-p', 'hello world'])).toBe("claude -p 'hello world'");
+  it('should quote args with spaces', () => {
+    expect(sandboxModule.buildCommandString('claude', ['-p', 'hello world'])).toBe("claude -p 'hello world'");
   });
 
-  it('should escape single quotes in args', async () => {
-    const { buildCommandString } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(buildCommandString('claude', ['-p', "it's"])).toBe("claude -p 'it'\\''s'");
+  it('should escape single quotes in args', () => {
+    expect(sandboxModule.buildCommandString('claude', ['-p', "it's"])).toBe("claude -p 'it'\\''s'");
   });
 
-  it('should not quote safe characters', async () => {
-    const { buildCommandString } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(buildCommandString('claude', ['--output-format', 'stream-json', '--max-turns', '1']))
+  it('should not quote safe characters', () => {
+    expect(sandboxModule.buildCommandString('claude', ['--output-format', 'stream-json', '--max-turns', '1']))
       .toBe('claude --output-format stream-json --max-turns 1');
   });
 });
@@ -131,8 +111,7 @@ describe('installSandboxRuntime', () => {
     const { execSync } = await import('node:child_process');
     vi.mocked(execSync).mockReturnValue(Buffer.from(''));
 
-    const { installSandboxRuntime } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(installSandboxRuntime()).toBe(true);
+    expect(sandboxModule.installSandboxRuntime()).toBe(true);
     expect(execSync).toHaveBeenCalledWith(
       'npm install -g @anthropic-ai/sandbox-runtime',
       { stdio: 'inherit' }
@@ -143,97 +122,151 @@ describe('installSandboxRuntime', () => {
     const { execSync } = await import('node:child_process');
     vi.mocked(execSync).mockImplementation(() => { throw new Error('npm error'); });
 
-    const { installSandboxRuntime } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(installSandboxRuntime()).toBe(false);
+    expect(sandboxModule.installSandboxRuntime()).toBe(false);
   });
 });
 
-describe('writeSessionSandboxConfig', () => {
-  it('should write per-session config with workspace allowWrite', async () => {
-    const { writeSessionSandboxConfig } = await import('../../packages/cli/src/utils/sandbox.js');
-    const path = writeSessionSandboxConfig('claude', 'session-abc', '/tmp/workspace-abc');
+describe('isSandboxAvailable', () => {
+  it('should return true when SandboxManager is available and platform supported', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    mockMgr.isSupportedPlatform.mockReturnValue(true);
 
-    expect(path).toContain('sessions');
-    expect(path).toContain('session-abc.json');
-    expect(existsSync(path)).toBe(true);
-
-    const content = JSON.parse(readFileSync(path, 'utf-8'));
-    expect(content.filesystem.allowWrite).toContain('/tmp/workspace-abc');
-    expect(content.filesystem.allowWrite).toContain('/tmp');
-    // Should still have network config from preset
-    expect(content.network.allowedDomains).toContain('api.anthropic.com');
+    expect(await sandboxModule.isSandboxAvailable()).toBe(true);
   });
 
-  it('should not include original project dir in allowWrite', async () => {
-    const { writeSessionSandboxConfig } = await import('../../packages/cli/src/utils/sandbox.js');
-    const path = writeSessionSandboxConfig('claude', 'session-xyz', '/tmp/workspace-xyz');
+  it('should return false when SandboxManager is not available', async () => {
+    sandboxModule._setImportSandboxManager(async () => null);
 
-    const content = JSON.parse(readFileSync(path, 'utf-8'));
-    // Should NOT contain '.' (the original project catch-all)
-    expect(content.filesystem.allowWrite).not.toContain('.');
-  });
-});
-
-describe('removeSessionSandboxConfig', () => {
-  it('should remove session config file', async () => {
-    const { writeSessionSandboxConfig, removeSessionSandboxConfig } = await import(
-      '../../packages/cli/src/utils/sandbox.js'
-    );
-    const path = writeSessionSandboxConfig('claude', 'session-del', '/tmp/ws');
-    expect(existsSync(path)).toBe(true);
-
-    removeSessionSandboxConfig('session-del');
-    expect(existsSync(path)).toBe(false);
+    expect(await sandboxModule.isSandboxAvailable()).toBe(false);
   });
 
-  it('should not throw for non-existent config', async () => {
-    const { removeSessionSandboxConfig } = await import('../../packages/cli/src/utils/sandbox.js');
-    expect(() => removeSessionSandboxConfig('non-existent')).not.toThrow();
+  it('should return false when platform is not supported', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    mockMgr.isSupportedPlatform.mockReturnValue(false);
+
+    expect(await sandboxModule.isSandboxAvailable()).toBe(false);
   });
 });
 
 describe('initSandbox', () => {
-  it('should auto-install srt when not found', async () => {
-    const { which } = await import('../../packages/cli/src/utils/which.js');
-    const { execSync } = await import('node:child_process');
+  it('should initialize with placeholder allowedDomains then bypass via updateConfig', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
 
-    vi.mocked(which)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('/usr/local/bin/srt');
+    const result = await sandboxModule.initSandbox('claude');
+
+    expect(result).toBe(true);
+
+    // Verify initialize was called with placeholder allowedDomains
+    expect(mockMgr.initialize).toHaveBeenCalledWith({
+      network: { allowedDomains: ['placeholder.example.com'], deniedDomains: [] },
+      filesystem: expect.objectContaining({
+        denyRead: expect.arrayContaining(['~/.ssh']),
+      }),
+    });
+
+    // Verify updateConfig bypass — no allowedDomains, only deniedDomains
+    expect(mockMgr.updateConfig).toHaveBeenCalledWith({
+      network: { deniedDomains: [] },
+      filesystem: expect.objectContaining({
+        denyRead: expect.arrayContaining(['~/.ssh']),
+      }),
+    });
+
+    // Verify updateConfig was NOT called with allowedDomains
+    const updateCall = mockMgr.updateConfig.mock.calls[0][0];
+    expect(updateCall.network).not.toHaveProperty('allowedDomains');
+  });
+
+  it('should return false when platform is not supported', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    mockMgr.isSupportedPlatform.mockReturnValue(false);
+
+    const result = await sandboxModule.initSandbox('claude');
+    expect(result).toBe(false);
+  });
+
+  it('should auto-install srt when not found initially', async () => {
+    const { execSync } = await import('node:child_process');
     vi.mocked(execSync).mockReturnValue(Buffer.from(''));
 
-    const { initSandbox } = await import('../../packages/cli/src/utils/sandbox.js');
-    const result = await initSandbox('claude');
+    let callCount = 0;
+    sandboxModule._setImportSandboxManager(async () => {
+      callCount++;
+      if (callCount === 1) return null; // First call: not found
+      return mockMgr; // After install: found
+    });
 
-    expect(execSync).toHaveBeenCalledWith(
-      'npm install -g @anthropic-ai/sandbox-runtime',
-      { stdio: 'inherit' }
-    );
-    expect(result).toContain('claude.json');
+    const result = await sandboxModule.initSandbox('claude');
+    expect(result).toBe(true);
+    expect(callCount).toBe(2);
   });
 
-  it('should skip install when srt is already available', async () => {
-    const { which } = await import('../../packages/cli/src/utils/which.js');
-    const { execSync } = await import('node:child_process');
+  it('should return false when initialize throws', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    mockMgr.initialize.mockRejectedValue(new Error('init failed'));
 
-    vi.mocked(which).mockResolvedValue('/usr/local/bin/srt');
-
-    const { initSandbox } = await import('../../packages/cli/src/utils/sandbox.js');
-    const result = await initSandbox('claude');
-
-    expect(execSync).not.toHaveBeenCalled();
-    expect(result).toContain('claude.json');
+    const result = await sandboxModule.initSandbox('claude');
+    expect(result).toBe(false);
   });
+});
 
-  it('should return null when install fails', async () => {
-    const { which } = await import('../../packages/cli/src/utils/which.js');
-    const { execSync } = await import('node:child_process');
-
-    vi.mocked(which).mockResolvedValue(null);
-    vi.mocked(execSync).mockImplementation(() => { throw new Error('fail'); });
-
-    const { initSandbox } = await import('../../packages/cli/src/utils/sandbox.js');
-    const result = await initSandbox('claude');
+describe('wrapWithSandbox', () => {
+  it('should return null when sandbox is not initialized', async () => {
+    const result = await sandboxModule.wrapWithSandbox('echo hello');
     expect(result).toBeNull();
+  });
+
+  it('should return wrapped command after initialization', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    await sandboxModule.initSandbox('claude');
+
+    const result = await sandboxModule.wrapWithSandbox('echo hello');
+    expect(result).toContain('sandbox-exec');
+    expect(mockMgr.wrapWithSandbox).toHaveBeenCalledWith('echo hello');
+  });
+
+  it('should apply filesystem override via updateConfig', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    await sandboxModule.initSandbox('claude');
+
+    // Clear mock calls from init
+    mockMgr.updateConfig.mockClear();
+
+    const override = {
+      denyRead: ['~/.ssh'],
+      allowWrite: ['/tmp/session-workspace', '/tmp'],
+      denyWrite: ['.env'],
+    };
+
+    await sandboxModule.wrapWithSandbox('claude -p hello', override);
+
+    // Should have called updateConfig with the override
+    expect(mockMgr.updateConfig).toHaveBeenCalledWith({
+      filesystem: override,
+    });
+  });
+
+  it('should return null when wrapWithSandbox throws', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    await sandboxModule.initSandbox('claude');
+
+    mockMgr.wrapWithSandbox.mockRejectedValue(new Error('wrap failed'));
+
+    const result = await sandboxModule.wrapWithSandbox('echo hello');
+    expect(result).toBeNull();
+  });
+});
+
+describe('resetSandbox', () => {
+  it('should call SandboxManager.reset()', async () => {
+    sandboxModule._setImportSandboxManager(async () => mockMgr);
+    await sandboxModule.initSandbox('claude');
+    await sandboxModule.resetSandbox();
+
+    expect(mockMgr.reset).toHaveBeenCalled();
+  });
+
+  it('should not throw when sandbox is not initialized', async () => {
+    await expect(sandboxModule.resetSandbox()).resolves.not.toThrow();
   });
 });

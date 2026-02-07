@@ -9,7 +9,7 @@ import { CodexAdapter } from '../adapters/codex.js';
 import { GeminiAdapter } from '../adapters/gemini.js';
 import type { AgentAdapter, AdapterConfig } from '../adapters/base.js';
 import { readOpenClawToken } from '../utils/openclaw-config.js';
-import { initSandbox } from '../utils/sandbox.js';
+import { initSandbox, resetSandbox } from '../utils/sandbox.js';
 import { log } from '../utils/logger.js';
 
 const DEFAULT_BRIDGE_URL = 'wss://bridge.skills.hot/ws';
@@ -136,11 +136,10 @@ export function registerConnectCommand(program: Command): void {
 
       // Sandbox: CLI flag takes precedence over saved config
       const sandboxEnabled = opts.sandbox ?? config.sandbox ?? false;
-      let sandboxConfigPath: string | undefined;
       if (sandboxEnabled) {
-        const result = await initSandbox(agentType);
-        if (result) {
-          sandboxConfigPath = result;
+        const ok = await initSandbox(agentType);
+        if (!ok) {
+          log.warn('Sandbox not available on this platform, continuing without sandbox');
         }
       }
 
@@ -148,7 +147,7 @@ export function registerConnectCommand(program: Command): void {
         project: opts.project,
         gatewayUrl: opts.gatewayUrl || config.gatewayUrl,
         gatewayToken: opts.gatewayToken || config.gatewayToken,
-        sandboxConfigPath,
+        sandboxEnabled,
       };
 
       // Create adapter
@@ -199,6 +198,7 @@ export function registerConnectCommand(program: Command): void {
         log.info('Shutting down...');
         manager.stop();
         wsClient.close();
+        resetSandbox();
         process.exit(0);
       };
 

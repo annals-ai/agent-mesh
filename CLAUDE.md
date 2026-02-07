@@ -95,10 +95,11 @@ abstract destroySession(id: string): Promise<void>
 
 ### Claude Code（已实现）
 
-- 协议: `claude --output-format stream-json --input-format stream-json`
-- 通过 stdin 发送 NDJSON，stdout 读取流式事件
+- 协议: `claude -p <message> --output-format stream-json --verbose --max-turns 1`
+- 每条消息 spawn 新进程（`spawnAgent` 是 async），stdout 读取流式事件
 - 事件: `assistant/text_delta` → `result` 或 `assistant/end` 结束
-- 每条消息 spawn 新进程，5 分钟空闲超时 kill
+- 5 分钟空闲超时 kill
+- `spawnAgent` 是 async 函数（因为 `wrapWithSandbox` 是 async），`send()` 委托给 `private async launchProcess()`
 
 ### Codex / Gemini（stub）
 
@@ -185,9 +186,53 @@ npx wrangler deploy --config packages/worker/wrangler.toml
 cd packages/cli && npm publish
 ```
 
+## Sandbox（srt 编程 API）
+
+用 `@anthropic-ai/sandbox-runtime` 的编程 API 在 macOS 上隔离 Agent 子进程。
+
+### 架构
+
+```
+initSandbox(agentType)
+  → SandboxManager.initialize({ network: {allowedDomains: ['placeholder']}, filesystem: preset })
+  → SandboxManager.updateConfig({ network: {deniedDomains: []}, filesystem: preset })
+    ↑ bypass: 移除 allowedDomains → 网络完全放开
+
+wrapWithSandbox(command, filesystemOverride?)
+  → SandboxManager.wrapWithSandbox(command)
+  → 返回 "sandbox-exec -p '(seatbelt profile)' bash -c 'command'"
+```
+
+### 关键设计
+
+- **网络无限制**：通过 `updateConfig` bypass 移除 `allowedDomains`
+- **文件系统白名单写入**：`allowWrite` 仅包含 session workspace + `/tmp`
+- **细粒度 denyRead**：阻止 `~/.claude.json`（API key）和 `~/.claude/projects`（隐私），但允许 `~/.claude/skills/` 和 `~/.claude/agents/`
+- **srt 全局安装**：通过 `npm root -g` 动态 import（不能 bundle，依赖原生二进制）
+- **自动安装**：`initSandbox()` 检测 srt 不存在时自动 `npm install -g`
+- **`spawnAgent` 是 async**：因为 `wrapWithSandbox` 返回 Promise
+
+### 测试 mock
+
+`_setImportSandboxManager(fn)` 注入点——`vi.doMock` 无法拦截 `await import(dynamicPath)`，所以用注入函数替代。
+
+### E2E & 审计脚本
+
+| 脚本 | 用途 | 在哪跑 |
+|------|------|--------|
+| `scripts/e2e-sandbox-claude.mjs` | 10 项 E2E 测试（含 Claude 回复、文件隔离、session 隔离） | Mac Mini |
+| `scripts/audit-sandbox-credentials.mjs` | 凭据泄漏审计（验证所有敏感路径被阻止 + skills 可读） | Mac Mini |
+| `scripts/test-srt-programmatic.mjs` | srt 编程 API 烟雾测试 | Mac Mini |
+
+### 已知限制
+
+- macOS Keychain 通过 Mach port IPC 访问，srt 文件沙箱无法拦截
+- OpenClaw 是独立守护进程（WebSocket 连接），不受 bridge sandbox 控制
+
 ## 测试
 
 - 框架: vitest（根目录 `vitest.config.ts`）
 - 测试目录: `tests/**/*.test.ts`
 - 新功能必须有对应测试用例
 - Worker 测试为单元级（完整 DO 测试需 Miniflare）
+- Sandbox 测试: `tests/cli/sandbox.test.ts`（mock `_setImportSandboxManager`）

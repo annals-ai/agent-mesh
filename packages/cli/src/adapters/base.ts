@@ -2,8 +2,8 @@ export interface AdapterConfig {
   project?: string;
   gatewayUrl?: string;
   gatewayToken?: string;
-  /** Path to srt sandbox config file. When set, spawned agents run inside a sandbox. */
-  sandboxConfigPath?: string;
+  /** When true, spawned agents run inside a sandbox (srt programmatic API). */
+  sandboxEnabled?: boolean;
 }
 
 export interface SessionHandle {

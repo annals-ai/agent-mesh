@@ -96,15 +96,20 @@ agent-bridge status                      # Check connection status
 
 ## Sandbox (Optional)
 
-When you publish your agent as a SaaS service, remote users can send it arbitrary messages. The `--sandbox` flag protects your machine by running the agent inside [Anthropic's sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime), which restricts filesystem access using OS-native mechanisms (Seatbelt on macOS, bubblewrap on Linux).
+When you publish your agent as a SaaS service, remote users can send it arbitrary messages. The `--sandbox` flag protects your machine by running the agent inside [Anthropic's sandbox-runtime (srt)](https://github.com/anthropic-experimental/sandbox-runtime), which restricts filesystem access at the OS kernel level (macOS Seatbelt).
 
 ### What the sandbox does
 
 - **Per-session isolation** — each user gets their own workspace via [git worktree](https://git-scm.com/docs/git-worktree), so User A's files never leak to User B
-- **Blocks reading** `~/.ssh`, `~/.aws`, `~/.gnupg` and other sensitive directories
-- **Limits writes** to the session workspace only — not the original project
+- **Credential protection** — blocks reading API keys, tokens, and sensitive config files:
+  - `~/.claude.json`, `~/.claude/projects`, `~/.claude/history.jsonl` (Claude Code)
+  - `~/.openclaw`, `~/.agent-bridge` (agent configs)
+  - `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.docker`, `~/.kube` (system credentials)
+  - `~/.npmrc`, `~/.netrc`, `~/.gitconfig`, `~/.git-credentials` (tokens)
+- **Skills accessible** — `~/.claude/skills/` and `~/.claude/agents/` remain readable so agents can use their configured skills
+- **Limits writes** to the session workspace and `/tmp` only — not the original project
 - **Blocks `.env` writes** to prevent secret exfiltration
-- **Network allowed** — agents can freely access the internet (AI APIs, npm, GitHub, etc.)
+- **Network unrestricted** — agents can freely access the internet (no whitelist)
 - **Covers all child processes** — the agent can't escape by spawning subprocesses
 
 ### Quick start
@@ -113,18 +118,7 @@ When you publish your agent as a SaaS service, remote users can send it arbitrar
 agent-bridge connect claude --sandbox
 ```
 
-That's it. If `srt` is not installed, the CLI will auto-install it via `npm install -g @anthropic-ai/sandbox-runtime`. The bridge auto-detects the agent type and applies the right preset. Sandbox config is written to `~/.agent-bridge/sandbox/<type>.json`.
-
-### Per-agent presets
-
-| Agent | Network | Filesystem | Notes |
-|-------|---------|------------|-------|
-| Claude Code | Broad allowlist (AI APIs, npm, GitHub, etc.) | denyRead secrets, writes to session only | Full sandbox |
-| Codex CLI | Same | Same | Full sandbox |
-| Gemini CLI | Same | Same | Full sandbox |
-| OpenClaw | Same + `allowLocalBinding` | Same | macOS full; Linux filesystem-only |
-
-All presets share a common network allowlist covering AI providers, package registries, code hosting, and common dev services. To customize, edit `~/.agent-bridge/sandbox/<type>.json`.
+That's it. If `srt` is not installed, the CLI will auto-install it via `npm install -g @anthropic-ai/sandbox-runtime`. No config files to manage — everything is handled via srt's programmatic API.
 
 ### Save as default
 
@@ -147,17 +141,15 @@ When `--sandbox` is active with a `--project` pointing to a git repo, each chat 
 ```
 
 - **Git projects**: Each session is a detached worktree — shared git objects, independent working tree. Changes in one session are invisible to others.
-- **Non-git projects**: Each session gets a temp directory. The agent can read the shared project but writes are restricted to the session dir via srt.
+- **Non-git projects**: Each session gets a temp directory. The agent can read the shared project but writes are restricted to the session dir.
 
-Workspaces and sandbox configs are cleaned up automatically when sessions end.
+Workspaces are cleaned up automatically when sessions end.
 
-### Platform support
+### Known limitations
 
-| Platform | Isolation mechanism | Server agents (OpenClaw) |
-|----------|-------------------|--------------------------|
-| macOS | Seatbelt (sandbox-exec) | Full support |
-| Linux | bubblewrap (bwrap) | Filesystem only (no inbound connections) |
-| Windows | Not supported | — |
+- **macOS Keychain** — the `security` CLI accesses the keychain via Mach port IPC, which filesystem sandboxing cannot intercept
+- **OpenClaw** — runs as a separate daemon (not spawned by bridge), so the sandbox does not apply to the OpenClaw process itself
+- **Requires macOS** — srt uses macOS Seatbelt; Linux/Windows support is not yet available
 
 ## Security
 

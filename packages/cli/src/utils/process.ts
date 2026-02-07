@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { buildCommandString } from './sandbox.js';
+import { buildCommandString, wrapWithSandbox, type SandboxFilesystemConfig } from './sandbox.js';
 
 export interface SpawnResult {
   child: ChildProcess;
@@ -10,25 +10,35 @@ export interface SpawnResult {
 }
 
 export interface SpawnAgentOptions extends SpawnOptions {
-  /** Path to srt sandbox config. When set, the command is wrapped with `srt`. */
-  sandboxConfigPath?: string;
+  /** When true, the command is wrapped with sandbox via srt programmatic API. */
+  sandboxEnabled?: boolean;
+  /** Per-session filesystem override (e.g. scoped allowWrite to worktree). */
+  sandboxFilesystem?: SandboxFilesystemConfig;
 }
 
-export function spawnAgent(
+export async function spawnAgent(
   command: string,
   args: string[],
   options?: SpawnAgentOptions
-): SpawnResult {
-  const { sandboxConfigPath, ...spawnOptions } = options ?? {};
+): Promise<SpawnResult> {
+  const { sandboxEnabled, sandboxFilesystem, ...spawnOptions } = options ?? {};
 
   let finalCommand: string;
   let finalArgs: string[];
 
-  if (sandboxConfigPath) {
-    // Wrap with srt: srt --settings <config> "<command> <args...>"
+  if (sandboxEnabled) {
     const cmdString = buildCommandString(command, args);
-    finalCommand = 'srt';
-    finalArgs = ['--settings', sandboxConfigPath, cmdString];
+    const wrapped = await wrapWithSandbox(cmdString, sandboxFilesystem);
+
+    if (wrapped) {
+      // sandbox-exec command — run through bash
+      finalCommand = 'bash';
+      finalArgs = ['-c', wrapped];
+    } else {
+      // Sandbox not available or failed — fallback to direct execution
+      finalCommand = command;
+      finalArgs = args;
+    }
   } else {
     finalCommand = command;
     finalArgs = args;

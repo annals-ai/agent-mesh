@@ -1,17 +1,8 @@
-import { writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { which } from './which.js';
 import { log } from './logger.js';
 
 const SRT_PACKAGE = '@anthropic-ai/sandbox-runtime';
-
-export interface SandboxNetworkConfig {
-  allowedDomains?: string[];
-  deniedDomains?: string[];
-  allowLocalBinding?: boolean;
-}
 
 export interface SandboxFilesystemConfig {
   denyRead?: string[];
@@ -19,127 +10,249 @@ export interface SandboxFilesystemConfig {
   denyWrite?: string[];
 }
 
-export interface SandboxConfig {
-  network?: SandboxNetworkConfig;
-  filesystem?: SandboxFilesystemConfig;
-}
-
-const SANDBOX_DIR = join(homedir(), '.agent-bridge', 'sandbox');
-
 /**
- * Common network domains that agents typically need.
- * srt requires an explicit allowlist — there is no "allow all" option.
- * We include AI providers, package registries, code hosting, and common services.
- * Users can customize by editing ~/.agent-bridge/sandbox/<type>.json.
+ * Default filesystem presets per agent type.
+ * Network is handled by the srt programmatic API (updateConfig bypass = unrestricted).
  */
-const COMMON_NETWORK_DOMAINS: string[] = [
-  // AI API providers
-  'api.anthropic.com', '*.anthropic.com',
-  'api.openai.com', '*.openai.com',
-  'generativelanguage.googleapis.com', '*.googleapis.com',
-  '*.google.com',
-  // Package registries
-  'registry.npmjs.org', '*.npmjs.org', '*.npmjs.com',
-  'pypi.org', '*.pypi.org', 'files.pythonhosted.org',
-  // Code hosting
-  '*.github.com', '*.githubusercontent.com', 'github.com',
-  '*.gitlab.com', '*.bitbucket.org',
-  // Common dev services
-  '*.cloudflare.com', '*.workers.dev',
-  '*.vercel.app', '*.netlify.app',
-  '*.amazonaws.com', '*.azure.com',
-  'sentry.io', '*.sentry.io',
-  // DNS and connectivity
-  '*.debian.org', '*.ubuntu.com', '*.brew.sh',
+/**
+ * Sensitive paths that must be blocked from reading inside the sandbox.
+ * Covers: SSH keys, cloud credentials, API keys, tokens, agent configs,
+ * macOS Keychain, package manager tokens, git credentials, etc.
+ */
+const SENSITIVE_PATHS: string[] = [
+  // SSH & crypto keys
+  '~/.ssh',
+  '~/.gnupg',
+  // Cloud provider credentials
+  '~/.aws',
+  '~/.config/gcloud',
+  '~/.azure',
+  '~/.kube',
+  // Claude Code — fine-grained: block credentials & privacy, allow skills/agents
+  '~/.claude.json',              // API key
+  '~/.claude/projects',          // per-project memory (may contain secrets from other projects)
+  '~/.claude/history.jsonl',     // conversation history (privacy)
+  '~/.claude/settings.json',     // may contain sensitive config
+  '~/.claude/sessions',          // session data
+  '~/.claude/ide',               // IDE integration data
+  // NOT blocked (needed for functionality):
+  //   ~/.claude/skills/    — skill code & prompts
+  //   ~/.claude/agents/    — custom agent definitions
+  //   ~/.claude/commands/  — custom commands
+  //   ~/.claude/hooks/     — event hooks
+  // Other AI agent configs (contain API keys / tokens)
+  '~/.openclaw',
+  '~/.agent-bridge',
+  '~/.codex',
+  // Package manager tokens
+  '~/.npmrc',
+  '~/.yarnrc',
+  '~/.config/pip',
+  // Git credentials & config
+  '~/.gitconfig',
+  '~/.netrc',
+  '~/.git-credentials',
   // Docker
-  '*.docker.io', '*.docker.com',
+  '~/.docker',
+  // macOS Keychain databases
+  '~/Library/Keychains',
 ];
 
-/**
- * Default sandbox presets per agent type.
- * Focus: filesystem isolation (deny read to secrets, restrict writes).
- * Network: broad allowlist covering typical development needs.
- */
-const SANDBOX_PRESETS: Record<string, SandboxConfig> = {
+const SANDBOX_PRESETS: Record<string, SandboxFilesystemConfig> = {
   claude: {
-    network: {
-      allowedDomains: [...COMMON_NETWORK_DOMAINS],
-      deniedDomains: [],
-    },
-    filesystem: {
-      denyRead: ['~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud'],
-      allowWrite: ['.', '/tmp'],
-      denyWrite: ['.env', '.env.*'],
-    },
+    denyRead: [...SENSITIVE_PATHS],
+    allowWrite: ['.', '/tmp'],
+    denyWrite: ['.env', '.env.*'],
   },
   codex: {
-    network: {
-      allowedDomains: [...COMMON_NETWORK_DOMAINS],
-      deniedDomains: [],
-    },
-    filesystem: {
-      denyRead: ['~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud'],
-      allowWrite: ['.', '/tmp'],
-      denyWrite: ['.env', '.env.*'],
-    },
+    denyRead: [...SENSITIVE_PATHS],
+    allowWrite: ['.', '/tmp'],
+    denyWrite: ['.env', '.env.*'],
   },
   gemini: {
-    network: {
-      allowedDomains: [...COMMON_NETWORK_DOMAINS],
-      deniedDomains: [],
-    },
-    filesystem: {
-      denyRead: ['~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud'],
-      allowWrite: ['.', '/tmp'],
-      denyWrite: ['.env', '.env.*'],
-    },
+    denyRead: [...SENSITIVE_PATHS],
+    allowWrite: ['.', '/tmp'],
+    denyWrite: ['.env', '.env.*'],
   },
   openclaw: {
-    network: {
-      allowedDomains: [...COMMON_NETWORK_DOMAINS],
-      deniedDomains: [],
-      allowLocalBinding: true,
-    },
-    filesystem: {
-      denyRead: ['~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud'],
-      allowWrite: ['/tmp'],
-      denyWrite: ['.env', '.env.*'],
-    },
+    denyRead: [...SENSITIVE_PATHS],
+    allowWrite: ['/tmp'],
+    denyWrite: ['.env', '.env.*'],
   },
 };
 
+// ── SandboxManager dynamic import ──────────────────────
+
+/** Minimal interface for the SandboxManager we need from srt */
+interface ISandboxManager {
+  isSupportedPlatform(): boolean;
+  initialize(config: {
+    network: { allowedDomains: string[]; deniedDomains: string[] };
+    filesystem: SandboxFilesystemConfig;
+  }): Promise<void>;
+  updateConfig(config: {
+    network?: { deniedDomains?: string[] };
+    filesystem?: SandboxFilesystemConfig;
+  }): void;
+  getConfig(): {
+    network?: { allowedDomains?: string[]; deniedDomains?: string[] };
+    filesystem?: SandboxFilesystemConfig;
+  } | null;
+  wrapWithSandbox(command: string): Promise<string>;
+  reset(): Promise<void>;
+}
+
+/** Cached SandboxManager reference after successful init */
+let sandboxManager: ISandboxManager | null = null;
+let sandboxInitialized = false;
+
 /**
- * Check if Anthropic's sandbox-runtime (srt) CLI is installed.
+ * Dynamically import SandboxManager from globally installed srt.
+ * srt is a native binary package — cannot be bundled by tsup, must be global.
+ *
+ * Exported for testing — use `_setImportSandboxManager` to inject a mock.
+ */
+export async function importSandboxManager(): Promise<ISandboxManager | null> {
+  try {
+    const globalRoot = execSync('npm root -g', { encoding: 'utf-8' }).trim();
+    const srtPath = join(globalRoot, '@anthropic-ai/sandbox-runtime/dist/index.js');
+    const mod = await import(srtPath);
+    return mod.SandboxManager as ISandboxManager;
+  } catch {
+    log.debug('Failed to import SandboxManager from global npm');
+    return null;
+  }
+}
+
+/** @internal — test-only: override the importer function */
+let _importOverride: (() => Promise<ISandboxManager | null>) | null = null;
+export function _setImportSandboxManager(fn: (() => Promise<ISandboxManager | null>) | null): void {
+  _importOverride = fn;
+}
+
+async function resolveManager(): Promise<ISandboxManager | null> {
+  if (_importOverride) return _importOverride();
+  return importSandboxManager();
+}
+
+// ── Public API ─────────────────────────────────────────
+
+/**
+ * Check if srt sandbox is available on this platform.
  */
 export async function isSandboxAvailable(): Promise<boolean> {
-  return !!(await which('srt'));
+  const mgr = await resolveManager();
+  if (!mgr) return false;
+  return mgr.isSupportedPlatform();
 }
 
 /**
- * Get the default sandbox config for an agent type.
+ * Get the default filesystem config for an agent type.
  */
-export function getSandboxPreset(agentType: string): SandboxConfig {
+export function getSandboxPreset(agentType: string): SandboxFilesystemConfig {
   return SANDBOX_PRESETS[agentType] ?? SANDBOX_PRESETS.claude;
 }
 
 /**
- * Write a sandbox config file and return its path.
- * Config files are stored at ~/.agent-bridge/sandbox/<type>.json
+ * Initialize sandbox for a given agent type.
+ *
+ * Uses the srt programmatic API:
+ * 1. initialize() with a placeholder allowedDomains (required by srt)
+ * 2. updateConfig() to bypass — remove allowedDomains, leaving network unrestricted
+ *
+ * Returns true on success, false on failure.
  */
-export function writeSandboxConfig(agentType: string, config?: SandboxConfig): string {
-  if (!existsSync(SANDBOX_DIR)) {
-    mkdirSync(SANDBOX_DIR, { recursive: true, mode: 0o700 });
+export async function initSandbox(agentType: string): Promise<boolean> {
+  // Try to import SandboxManager
+  let mgr = await resolveManager();
+
+  if (!mgr) {
+    // Auto-install srt
+    log.info('Sandbox runtime (srt) not found, installing...');
+    const installed = installSandboxRuntime();
+    if (!installed) return false;
+
+    mgr = await resolveManager();
+    if (!mgr) {
+      log.error('srt installed but SandboxManager not found. Try restarting your terminal.');
+      return false;
+    }
   }
 
-  const effectiveConfig = config ?? getSandboxPreset(agentType);
-  const configPath = join(SANDBOX_DIR, `${agentType}.json`);
-  writeFileSync(configPath, JSON.stringify(effectiveConfig, null, 2) + '\n', {
-    encoding: 'utf-8',
-    mode: 0o600,
-  });
+  if (!mgr.isSupportedPlatform()) {
+    log.warn('Sandbox is not supported on this platform (requires macOS)');
+    return false;
+  }
 
-  return configPath;
+  const filesystem = getSandboxPreset(agentType);
+
+  try {
+    // Step 1: initialize with a placeholder allowedDomains (srt requires it)
+    await mgr.initialize({
+      network: { allowedDomains: ['placeholder.example.com'], deniedDomains: [] },
+      filesystem,
+    });
+
+    // Step 2: bypass — updateConfig without allowedDomains → network unrestricted
+    mgr.updateConfig({
+      network: { deniedDomains: [] },
+      filesystem,
+    });
+
+    sandboxManager = mgr;
+    sandboxInitialized = true;
+    log.success('Sandbox enabled (srt programmatic API)');
+    return true;
+  } catch (err) {
+    log.error(`Failed to initialize sandbox: ${err}`);
+    return false;
+  }
 }
+
+/**
+ * Wrap a command string with sandbox protection.
+ *
+ * @param command - The full command string to wrap (e.g. "claude -p hello")
+ * @param filesystemOverride - Optional per-session filesystem config override
+ * @returns The wrapped command string, or null if sandbox is not initialized
+ */
+export async function wrapWithSandbox(
+  command: string,
+  filesystemOverride?: SandboxFilesystemConfig
+): Promise<string | null> {
+  if (!sandboxInitialized || !sandboxManager) return null;
+
+  // Apply per-session filesystem override if provided
+  if (filesystemOverride) {
+    sandboxManager.updateConfig({
+      filesystem: filesystemOverride,
+    });
+  }
+
+  try {
+    return await sandboxManager.wrapWithSandbox(command);
+  } catch (err) {
+    log.error(`wrapWithSandbox failed: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Reset sandbox state. Call on shutdown.
+ */
+export async function resetSandbox(): Promise<void> {
+  if (sandboxManager) {
+    try {
+      await sandboxManager.reset();
+    } catch {
+      // ignore reset errors on shutdown
+    }
+    sandboxManager = null;
+    sandboxInitialized = false;
+  }
+}
+
+// ── Utilities (kept for process.ts) ────────────────────
 
 /**
  * Shell-quote a single argument for safe inclusion in a command string.
@@ -157,47 +270,6 @@ export function buildCommandString(command: string, args: string[]): string {
 }
 
 /**
- * Write a per-session sandbox config with allowWrite scoped to the session workspace.
- * Returns the config file path.
- */
-export function writeSessionSandboxConfig(
-  agentType: string,
-  sessionId: string,
-  workspacePath: string
-): string {
-  const preset = getSandboxPreset(agentType);
-  const sessionConfig: SandboxConfig = {
-    ...preset,
-    filesystem: {
-      ...preset.filesystem,
-      // Only allow writes to the session workspace — not the original project
-      allowWrite: [workspacePath, '/tmp'],
-    },
-  };
-
-  const sessionsDir = join(SANDBOX_DIR, 'sessions');
-  if (!existsSync(sessionsDir)) {
-    mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
-  }
-
-  const configPath = join(sessionsDir, `${sessionId}.json`);
-  writeFileSync(configPath, JSON.stringify(sessionConfig, null, 2) + '\n', {
-    encoding: 'utf-8',
-    mode: 0o600,
-  });
-
-  return configPath;
-}
-
-/**
- * Remove a per-session sandbox config file.
- */
-export function removeSessionSandboxConfig(sessionId: string): void {
-  const configPath = join(SANDBOX_DIR, 'sessions', `${sessionId}.json`);
-  rmSync(configPath, { force: true });
-}
-
-/**
  * Auto-install srt globally via npm.
  * Returns true if installation succeeded.
  */
@@ -212,27 +284,4 @@ export function installSandboxRuntime(): boolean {
     log.error(`  npm install -g ${SRT_PACKAGE}`);
     return false;
   }
-}
-
-/**
- * Initialize sandbox for a given agent type.
- * Auto-installs srt if not present. Returns the config path, or null on failure.
- */
-export async function initSandbox(agentType: string): Promise<string | null> {
-  let available = await isSandboxAvailable();
-
-  if (!available) {
-    log.info('Sandbox runtime (srt) not found, installing...');
-    const installed = installSandboxRuntime();
-    if (!installed) return null;
-    available = await isSandboxAvailable();
-    if (!available) {
-      log.error('srt installed but not found in PATH. Try restarting your terminal.');
-      return null;
-    }
-  }
-
-  const configPath = writeSandboxConfig(agentType);
-  log.success(`Sandbox enabled (srt) — config: ${configPath}`);
-  return configPath;
 }
