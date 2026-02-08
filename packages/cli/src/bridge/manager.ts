@@ -1,5 +1,5 @@
-import type { WorkerToBridgeMessage, Chunk, Done, BridgeError } from '@skills-hot/bridge-protocol';
-import { BridgeErrorCode } from '@skills-hot/bridge-protocol';
+import type { WorkerToBridgeMessage, Chunk, Done, BridgeError } from '@annals/bridge-protocol';
+import { BridgeErrorCode } from '@annals/bridge-protocol';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { SessionPool } from './session-pool.js';

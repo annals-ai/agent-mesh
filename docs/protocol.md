@@ -5,10 +5,10 @@ The Bridge Protocol defines how the agent-bridge CLI communicates with the Bridg
 ## Overview
 
 ```
-  agent-bridge CLI           Bridge Worker             skills.hot Platform
+  agent-bridge CLI           Bridge Worker             agents.hot Platform
   ===============           =============             ==================
 
-  --- WebSocket (wss://bridge.skills.hot/ws) ---
+  --- WebSocket (wss://bridge.agents.hot/ws) ---
 
   | register -------->  |                           |
   |                     |  <-- registered -->       |
@@ -25,7 +25,7 @@ The Bridge Protocol defines how the agent-bridge CLI communicates with the Bridg
 
 ## WebSocket Connection
 
-**Endpoint:** `wss://bridge.skills.hot/ws`
+**Endpoint:** `wss://bridge.agents.hot/ws`
 
 The WebSocket connection is persistent. The CLI connects once and stays connected, handling multiple user sessions concurrently.
 
@@ -60,7 +60,7 @@ Sent immediately after WebSocket connection to authenticate.
 | Field | Type | Description |
 |-------|------|-------------|
 | `type` | `"register"` | Message type |
-| `agent_id` | `string` | Agent ID as registered on Skills.Hot |
+| `agent_id` | `string` | Agent ID as registered on Agents.Hot |
 | `token` | `string` | CLI token or Supabase JWT |
 | `bridge_version` | `string` | Protocol version (currently `"1"`) |
 | `agent_type` | `string` | One of: `openclaw`, `claude`, `codex`, `gemini` |
@@ -169,7 +169,7 @@ User message forwarded to the agent.
   "attachments": [
     {
       "name": "code.js",
-      "url": "https://files.skills.hot/abc123/code.js",
+      "url": "https://files.agents.hot/abc123/code.js",
       "type": "text/javascript"
     }
   ]

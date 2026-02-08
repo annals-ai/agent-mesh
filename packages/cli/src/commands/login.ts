@@ -20,7 +20,7 @@ function readLine(prompt: string): Promise<string> {
 export function registerLoginCommand(program: Command): void {
   program
     .command('login')
-    .description('Authenticate with the Skills.Hot platform')
+    .description('Authenticate with the Agents.Hot platform')
     .option('--token <token>', 'Provide token directly (skip interactive prompt)')
     .action(async (opts: { token?: string }) => {
       if (hasToken()) {
@@ -31,7 +31,7 @@ export function registerLoginCommand(program: Command): void {
 
       if (!token) {
         log.banner('Agent Bridge Login');
-        console.log('1. Visit https://skills.hot/dashboard/settings to get your CLI token');
+        console.log('1. Visit https://agents.hot/dashboard/settings to get your CLI token');
         console.log('2. Copy the token and paste it below\n');
         token = await readLine('Token: ');
       }

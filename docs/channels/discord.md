@@ -45,7 +45,7 @@ The Discord bot will need these gateway intents:
 
 ## Dependencies
 
-The `discord.js` package is listed as an optional peer dependency of `@skills-hot/bridge-channels`. Install it only if you need Discord support:
+The `discord.js` package is listed as an optional peer dependency of `@agents-hot/bridge-channels`. Install it only if you need Discord support:
 
 ```bash
 pnpm add discord.js

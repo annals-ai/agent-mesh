@@ -51,7 +51,7 @@ abstract class ChannelAdapter {
 
 ## Dependencies
 
-The `grammy` package is listed as an optional peer dependency of `@skills-hot/bridge-channels`. Install it only if you need Telegram support:
+The `grammy` package is listed as an optional peer dependency of `@agents-hot/bridge-channels`. Install it only if you need Telegram support:
 
 ```bash
 pnpm add grammy

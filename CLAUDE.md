@@ -1,6 +1,6 @@
 # Agent Bridge — Development Guide
 
-Skills.Hot 平台的统一 Agent 连接层。让 OpenClaw / Claude Code / Codex / Gemini 通过 Bridge Protocol 接入 SaaS 平台。
+Agents.Hot 平台的统一 Agent 连接层。让 OpenClaw / Claude Code / Codex / Gemini 通过 Bridge Protocol 接入 SaaS 平台。
 
 ## 仓库结构
 
@@ -9,10 +9,10 @@ pnpm monorepo，4 个包：
 ```
 agent-bridge/
 ├── packages/
-│   ├── protocol/       # @skills-hot/bridge-protocol — 消息类型与错误码
-│   ├── cli/            # @skills-hot/agent-bridge — CLI 工具
+│   ├── protocol/       # @agents-hot/bridge-protocol — 消息类型与错误码
+│   ├── cli/            # @agents-hot/agent-bridge — CLI 工具
 │   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
-│   └── channels/       # @skills-hot/bridge-channels — IM 渠道 (stub)
+│   └── channels/       # @agents-hot/bridge-channels — IM 渠道 (stub)
 ├── tests/              # vitest 测试
 ├── vitest.config.ts
 └── package.json
@@ -69,7 +69,7 @@ agent-bridge/
 安全措施：
 - `PLATFORM_SECRET` 使用 `crypto.subtle.timingSafeEqual` 常量时间比较
 - PostgREST 查询参数全部 `encodeURIComponent()` 编码
-- CORS 限制为 `skills.hot` 域名（不是 `*`）
+- CORS 限制为 `agents.hot` 域名（不是 `*`）
 - DO 内部响应不带 CORS 头（由外层 Worker 统一处理）
 
 ## Agent 适配器
@@ -107,12 +107,12 @@ abstract destroySession(id: string): Promise<void>
 
 ## 一键接入流程（Connect Ticket）
 
-平台（skills-hot）生成一次性 ticket，CLI 从 ticket URL 获取所有配置：
+平台（agents-hot）生成一次性 ticket，CLI 从 ticket URL 获取所有配置：
 
 ```
 网站创建 Agent → 点击"接入" → 生成 ct_ ticket（15 分钟过期）
      ↓
-用户复制命令: npx @skills-hot/agent-bridge connect --setup <ticket-url>
+用户复制命令: npx @agents-hot/agent-bridge connect --setup <ticket-url>
      ↓
 CLI fetch ticket → 获取 { agent_id, bridge_token, agent_type, bridge_url }
      ↓
@@ -134,16 +134,16 @@ agent-bridge connect [type]                  # 连接 Agent
   --project <path>       # Claude 适配器项目路径
   --gateway-url <url>    # OpenClaw Gateway 地址
   --gateway-token <token># OpenClaw Gateway token
-  --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.skills.hot/ws)
+  --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
 
 agent-bridge status                          # 查看连接状态
 ```
 
 `type` 可选。省略时从保存的 config 读取 `defaultAgentType`。
 
-## 平台集成（skills-hot 仓库）
+## 平台集成（agents-hot 仓库）
 
-| skills-hot 文件 | 用途 |
+| agents-hot 文件 | 用途 |
 |-----------------|------|
 | `src/lib/bridge-client.ts` | `sendToBridge()` — 平台向 Agent 发消息 |
 | `src/lib/connect-token.ts` | `generateBridgeToken()`, `generateConnectTicket()` |
@@ -176,7 +176,7 @@ pnpm lint           # eslint
 npx wrangler deploy --config packages/worker/wrangler.toml
 ```
 
-- 路由: `bridge.skills.hot/*`
+- 路由: `bridge.agents.hot/*`
 - Bindings: `AGENT_SESSIONS` (Durable Object), `BRIDGE_KV` (KV)
 - Secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `PLATFORM_SECRET`
 

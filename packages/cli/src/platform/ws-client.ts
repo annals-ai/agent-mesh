@@ -4,8 +4,8 @@ import type {
   BridgeToWorkerMessage,
   WorkerToBridgeMessage,
   Register,
-} from '@skills-hot/bridge-protocol';
-import { BRIDGE_PROTOCOL_VERSION } from '@skills-hot/bridge-protocol';
+} from '@annals/bridge-protocol';
+import { BRIDGE_PROTOCOL_VERSION } from '@annals/bridge-protocol';
 import { log } from '../utils/logger.js';
 
 const HEARTBEAT_INTERVAL = 30_000;

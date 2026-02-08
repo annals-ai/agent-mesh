@@ -129,8 +129,8 @@ function isValidAgentId(id: string): boolean {
 }
 
 const ALLOWED_ORIGINS = new Set([
-  'https://skills.hot',
-  'https://www.skills.hot',
+  'https://agents.hot',
+  'https://www.agents.hot',
 ]);
 
 function corsHeaders(request?: Request): Record<string, string> {

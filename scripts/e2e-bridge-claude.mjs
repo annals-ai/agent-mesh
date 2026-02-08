@@ -3,7 +3,7 @@
  * E2E Test: Claude Code via Bridge Worker
  *
  * Full chain:
- *   Script (WS client) → bridge.skills.hot (register as claude agent)
+ *   Script (WS client) → bridge.agents.hot (register as claude agent)
  *   Script receives message → spawns `claude` process (stream-json)
  *   Claude response chunks → Bridge Worker → SSE relay → this script verifies
  *
@@ -17,7 +17,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
-const BRIDGE_WS_URL   = process.argv[2] || 'wss://bridge.skills.hot/ws';
+const BRIDGE_WS_URL   = process.argv[2] || 'wss://bridge.agents.hot/ws';
 const PLATFORM_SECRET = process.argv[3] || '';
 const AGENT_ID        = process.argv[4] || '';
 const BRIDGE_TOKEN    = process.argv[5] || '';

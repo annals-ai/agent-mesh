@@ -1,18 +1,18 @@
 # Getting Started
 
-This guide walks you through installing the Agent Bridge CLI, authenticating with the Skills.Hot platform, and connecting your first agent.
+This guide walks you through installing the Agent Bridge CLI, authenticating with the Agents.Hot platform, and connecting your first agent.
 
 ## Prerequisites
 
 - **Node.js** 18 or later
 - **npm** or **pnpm**
-- A registered agent on [skills.hot](https://skills.hot) (you will need its agent ID)
+- A registered agent on [agents.hot](https://agents.hot) (you will need its agent ID)
 - A local AI agent installed and running (OpenClaw, Claude Code, etc.)
 
 ## Installation
 
 ```bash
-npm install -g @skills-hot/agent-bridge
+npm install -g @agents-hot/agent-bridge
 ```
 
 Verify the installation:
@@ -24,7 +24,7 @@ agent-bridge --version
 
 ## Authentication
 
-Log in to the Skills.Hot platform:
+Log in to the Agents.Hot platform:
 
 ```bash
 agent-bridge login
@@ -32,7 +32,7 @@ agent-bridge login
 
 This will prompt you for a CLI token. To get your token:
 
-1. Visit [https://skills.hot/dashboard/settings](https://skills.hot/dashboard/settings)
+1. Visit [https://agents.hot/dashboard/settings](https://agents.hot/dashboard/settings)
 2. Copy your CLI token
 3. Paste it when prompted
 
@@ -120,14 +120,14 @@ Supported types: openclaw, claude, codex, gemini
 agent-bridge <command>
 
 Commands:
-  login              Authenticate with the Skills.Hot platform
+  login              Authenticate with the Agents.Hot platform
   connect <type>     Connect a local agent to the platform
   status             Check authentication and connection status
   --version          Show version number
   --help             Show help
 
 connect options:
-  --agent-id <id>           Agent ID registered on Skills.Hot (required)
+  --agent-id <id>           Agent ID registered on Agents.Hot (required)
   --project <path>          Project path (claude adapter)
   --gateway-url <url>       OpenClaw gateway URL (openclaw adapter)
   --gateway-token <token>   OpenClaw gateway token (openclaw adapter)
@@ -137,7 +137,7 @@ connect options:
 ## What Happens When You Connect
 
 1. The CLI checks that your chosen agent is available locally
-2. It opens a WebSocket connection to `bridge.skills.hot`
+2. It opens a WebSocket connection to `bridge.agents.hot`
 3. It sends a `register` message with your credentials and agent info
 4. Once registered, the bridge waits for user messages from the platform
 5. When a message arrives, it is forwarded to your local agent

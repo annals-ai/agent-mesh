@@ -1,12 +1,12 @@
 # Agent Bridge
 
-Connect your local AI agent to [skills.hot](https://skills.hot) — turn it into a SaaS service anyone can use.
+Connect your local AI agent to [agents.hot](https://agents.hot) — turn it into a SaaS service anyone can use.
 
 ```
   Your machine                          Cloud                         Users
   ┌──────────────────┐    outbound     ┌─────────────────────┐     ┌──────────┐
   │  OpenClaw         │   WebSocket    │                     │     │          │
-  │  Claude Code      ├──────────────► │  bridge.skills.hot  │ ◄── │ Platform │
+  │  Claude Code      ├──────────────► │  bridge.agents.hot  │ ◄── │ Platform │
   │  Codex (planned)  │   (no inbound  │  (Cloudflare Worker)│     │ IM bots  │
   │  Gemini (planned) │    ports)      │                     │     │ API      │
   └──────────────────┘                 └─────────────────────┘     └──────────┘
@@ -20,12 +20,12 @@ Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the clo
 
 ### One-click setup (recommended)
 
-1. Create an agent on [skills.hot/settings](https://skills.hot/settings)
+1. Create an agent on [agents.hot/settings](https://agents.hot/settings)
 2. Click the **Connect** button — copy the command
 3. Paste in your terminal:
 
 ```bash
-npx @skills-hot/agent-bridge connect --setup https://skills.hot/api/connect/ct_xxxxx
+npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
 Done. The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. The ticket is one-time use and expires in 15 minutes.
@@ -34,7 +34,7 @@ Done. The CLI fetches all config from the ticket URL, detects your local agent, 
 
 ```bash
 # Install globally
-npm install -g @skills-hot/agent-bridge
+npm install -g @annals/agent-bridge
 
 # Authenticate with the platform
 agent-bridge login
@@ -59,8 +59,8 @@ Config is saved to `~/.agent-bridge/config.json` (permissions 0600).
 ## How It Works
 
 1. **You run the CLI** alongside your agent on your machine
-2. **CLI connects outbound** to `bridge.skills.hot` via WebSocket (Bridge Protocol v1)
-3. **Users send messages** on skills.hot — the platform relays them through the Bridge Worker
+2. **CLI connects outbound** to `bridge.agents.hot` via WebSocket (Bridge Protocol v1)
+3. **Users send messages** on agents.hot — the platform relays them through the Bridge Worker
 4. **Bridge Worker forwards** the message to your CLI via WebSocket
 5. **CLI passes it** to your local agent (OpenClaw, Claude Code, etc.)
 6. **Agent responds** with streaming text — the CLI sends chunks back through the bridge
@@ -82,7 +82,7 @@ No API keys exposed. No ports opened. Your agent stays local.
 ```bash
 agent-bridge connect [type]              # Connect agent to platform
   --setup <url>                          #   One-click setup from ticket URL
-  --agent-id <id>                        #   Agent UUID on skills.hot
+  --agent-id <id>                        #   Agent UUID on agents.hot
   --project <path>                       #   Project path (Claude adapter)
   --gateway-url <url>                    #   OpenClaw gateway URL
   --gateway-token <token>                #   OpenClaw gateway token
@@ -90,7 +90,7 @@ agent-bridge connect [type]              # Connect agent to platform
   --sandbox                              #   Run agent inside a sandbox (requires srt)
   --no-sandbox                           #   Disable sandbox
 
-agent-bridge login                       # Authenticate with skills.hot
+agent-bridge login                       # Authenticate with agents.hot
 agent-bridge status                      # Check connection status
 ```
 
@@ -157,7 +157,7 @@ Workspaces are cleaned up automatically when sessions end.
 - **Bridge token authentication** — each agent gets a unique `bt_` token, validated on every connection
 - **One-time connect tickets** — `ct_` tickets expire in 15 minutes and can only be used once
 - **Constant-time secret comparison** — PLATFORM_SECRET validated with `timingSafeEqual`
-- **CORS restricted** — Bridge Worker only accepts cross-origin requests from `skills.hot`
+- **CORS restricted** — Bridge Worker only accepts cross-origin requests from `agents.hot`
 - **Config file protected** — `~/.agent-bridge/config.json` written with mode 0600
 - **Optional sandbox** — `--sandbox` flag isolates agents with OS-native sandboxing via [srt](https://github.com/anthropic-experimental/sandbox-runtime)
 
@@ -165,10 +165,10 @@ Workspaces are cleaned up automatically when sessions end.
 
 | Package | Path | Description |
 |---------|------|-------------|
-| `@skills-hot/agent-bridge` | `packages/cli` | CLI tool |
-| `@skills-hot/bridge-protocol` | `packages/protocol` | Bridge Protocol v1 type definitions |
-| `@skills-hot/bridge-worker` | `packages/worker` | Cloudflare Worker (Durable Objects) |
-| `@skills-hot/bridge-channels` | `packages/channels` | IM channel adapters (planned) |
+| `@annals/agent-bridge` | `packages/cli` | CLI tool |
+| `@annals/bridge-protocol` | `packages/protocol` | Bridge Protocol v1 type definitions |
+| `@annals/bridge-worker` | `packages/worker` | Cloudflare Worker (Durable Objects) |
+| `@annals/bridge-channels` | `packages/channels` | IM channel adapters (planned) |
 
 ## Development
 

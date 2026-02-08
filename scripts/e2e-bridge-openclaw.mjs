@@ -3,7 +3,7 @@
  * E2E Test: OpenClaw via Bridge Worker
  *
  * Full chain:
- *   Script (WS client) → bridge.skills.hot ← relay API ← this script
+ *   Script (WS client) → bridge.agents.hot ← relay API ← this script
  *   Script (WS client) → OpenClaw Gateway (local)
  *
  * Uses Node 22 native WebSocket API (no external deps).
@@ -14,7 +14,7 @@
 
 import crypto from 'node:crypto';
 
-const BRIDGE_WS_URL  = process.argv[2] || 'wss://bridge.skills.hot/ws';
+const BRIDGE_WS_URL  = process.argv[2] || 'wss://bridge.agents.hot/ws';
 const PLATFORM_SECRET = process.argv[3] || '';
 const GATEWAY_URL    = process.argv[4] || 'ws://127.0.0.1:18789';
 const GATEWAY_TOKEN  = process.argv[5] || '';

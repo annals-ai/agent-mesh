@@ -12,7 +12,7 @@ import { readOpenClawToken } from '../utils/openclaw-config.js';
 import { initSandbox, resetSandbox } from '../utils/sandbox.js';
 import { log } from '../utils/logger.js';
 
-const DEFAULT_BRIDGE_URL = 'wss://bridge.skills.hot/ws';
+const DEFAULT_BRIDGE_URL = 'wss://bridge.agents.hot/ws';
 
 function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
   switch (type) {
@@ -32,9 +32,9 @@ function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
 export function registerConnectCommand(program: Command): void {
   program
     .command('connect [type]')
-    .description('Connect a local agent to the Skills.Hot platform')
-    .option('--setup <url>', 'One-click setup from skills.hot connect ticket URL')
-    .option('--agent-id <id>', 'Agent ID registered on Skills.Hot')
+    .description('Connect a local agent to the Agents.Hot platform')
+    .option('--setup <url>', 'One-click setup from agents.hot connect ticket URL')
+    .option('--agent-id <id>', 'Agent ID registered on Agents.Hot')
     .option('--project <path>', 'Project path (for claude adapter)')
     .option('--gateway-url <url>', 'OpenClaw gateway URL (for openclaw adapter)')
     .option('--gateway-token <token>', 'OpenClaw gateway token')

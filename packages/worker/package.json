@@ -1,5 +1,5 @@
 {
-  "name": "@skills-hot/bridge-worker",
+  "name": "@annals/bridge-worker",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@skills-hot/bridge-protocol": "workspace:*"
+    "@annals/bridge-protocol": "workspace:*"
   },
   "devDependencies": {
     "wrangler": "^3.100.0",

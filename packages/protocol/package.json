@@ -1,6 +1,6 @@
 {
-  "name": "@skills-hot/bridge-protocol",
-  "version": "0.1.0",
+  "name": "@annals/bridge-protocol",
+  "version": "0.1.2",
   "description": "Bridge Protocol type definitions for agent-bridge",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,5 +19,14 @@
     "typescript": "^5.7.0"
   },
   "files": ["dist"],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/annals-ai/agent-bridge.git",
+    "directory": "packages/protocol"
+  },
+  "homepage": "https://github.com/annals-ai/agent-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/annals-ai/agent-bridge/issues"
+  }
 }

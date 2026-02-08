@@ -136,7 +136,7 @@ describe('Bridge Protocol', () => {
         request_id: 'req-1',
         content: 'Hello agent!',
         attachments: [
-          { name: 'file.txt', url: 'https://files.skills.hot/abc', type: 'text/plain' },
+          { name: 'file.txt', url: 'https://files.agents.hot/abc', type: 'text/plain' },
         ],
       };
 

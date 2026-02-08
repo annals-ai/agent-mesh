@@ -3,12 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 routes = [
-  { pattern = "bridge.skills.hot/*", zone_name = "skills.hot" }
+  { pattern = "bridge.agents.hot/*", zone_name = "agents.hot" }
 ]
 
 [[kv_namespaces]]
 binding = "BRIDGE_KV"
-id = "" # Create your own: npx wrangler kv namespace create BRIDGE_KV
+id = "cbde8495ccf7412889492a7a2ebc7b8e"
 
 [durable_objects]
 bindings = [

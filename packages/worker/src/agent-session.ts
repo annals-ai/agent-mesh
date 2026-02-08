@@ -20,8 +20,8 @@ import type {
   BridgeError,
   BridgeToWorkerMessage,
   Attachment,
-} from '@skills-hot/bridge-protocol';
-import { BRIDGE_PROTOCOL_VERSION } from '@skills-hot/bridge-protocol';
+} from '@annals/bridge-protocol';
+import { BRIDGE_PROTOCOL_VERSION } from '@annals/bridge-protocol';
 
 const MAX_PENDING_RELAYS = 10;
 

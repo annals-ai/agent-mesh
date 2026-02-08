@@ -1,5 +1,5 @@
 {
-  "name": "@skills-hot/bridge-channels",
+  "name": "@annals/bridge-channels",
   "version": "0.1.0",
   "description": "IM channel adapters for agent-bridge outbound",
   "type": "module",
