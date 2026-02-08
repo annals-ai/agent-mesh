@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock modules before importing
-vi.mock('ws', () => ({
-  default: vi.fn(),
-}));
-
 vi.mock('../../packages/cli/src/utils/process.js', () => ({
   spawnAgent: vi.fn(),
 }));

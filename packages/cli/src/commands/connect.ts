@@ -143,6 +143,19 @@ export function registerConnectCommand(program: Command): void {
         }
       }
 
+      // OpenClaw chatCompletions endpoint pre-check
+      if (agentType === 'openclaw') {
+        const { isChatCompletionsEnabled } = await import('../utils/openclaw-config.js');
+        if (!isChatCompletionsEnabled()) {
+          log.warn(
+            'OpenClaw chatCompletions endpoint may not be enabled.\n' +
+            '  Add to ~/.openclaw/openclaw.json:\n' +
+            '  { "gateway": { "http": { "endpoints": { "chatCompletions": { "enabled": true } } } } }\n' +
+            '  Continuing anyway (gateway may be on a remote host)...'
+          );
+        }
+      }
+
       const adapterConfig: AdapterConfig = {
         project: opts.project,
         gatewayUrl: opts.gatewayUrl || config.gatewayUrl,
