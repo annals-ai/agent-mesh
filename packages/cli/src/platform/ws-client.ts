@@ -107,8 +107,8 @@ export class BridgeWSClient extends EventEmitter {
 
       this.ws.on('error', (err) => {
         log.error(`WebSocket error: ${err.message}`);
-        this.emit('error', err);
-        // Let onclose handle reconnect
+        // Don't emit 'error' on EventEmitter — Node.js crashes if no listener.
+        // The 'close' event always fires after 'error' and handles reconnection.
       });
 
       // Timeout for initial connection

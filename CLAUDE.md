@@ -147,7 +147,7 @@ agent-bridge status                          # 查看连接状态
 |-----------------|------|
 | `src/lib/bridge-client.ts` | `sendToBridge()` — 平台向 Agent 发消息 |
 | `src/lib/connect-token.ts` | `generateBridgeToken()`, `generateConnectTicket()` |
-| `src/app/api/agents/[author]/[slug]/chat/route.ts` | 聊天 — 统一走 Bridge relay |
+| `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay |
 | `src/app/api/developer/agents/route.ts` | 创建 Agent 时自动生成 `bridge_token` |
 | `src/app/api/developer/agents/[id]/connect-ticket/route.ts` | 生成一次性接入 ticket |
 | `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket（无需认证） |

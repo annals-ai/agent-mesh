@@ -3,6 +3,8 @@ import { BridgeErrorCode } from '@annals/bridge-protocol';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { SessionPool } from './session-pool.js';
+import { OutputGuard } from '../security/output-guard.js';
+import { InputGuard } from '../security/input-guard.js';
 import { log } from '../utils/logger.js';
 
 export interface BridgeManagerOptions {
@@ -16,6 +18,12 @@ export class BridgeManager {
   private adapter: AgentAdapter;
   private adapterConfig: AdapterConfig;
   private pool = new SessionPool();
+  private outputGuard = new OutputGuard();
+  private inputGuard = new InputGuard();
+  /** Mutable ref to track the active requestId per session */
+  private activeRequests = new Map<string, { requestId: string }>();
+  /** Sessions that already have callbacks wired */
+  private wiredSessions = new Set<string>();
 
   constructor(opts: BridgeManagerOptions) {
     this.wsClient = opts.wsClient;
@@ -71,25 +79,43 @@ export class BridgeManager {
       }
     }
 
-    // Wire up callbacks for this request
-    this.wireSession(handle, session_id, request_id);
+    // Update active requestId for this session (mutable ref so callbacks see latest)
+    let requestRef = this.activeRequests.get(session_id);
+    if (!requestRef) {
+      requestRef = { requestId: request_id };
+      this.activeRequests.set(session_id, requestRef);
+    } else {
+      requestRef.requestId = request_id;
+    }
 
-    // Send the message to the adapter
+    // Wire callbacks ONCE per session (not per message — prevents callback stacking)
+    if (!this.wiredSessions.has(session_id)) {
+      this.wireSession(handle, session_id, requestRef);
+      this.wiredSessions.add(session_id);
+    }
+
+    // InputGuard: detect threats and wrap message with security alert
+    const protectedContent = this.inputGuard.protect(content);
+
+    // Send the (possibly wrapped) message to the adapter
     try {
-      handle.send(content, attachments);
+      handle.send(protectedContent, attachments);
     } catch (err) {
       log.error(`Failed to send to adapter: ${err}`);
       this.sendError(session_id, request_id, BridgeErrorCode.ADAPTER_CRASH, `Adapter send failed: ${err}`);
     }
   }
 
-  private wireSession(handle: SessionHandle, sessionId: string, requestId: string): void {
+  private wireSession(handle: SessionHandle, sessionId: string, requestRef: { requestId: string }): void {
     handle.onChunk((delta) => {
+      // OutputGuard: lightweight regex-only sanitization (stateless)
+      const sanitized = this.outputGuard.sanitize(delta);
+
       const chunk: Chunk = {
         type: 'chunk',
         session_id: sessionId,
-        request_id: requestId,
-        delta,
+        request_id: requestRef.requestId,
+        delta: sanitized,
       };
       this.wsClient.send(chunk);
     });
@@ -98,15 +124,15 @@ export class BridgeManager {
       const done: Done = {
         type: 'done',
         session_id: sessionId,
-        request_id: requestId,
+        request_id: requestRef.requestId,
       };
       this.wsClient.send(done);
-      log.info(`Request done: session=${sessionId.slice(0, 8)}... request=${requestId.slice(0, 8)}...`);
+      log.info(`Request done: session=${sessionId.slice(0, 8)}... request=${requestRef.requestId.slice(0, 8)}...`);
     });
 
     handle.onError((err) => {
       log.error(`Adapter error (session=${sessionId.slice(0, 8)}...): ${err.message}`);
-      this.sendError(sessionId, requestId, BridgeErrorCode.ADAPTER_CRASH, err.message);
+      this.sendError(sessionId, requestRef.requestId, BridgeErrorCode.ADAPTER_CRASH, err.message);
     });
   }
 
@@ -119,6 +145,8 @@ export class BridgeManager {
       handle.kill();
       this.adapter.destroySession(session_id);
       this.pool.delete(session_id);
+      this.activeRequests.delete(session_id);
+      this.wiredSessions.delete(session_id);
       this.updateSessionCount();
     }
   }

@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { loadToken } from '../platform/auth.js';
-import { loadConfig, updateConfig } from '../utils/config.js';
+import { loadConfig, addAgent, findAgentByAgentId, uniqueSlug } from '../utils/config.js';
+import { writePid, removePid, spawnBackground, isProcessAlive, getLogPath } from '../utils/process-manager.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { BridgeManager } from '../bridge/manager.js';
 import { OpenClawAdapter } from '../adapters/openclaw.js';
@@ -11,8 +12,13 @@ import type { AgentAdapter, AdapterConfig } from '../adapters/base.js';
 import { readOpenClawToken } from '../utils/openclaw-config.js';
 import { initSandbox, resetSandbox } from '../utils/sandbox.js';
 import { log } from '../utils/logger.js';
+import { RESET, BOLD, GREEN } from '../utils/table.js';
 
 const DEFAULT_BRIDGE_URL = 'wss://bridge.agents.hot/ws';
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
   switch (type) {
@@ -41,6 +47,7 @@ export function registerConnectCommand(program: Command): void {
     .option('--bridge-url <url>', 'Bridge Worker WebSocket URL')
     .option('--sandbox', 'Run agent inside a sandbox (requires srt)')
     .option('--no-sandbox', 'Disable sandbox even if enabled in config')
+    .option('--foreground', 'Run in foreground (default for non-setup mode)')
     .action(async (type: string | undefined, opts: {
       setup?: string;
       agentId?: string;
@@ -49,10 +56,11 @@ export function registerConnectCommand(program: Command): void {
       gatewayToken?: string;
       bridgeUrl?: string;
       sandbox?: boolean;
+      foreground?: boolean;
     }) => {
       const config = loadConfig();
 
-      // --setup flow: fetch config from ticket URL
+      // --setup flow: register agent, then start in background
       if (opts.setup) {
         log.info('Fetching configuration from connect ticket...');
         try {
@@ -85,22 +93,63 @@ export function registerConnectCommand(program: Command): void {
             }
           }
 
-          // Save config for future reconnects
-          updateConfig({
+          // Resolve agent name from platform
+          let nameBase = ticketData.agent_id.slice(0, 8);
+          if (config.token) {
+            try {
+              const res = await fetch(`https://agents.hot/api/developer/agents/${ticketData.agent_id}`, {
+                headers: { Authorization: `Bearer ${config.token}` },
+              });
+              if (res.ok) {
+                const agentData = await res.json() as { name?: string };
+                if (agentData.name) nameBase = agentData.name;
+              }
+            } catch {
+              // Fallback to agent_id prefix
+            }
+          }
+
+          const slug = uniqueSlug(nameBase);
+          const entry = {
             agentId: ticketData.agent_id,
-            token: ticketData.bridge_token,
-            defaultAgentType: ticketData.agent_type,
+            agentType: ticketData.agent_type,
             bridgeUrl: ticketData.bridge_url,
-            gatewayToken,
-          });
+            bridgeToken: ticketData.bridge_token,
+            gatewayUrl: opts.gatewayUrl,
+            gatewayToken: gatewayToken,
+            projectPath: process.cwd(),
+            sandbox: opts.sandbox,
+            addedAt: new Date().toISOString(),
+          };
+          addAgent(slug, entry);
 
-          log.success('Configuration saved to ~/.agent-bridge/config.json');
+          log.success(`Agent registered as "${slug}"`);
 
-          // Set variables for connection
-          opts.agentId = ticketData.agent_id;
-          opts.bridgeUrl = ticketData.bridge_url;
-          opts.gatewayToken = gatewayToken;
-          type = ticketData.agent_type;
+          // --foreground flag forces foreground mode even with --setup
+          if (opts.foreground) {
+            opts.agentId = ticketData.agent_id;
+            opts.bridgeUrl = ticketData.bridge_url;
+            opts.gatewayToken = gatewayToken;
+            type = ticketData.agent_type;
+            // Fall through to foreground connection below
+          } else {
+            // Start in background and show status
+            const pid = spawnBackground(slug, entry, config.token);
+            await sleep(500);
+
+            if (isProcessAlive(pid)) {
+              console.log(`  ${GREEN}✓${RESET} ${BOLD}${slug}${RESET} started (PID: ${pid})`);
+            } else {
+              log.error(`Failed to start. Check logs: ${getLogPath(slug)}`);
+              process.exit(1);
+            }
+
+            // Launch interactive dashboard
+            const { ListTUI } = await import('./list.js');
+            const tui = new ListTUI();
+            await tui.run();
+            return;
+          }
         } catch (err) {
           if (err instanceof Error && err.message.includes('fetch')) {
             log.error(`Failed to fetch ticket: ${err.message}`);
@@ -111,31 +160,55 @@ export function registerConnectCommand(program: Command): void {
         }
       }
 
-      // Resolve type: explicit arg > saved config
-      const agentType = type || config.defaultAgentType;
+      // === Foreground connection mode ===
+
+      let bridgeToken: string | undefined;
+      let agentName: string | undefined;
+
+      // Resolve type: explicit arg > registry entry
+      const agentType = type || (() => {
+        if (opts.agentId) {
+          const found = findAgentByAgentId(opts.agentId);
+          if (found) return found.entry.agentType;
+        }
+        return undefined;
+      })();
       if (!agentType) {
         log.error('Agent type is required. Use: agent-bridge connect <type> or agent-bridge connect --setup <url>');
         process.exit(1);
       }
 
-      // Resolve agent ID: explicit flag > saved config
-      const agentId = opts.agentId || config.agentId;
+      // Resolve agent ID
+      const agentId = opts.agentId;
       if (!agentId) {
         log.error('--agent-id is required. Use --setup for automatic configuration.');
         process.exit(1);
       }
 
-      // Resolve token: setup flow sets it via updateConfig, or load from existing config
-      const token = opts.setup ? loadConfig().token : (loadToken() || config.token);
+      // Look up registry entry to fill missing params
+      const found = findAgentByAgentId(agentId);
+      if (found) {
+        agentName = found.name;
+        const entry = found.entry;
+        opts.bridgeUrl = opts.bridgeUrl || entry.bridgeUrl;
+        opts.gatewayUrl = opts.gatewayUrl || entry.gatewayUrl;
+        opts.gatewayToken = opts.gatewayToken || entry.gatewayToken;
+        opts.project = opts.project || entry.projectPath;
+        if (opts.sandbox === undefined && entry.sandbox) opts.sandbox = entry.sandbox;
+        bridgeToken = entry.bridgeToken;
+      }
+
+      // Resolve bridge token: env var > registry > platform token
+      const token = process.env.AGENT_BRIDGE_TOKEN || bridgeToken || (loadToken() || config.token);
       if (!token) {
         log.error('Not authenticated. Run `agent-bridge login` or use `agent-bridge connect --setup <url>`.');
         process.exit(1);
       }
 
-      const bridgeUrl = opts.bridgeUrl || config.bridgeUrl || DEFAULT_BRIDGE_URL;
+      const bridgeUrl = opts.bridgeUrl || DEFAULT_BRIDGE_URL;
 
-      // Sandbox: CLI flag takes precedence over saved config
-      const sandboxEnabled = opts.sandbox ?? config.sandbox ?? false;
+      // Sandbox
+      const sandboxEnabled = opts.sandbox ?? false;
       if (sandboxEnabled) {
         const ok = await initSandbox(agentType);
         if (!ok) {
@@ -158,15 +231,13 @@ export function registerConnectCommand(program: Command): void {
 
       const adapterConfig: AdapterConfig = {
         project: opts.project,
-        gatewayUrl: opts.gatewayUrl || config.gatewayUrl,
-        gatewayToken: opts.gatewayToken || config.gatewayToken,
+        gatewayUrl: opts.gatewayUrl,
+        gatewayToken: opts.gatewayToken,
         sandboxEnabled,
       };
 
-      // Create adapter
       const adapter = createAdapter(agentType, adapterConfig);
 
-      // Check availability
       log.info(`Checking ${adapter.displayName} availability...`);
       const available = await adapter.isAvailable();
       if (!available) {
@@ -179,7 +250,6 @@ export function registerConnectCommand(program: Command): void {
       }
       log.success(`${adapter.displayName} is available`);
 
-      // Connect to bridge worker
       log.info(`Connecting to bridge worker at ${bridgeUrl}...`);
       const wsClient = new BridgeWSClient({
         url: bridgeUrl,
@@ -196,12 +266,9 @@ export function registerConnectCommand(program: Command): void {
       }
       log.success(`Registered as agent "${agentId}" (${agentType})`);
 
-      // Start manager
-      const manager = new BridgeManager({
-        wsClient,
-        adapter,
-        adapterConfig,
-      });
+      if (agentName) writePid(agentName, process.pid);
+
+      const manager = new BridgeManager({ wsClient, adapter, adapterConfig });
       manager.start();
 
       log.banner(`Agent bridge is running. Press Ctrl+C to stop.`);
@@ -212,13 +279,32 @@ export function registerConnectCommand(program: Command): void {
         manager.stop();
         wsClient.close();
         resetSandbox();
+        if (agentName) removePid(agentName);
         process.exit(0);
       };
 
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
 
-      // Reconnect handler — clean up stale sessions before restarting
+      // Max uptime 24h auto-restart protection
+      const MAX_UPTIME_MS = 24 * 60 * 60 * 1000;
+      setTimeout(() => {
+        log.info('Max uptime reached (24h), shutting down for fresh restart...');
+        shutdown();
+      }, MAX_UPTIME_MS).unref();
+
+      // Debug memory logging
+      if (process.env.DEBUG) {
+        setInterval(() => {
+          const mem = process.memoryUsage();
+          log.debug(`Memory: RSS=${(mem.rss / 1024 / 1024).toFixed(1)}MB Heap=${(mem.heapUsed / 1024 / 1024).toFixed(1)}MB`);
+        }, 5 * 60 * 1000).unref();
+      }
+
+      wsClient.on('error', (err: Error) => {
+        log.error(`Bridge connection error: ${err.message}`);
+      });
+
       wsClient.on('reconnect', () => {
         manager.stop();
         manager.start();

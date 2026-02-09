@@ -22,8 +22,10 @@ import type {
   Attachment,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION } from '@annals/bridge-protocol';
+import { ContentScanner } from './content-scanner.js';
 
 const MAX_PENDING_RELAYS = 10;
+const HEARTBEAT_TIMEOUT_MS = 60_000;  // 2x CLI heartbeat interval (30s)
 
 interface PendingRelay {
   controller: ReadableStreamDefaultController<string>;
@@ -39,6 +41,7 @@ export class AgentSession implements DurableObject {
   private lastHeartbeat = '';
   private activeSessions = 0;
   private agentId = '';
+  private scanner: ContentScanner | null = null;
 
   private pendingRelays = new Map<string, PendingRelay>();
 
@@ -46,6 +49,14 @@ export class AgentSession implements DurableObject {
     private state: DurableObjectState,
     private env: { SUPABASE_URL: string; SUPABASE_SERVICE_KEY: string; PLATFORM_SECRET: string; BRIDGE_KV: KVNamespace }
   ) {}
+
+  /** Lazily initialize ContentScanner (loads rules from KV on first use) */
+  private async getScanner(): Promise<ContentScanner> {
+    if (!this.scanner) {
+      this.scanner = await ContentScanner.fromKV(this.env.BRIDGE_KV);
+    }
+    return this.scanner;
+  }
 
   // ========================================================
   // HTTP fetch handler — dispatches WebSocket upgrades and relay
@@ -148,6 +159,9 @@ export class AgentSession implements DurableObject {
         this.connectedAt = new Date().toISOString();
         this.lastHeartbeat = this.connectedAt;
 
+        // Persist agentId so alarm() can mark offline after DO restart
+        await this.state.storage.put('agentId', this.agentId);
+
         // Update KV for global status queries
         await this.updateKV(registerMsg.agent_id);
 
@@ -155,6 +169,7 @@ export class AgentSession implements DurableObject {
         await this.updatePlatformStatus(registerMsg.agent_id, true);
 
         server.send(JSON.stringify({ type: 'registered', status: 'ok' } satisfies Registered));
+        this.scheduleHeartbeatAlarm();
         return;
       }
 
@@ -163,6 +178,7 @@ export class AgentSession implements DurableObject {
         case 'heartbeat':
           this.lastHeartbeat = new Date().toISOString();
           this.activeSessions = msg.active_sessions;
+          this.scheduleHeartbeatAlarm();
           break;
 
         case 'chunk':
@@ -176,22 +192,12 @@ export class AgentSession implements DurableObject {
     server.addEventListener('close', async () => {
       // Only clean up if this is the current primary connection
       if (this.ws !== server) return;
-      const agentId = this.agentId;
-      this.ws = null;
-      this.authenticated = false;
-      this.cleanupAllRelays();
-      await this.removeKV();
-      if (agentId) await this.updatePlatformStatus(agentId, false);
+      await this.markOffline();
     });
 
     server.addEventListener('error', async () => {
       if (this.ws !== server) return;
-      const agentId = this.agentId;
-      this.ws = null;
-      this.authenticated = false;
-      this.cleanupAllRelays();
-      await this.removeKV();
-      if (agentId) await this.updatePlatformStatus(agentId, false);
+      await this.markOffline();
     });
 
     return new Response(null, { status: 101, webSocket: client });
@@ -287,7 +293,7 @@ export class AgentSession implements DurableObject {
   // ========================================================
   // Agent message routing (chunk/done/error → SSE)
   // ========================================================
-  private handleAgentMessage(msg: BridgeToWorkerMessage): void {
+  private async handleAgentMessage(msg: BridgeToWorkerMessage): Promise<void> {
     if (msg.type !== 'chunk' && msg.type !== 'done' && msg.type !== 'error') return;
 
     const pending = this.pendingRelays.get(msg.request_id);
@@ -297,7 +303,11 @@ export class AgentSession implements DurableObject {
 
     try {
       if (msg.type === 'chunk') {
-        const event = JSON.stringify({ type: 'chunk', delta: (msg as Chunk).delta });
+        // ContentScanner: scan agent output before relaying to user
+        const scanner = await this.getScanner();
+        const scannedDelta = scanner.scan((msg as Chunk).delta);
+
+        const event = JSON.stringify({ type: 'chunk', delta: scannedDelta });
         controller.enqueue(`data: ${event}\n\n`);
       } else if (msg.type === 'done') {
         controller.enqueue(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -359,6 +369,20 @@ export class AgentSession implements DurableObject {
   }
 
   // ========================================================
+  // Offline cleanup (shared by close/error/alarm)
+  // ========================================================
+  private async markOffline(): Promise<void> {
+    const agentId = this.agentId;
+    this.ws = null;
+    this.authenticated = false;
+    this.agentId = '';
+    this.cleanupAllRelays();
+    await this.state.storage.delete('agentId');
+    await this.removeKV();
+    if (agentId) await this.updatePlatformStatus(agentId, false);
+  }
+
+  // ========================================================
   // Platform DB status update (replaces health cron polling)
   // ========================================================
   private async updatePlatformStatus(agentId: string, online: boolean): Promise<void> {
@@ -407,6 +431,37 @@ export class AgentSession implements DurableObject {
     try {
       await this.env.BRIDGE_KV.delete(`agent:${this.agentId}`);
     } catch {}
+  }
+
+  // ========================================================
+  // Heartbeat timeout via DO alarm
+  // ========================================================
+  private scheduleHeartbeatAlarm(): void {
+    this.state.storage.setAlarm(Date.now() + HEARTBEAT_TIMEOUT_MS);
+  }
+
+  async alarm(): Promise<void> {
+    // Case 1: Active connection — check heartbeat freshness
+    if (this.ws && this.authenticated) {
+      const elapsed = Date.now() - new Date(this.lastHeartbeat).getTime();
+      if (elapsed >= HEARTBEAT_TIMEOUT_MS) {
+        try { this.ws.close(1000, 'Heartbeat timeout'); } catch {}
+        await this.markOffline();
+      } else {
+        // Heartbeat arrived between alarm schedule and fire — reschedule
+        this.scheduleHeartbeatAlarm();
+      }
+      return;
+    }
+
+    // Case 2: No active connection (e.g. DO restarted, memory cleared)
+    // but storage still has agentId → stale online status, clean up
+    const storedAgentId = await this.state.storage.get<string>('agentId');
+    if (storedAgentId) {
+      await this.state.storage.delete('agentId');
+      await this.updatePlatformStatus(storedAgentId, false);
+      try { await this.env.BRIDGE_KV.delete(`agent:${storedAgentId}`); } catch {}
+    }
   }
 
   private cleanupAllRelays(): void {
