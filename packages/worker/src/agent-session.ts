@@ -21,7 +21,7 @@ import type {
   BridgeToWorkerMessage,
   Attachment,
 } from '@annals/bridge-protocol';
-import { BRIDGE_PROTOCOL_VERSION } from '@annals/bridge-protocol';
+import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED } from '@annals/bridge-protocol';
 import { ContentScanner } from './content-scanner.js';
 
 const MAX_PENDING_RELAYS = 10;
@@ -146,8 +146,9 @@ export class AgentSession implements DurableObject {
         }
 
         // Auth succeeded — NOW replace old connection
+        // Use WS_CLOSE_REPLACED so the old CLI knows it was replaced and should NOT reconnect
         if (this.ws && this.ws !== server) {
-          try { this.ws.close(1000, 'Replaced by new connection'); } catch {}
+          try { this.ws.close(WS_CLOSE_REPLACED, 'Replaced by new connection'); } catch {}
         }
 
         promoted = true;

@@ -5,7 +5,7 @@ import type {
   WorkerToBridgeMessage,
   Register,
 } from '@annals/bridge-protocol';
-import { BRIDGE_PROTOCOL_VERSION } from '@annals/bridge-protocol';
+import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED } from '@annals/bridge-protocol';
 import { log } from '../utils/logger.js';
 
 const HEARTBEAT_INTERVAL = 30_000;
@@ -98,8 +98,13 @@ export class BridgeWSClient extends EventEmitter {
         if (this.intentionalClose) {
           log.info('Connection closed');
           this.emit('close');
+        } else if (code === WS_CLOSE_REPLACED) {
+          // Another CLI connected for this agent — do NOT reconnect
+          log.error('Another CLI has connected for this agent. This instance is being replaced.');
+          this.emit('replaced');
         } else {
-          log.warn(`Connection lost (${code}: ${reason}), reconnecting in ${this.reconnectDelay}ms...`);
+          const reasonStr = reason ? reason.toString() : '';
+          log.warn(`Connection lost (${code}: ${reasonStr}), reconnecting in ${this.reconnectDelay}ms...`);
           this.emit('disconnect');
           this.scheduleReconnect();
         }

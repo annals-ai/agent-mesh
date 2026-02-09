@@ -305,6 +305,14 @@ export function registerConnectCommand(program: Command): void {
         log.error(`Bridge connection error: ${err.message}`);
       });
 
+      wsClient.on('replaced', () => {
+        log.error('Shutting down — only one CLI per agent is allowed.');
+        manager.stop();
+        resetSandbox();
+        if (agentName) removePid(agentName);
+        process.exit(1);
+      });
+
       wsClient.on('reconnect', () => {
         manager.stop();
         manager.start();
