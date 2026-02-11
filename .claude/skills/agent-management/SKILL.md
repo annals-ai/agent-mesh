@@ -1,18 +1,49 @@
 ---
 name: agent-management
 description: |
-  This skill should be used when a developer wants to create, configure,
-  connect, publish, update, or delete an AI agent on the Agents.Hot platform
-  using the agent-bridge CLI. It covers the full agent lifecycle: naming,
-  description writing, skill/tag markup, pricing strategy, connection setup,
-  dashboard management, marketplace publishing, and troubleshooting.
+  Guide developers through creating, configuring, connecting, and publishing
+  AI agents on Agents.Hot using the agent-bridge CLI. Helps with naming,
+  description writing, skill tagging, pricing strategy, and troubleshooting.
   Trigger words: create agent, manage agent, publish agent, agent pricing,
   agent description, agent setup, list agents, delete agent, connect agent.
 ---
 
 # Agent Management — Agents.Hot Platform
 
-This skill guides developers through the full lifecycle of AI agents on [Agents.Hot](https://agents.hot) using the `agent-bridge` CLI. For detailed command syntax, flags, and troubleshooting, use the companion `cli-guide` skill.
+## Behavior — READ THIS FIRST
+
+This is an **interactive workflow**, not a reference document.
+
+**When this skill activates, you MUST:**
+
+1. **Determine intent** — Read the user's message and match it to the Workflow Routing table below. If unclear, ask.
+2. **Start the first step immediately** — Do NOT list all steps upfront. Walk through them one at a time.
+3. **Ask for each input individually** — For the Create workflow, ask for name first, then type, then description, then pricing. Wait for the user's answer before moving on.
+4. **Execute commands yourself** — Run `agent-bridge` commands via Bash and check their output. Do NOT show placeholder commands for the user to copy-paste.
+5. **Verify before proceeding** — After each step, confirm it succeeded (check command output, verify status) before moving to the next step.
+6. **Write files yourself** — When setting up the agent folder, create `CLAUDE.md` / `AGENTS.md` and skill files directly. Do NOT just show templates.
+
+**You MUST NOT:**
+- Dump all steps as a numbered guide or checklist
+- Show commands with `<placeholder>` values and ask the user to fill them in
+- Skip ahead or combine multiple steps into one message
+- Describe what the user should do — actually do it
+
+**Conversation flow example (Create workflow):**
+```
+You:  "What does your agent do? I'll help you pick a good name."
+User: "It reviews TypeScript code"
+You:  [suggests name] → asks about type (claude vs openclaw)
+User: "claude"
+You:  [asks about pricing] → explains options briefly
+User: "free for now"
+You:  [drafts description based on conversation] → shows it for approval
+User: "looks good"
+You:  [runs `agent-bridge agents create ...`] → shows result
+You:  [proceeds to set up folder, writes CLAUDE.md, etc.]
+```
+
+---
 
 ## Prerequisites
 
@@ -23,7 +54,7 @@ Before starting any workflow, verify the environment:
 
 ## Workflow Routing
 
-Determine the developer's intent and route to the appropriate workflow:
+Match the developer's intent and jump to the appropriate section:
 
 | Intent | Workflow |
 |--------|----------|
@@ -38,13 +69,15 @@ Determine the developer's intent and route to the appropriate workflow:
 
 ## Create
 
-Gather four inputs from the developer, then execute the create command.
+Collect four inputs from the developer **one at a time**, then execute.
 
 ### 1. Name
 
-Suggest a short (2–4 words), action-oriented name based on what the agent does. Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
+Ask what the agent does, then suggest a short (2–4 words), action-oriented name. Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
 
 ### 2. Agent Type
+
+Ask which runtime the agent uses:
 
 | Type | When to use |
 |------|-------------|
@@ -53,7 +86,7 @@ Suggest a short (2–4 words), action-oriented name based on what the agent does
 
 ### 3. Description
 
-The description follows a structured format with three sections:
+Draft the description yourself based on the conversation so far. Follow this structure:
 
 ```
 First paragraph: What the agent does (2–3 sentences, under 280 chars for card preview).
@@ -69,7 +102,11 @@ Second paragraph (optional): Technical specialties.
 - `#tag` lines enable search and discovery
 - Specificity matters — generic descriptions rank poorly
 
+Show the draft and ask for approval before proceeding.
+
 ### 4. Pricing
+
+Present the options and ask which fits:
 
 | Strategy | Flag | Best for |
 |----------|------|----------|
@@ -82,11 +119,15 @@ Price is in platform credits. Recommend starting free or low to build reviews, t
 
 ### Execute
 
+Once all four inputs are collected, run the command:
+
 ```bash
 agent-bridge agents create --name "<name>" --type <type> --price <n> --description "<text>"
 ```
 
-The CLI outputs an Agent ID (UUID) and the next-step connect command.
+The CLI outputs an Agent ID (UUID). Save it — you'll need it for the connect step.
+
+**Immediately proceed to Set up Agent Folder.**
 
 ## Set up Agent Folder
 
@@ -125,9 +166,7 @@ mkdir -p .agents/skills
 
 ### 3. Write the role instruction file
 
-Create `CLAUDE.md` (for claude) or `AGENTS.md` (for others) in the agent folder root. This file defines who the agent is and how it behaves.
-
-Write the content based on the developer's description of what the agent should do. Include:
+Create `CLAUDE.md` (for claude) or `AGENTS.md` (for others) in the agent folder root. **Write the content yourself** based on what you know about the agent. Include:
 - **Role**: Who the agent is (e.g. "You are a senior code reviewer specializing in TypeScript")
 - **Behavior rules**: Tone, constraints, what to do and not do
 - **Domain knowledge**: Key context the agent needs
@@ -186,6 +225,8 @@ Each skill lives in its own subfolder with a `SKILL.md` file:
             └── SKILL.md
 ```
 
+**After folder setup, immediately proceed to Connect.**
+
 ## Connect
 
 **Important**: Always connect from the agent folder so the AI tool reads the instruction file and skills automatically.
@@ -209,6 +250,8 @@ Three paths depending on context:
 Claude Code agents run with `--sandbox` by default (blocks SSH keys, API tokens, credentials via macOS Seatbelt). Disable with `--no-sandbox` if the agent needs access to local credentials.
 
 After connecting, verify with `agent-bridge agents show <name>` — status should show `online`.
+
+**After successful connection, proceed to Publish (if the user wants marketplace visibility).**
 
 ## Publish
 
