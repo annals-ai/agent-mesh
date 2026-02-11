@@ -37,8 +37,8 @@ importers:
   packages/cli:
     dependencies:
       '@annals/bridge-protocol':
-        specifier: workspace:*
-        version: link:../protocol
+        specifier: ^0.1.0
+        version: 0.1.5
       commander:
         specifier: ^13.0.0
         version: 13.1.0
@@ -79,6 +79,9 @@ importers:
         version: 3.114.17(@cloudflare/workers-types@4.20260206.0)
 
 packages:
+
+  '@annals/bridge-protocol@0.1.5':
+    resolution: {integrity: sha512-x1xV2s1Sd5pjNaIPfl9WldZ+cbn6jubyYFGEQk+IN+NUUhVGs6przzV55Zzk8CFYGpLR9oLqeoC3knHxQQGPjw==}
 
   '@cloudflare/kv-asset-handler@0.3.4':
     resolution: {integrity: sha512-YLPHc8yASwjNkmcDMQMY35yiWjoKAKnhUbPRszBRS0YgH+IXtsMp61j+yTcnCE3oO2DgP0U3iejLC8FTtKDC8Q==}
@@ -2126,6 +2129,8 @@ packages:
     resolution: {integrity: sha512-EjIevzuJRiRPbVH4mGc8nApb/lVLKVpmUhAaR5R5doKGfAnGJ6Gr3CViAVjP+4FWSxCsybeWQdcgCtbX+7oZug==}
 
 snapshots:
+
+  '@annals/bridge-protocol@0.1.5': {}
 
   '@cloudflare/kv-asset-handler@0.3.4':
     dependencies:
