@@ -124,13 +124,12 @@ export function registerLoginCommand(program: Command): void {
         return;
       }
 
-      // Already logged in check
+      // Already logged in — inform but continue
       if (hasToken() && !opts.force) {
         const existing = loadToken();
         log.info(
-          `Already logged in (token: ${existing!.slice(0, 6)}...). Use --force to re-login.`,
+          `Already logged in (token: ${existing!.slice(0, 6)}...). Continuing will replace the existing token.`,
         );
-        return;
       }
 
       // Non-TTY check (CI, piped stdin, SSH without terminal)

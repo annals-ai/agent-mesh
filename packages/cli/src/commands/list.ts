@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { loadConfig, removeAgent, type AgentEntry } from '../utils/config.js';
 import {
   cleanStalePids, readPid, isProcessAlive,
@@ -135,6 +135,29 @@ function renderScreen(rows: AgentRow[], sel: number, msg: string): string {
   return out.join('\n');
 }
 
+/** Check last N lines of log file for a failure reason */
+function getFailReason(name: string): string | null {
+  try {
+    const logPath = getLogPath(name);
+    if (!existsSync(logPath)) return null;
+    const content = readFileSync(logPath, 'utf-8');
+    const lines = content.split('\n').slice(-20);
+    const text = lines.join('\n');
+    if (/token.*revoked|revoked.*token/i.test(text)) {
+      return 'Token revoked — run `agent-bridge login` to get a new token';
+    }
+    if (/auth_failed|Not authenticated/i.test(text)) {
+      return 'Authentication failed — check your token';
+    }
+    if (/ECONNREFUSED|Gateway unreachable/i.test(text)) {
+      return 'Agent runtime unreachable — check if gateway is running';
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export class ListTUI {
   private rows: AgentRow[] = [];
   private sel = 0;
@@ -261,9 +284,14 @@ export class ListTUI {
     await sleep(600);
     await this.refresh();
     this.busy = false;
-    this.flash(isProcessAlive(pid)
-      ? `${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} started (PID: ${pid})`
-      : `${RED}✗${RESET} ${BOLD}${row.name}${RESET} failed to start`);
+    if (isProcessAlive(pid)) {
+      this.flash(`${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} started (PID: ${pid})`);
+    } else {
+      const reason = getFailReason(row.name);
+      this.flash(reason
+        ? `${RED}✗${RESET} ${BOLD}${row.name}${RESET} — ${reason}`
+        : `${RED}✗${RESET} ${BOLD}${row.name}${RESET} failed to start — press ${BOLD}l${RESET} for logs`);
+    }
     this.draw();
   }
 
@@ -295,9 +323,14 @@ export class ListTUI {
     await sleep(600);
     await this.refresh();
     this.busy = false;
-    this.flash(isProcessAlive(pid)
-      ? `${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} restarted (PID: ${pid})`
-      : `${RED}✗${RESET} ${BOLD}${row.name}${RESET} failed to restart`);
+    if (isProcessAlive(pid)) {
+      this.flash(`${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} restarted (PID: ${pid})`);
+    } else {
+      const reason = getFailReason(row.name);
+      this.flash(reason
+        ? `${RED}✗${RESET} ${BOLD}${row.name}${RESET} — ${reason}`
+        : `${RED}✗${RESET} ${BOLD}${row.name}${RESET} failed to restart — press ${BOLD}l${RESET} for logs`);
+    }
     this.draw();
   }
 

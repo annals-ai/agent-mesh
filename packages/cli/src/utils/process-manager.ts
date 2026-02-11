@@ -156,7 +156,9 @@ export function spawnBackground(name: string, entry: AgentEntry, platformToken?:
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && k !== 'PATH') env[k] = v;
   }
-  env.AGENT_BRIDGE_TOKEN = entry.bridgeToken;
+  // Use legacy bridgeToken if present, otherwise use platform sb_ token
+  const tokenForChild = entry.bridgeToken || platformToken;
+  if (tokenForChild) env.AGENT_BRIDGE_TOKEN = tokenForChild;
 
   // Merge PATH: combine loginEnv PATH + process.env PATH + common locations
   // This prevents non-interactive SSH's minimal PATH from overwriting loginEnv's full PATH
@@ -165,8 +167,6 @@ export function spawnBackground(name: string, entry: AgentEntry, platformToken?:
     if (src) for (const p of src.split(':')) { if (p) pathSet.add(p); }
   }
   env.PATH = [...pathSet].join(':');
-
-  if (platformToken) env.AGENT_BRIDGE_PLATFORM_TOKEN = platformToken;
 
   const child = spawn(process.execPath, args, {
     detached: true,

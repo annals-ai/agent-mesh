@@ -93,14 +93,38 @@ describe('login command', () => {
   });
 
   describe('already logged in', () => {
-    it('should skip login if already authenticated', async () => {
+    it('should show info but continue login when already authenticated', async () => {
       vi.mocked(hasToken).mockReturnValue(true);
       vi.mocked(loadToken).mockReturnValue('sb_existing');
+
+      // Mock full device auth flow since login now continues
+      globalThis.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              device_code: 'dc_replace',
+              user_code: 'REPL-1234',
+              verification_uri: 'https://agents.hot/auth/device',
+              verification_uri_complete: 'https://agents.hot/auth/device?code=REPL-1234',
+              expires_in: 900,
+              interval: 5,
+            }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              access_token: 'sb_replacement_token',
+              token_type: 'Bearer',
+              user: { id: 'u1', email: 'test@test.com', name: 'Test' },
+            }),
+        });
 
       await runLogin([]);
 
       expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Already logged in'));
-      expect(saveToken).not.toHaveBeenCalled();
+      expect(saveToken).toHaveBeenCalledWith('sb_replacement_token');
     });
 
     it('should re-login with --force', async () => {
