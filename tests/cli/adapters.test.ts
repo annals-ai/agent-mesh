@@ -118,7 +118,8 @@ describe('ClaudeAdapter', () => {
 
     // send without clientId — cwd should be project path
     session.send('hello');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Wait for takeSnapshot().then(launchProcess) — needs multiple ticks
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(spawnAgent).toHaveBeenCalled();
 
