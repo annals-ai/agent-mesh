@@ -40,18 +40,16 @@ describe('PlatformClient', () => {
     );
   });
 
-  it('should send POST request with body', async () => {
-    const mockAgent = { id: 'abc', name: 'test' };
+  it('should send POST request with JSON body', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ success: true, agent: mockAgent }),
+      json: () => Promise.resolve({ success: true, agent: { id: 'abc' } }),
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('sb_test-token');
-    const result = await client.post('/api/developer/agents', { name: 'test', price: 0 });
+    await client.post('/api/developer/agents', { name: 'test', price: 0 });
 
-    expect(result).toEqual({ success: true, agent: mockAgent });
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://agents.hot/api/developer/agents',
       expect.objectContaining({
@@ -61,10 +59,24 @@ describe('PlatformClient', () => {
     );
   });
 
+  it('should send POST without body when not provided', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+    await client.post('/api/test');
+
+    const callArgs = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(callArgs.body).toBeUndefined();
+  });
+
   it('should send PUT request', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ success: true, agent: { id: 'abc' } }),
+      json: () => Promise.resolve({ success: true }),
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -80,84 +92,37 @@ describe('PlatformClient', () => {
     );
   });
 
-  it('should send DELETE request', async () => {
+  it('should send DELETE request with optional body', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ success: true, message: 'deleted' }),
+      json: () => Promise.resolve({ success: true }),
+    });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+    await client.del('/api/developer/agents/abc', { confirm: true });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://agents.hot/api/developer/agents/abc',
+      expect.objectContaining({
+        method: 'DELETE',
+        body: JSON.stringify({ confirm: true }),
+      }),
+    );
+  });
+
+  it('should send DELETE without body when not provided', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true }),
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('sb_test-token');
     await client.del('/api/developer/agents/abc');
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      'https://agents.hot/api/developer/agents/abc',
-      expect.objectContaining({ method: 'DELETE' }),
-    );
-  });
-
-  it('should throw PlatformApiError on 401', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: () => Promise.resolve({ error: 'unauthorized', message: 'Authentication required' }),
-    });
-
-    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_bad-token');
-
-    await expect(client.get('/api/developer/agents')).rejects.toThrow(PlatformApiError);
-    await expect(client.get('/api/developer/agents')).rejects.toThrow(/login/i);
-  });
-
-  it('should throw PlatformApiError on 404', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      json: () => Promise.resolve({ error: 'not_found', message: 'Agent not found' }),
-    });
-
-    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
-
-    await expect(client.get('/api/developer/agents/xxx')).rejects.toThrow(PlatformApiError);
-    await expect(client.get('/api/developer/agents/xxx')).rejects.toThrow(/not found/i);
-  });
-
-  it('should throw PlatformApiError on 400 agent_offline', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: () => Promise.resolve({ error: 'agent_offline', message: 'Agent must be online' }),
-    });
-
-    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
-
-    await expect(client.put('/api/developer/agents/abc', { is_published: true })).rejects.toThrow(/online/i);
-  });
-
-  it('should throw PlatformApiError on 409 confirm_required', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 409,
-      json: () => Promise.resolve({ error: 'confirm_required', message: 'Has active purchases' }),
-    });
-
-    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
-
-    await expect(client.del('/api/developer/agents/abc')).rejects.toThrow(/--confirm/);
-  });
-
-  it('should throw on network error', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
-
-    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
-
-    await expect(client.get('/test')).rejects.toThrow(PlatformApiError);
-    await expect(client.get('/test')).rejects.toThrow(/network/i);
+    const callArgs = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(callArgs.body).toBeUndefined();
   });
 
   it('should use custom baseUrl', async () => {
@@ -175,20 +140,207 @@ describe('PlatformClient', () => {
       expect.anything(),
     );
   });
+});
 
-  it('should throw if no token available', async () => {
-    const { PlatformApiError, createClient } = await import('../../packages/cli/src/platform/api-client.js');
+describe('PlatformClient error handling', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('should map 401 unauthorized to login hint', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ error: 'unauthorized', message: 'Auth required' }),
+    });
+
+    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_bad-token');
+
+    try {
+      await client.get('/api/developer/agents');
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlatformApiError);
+      const apiErr = err as InstanceType<typeof PlatformApiError>;
+      expect(apiErr.statusCode).toBe(401);
+      expect(apiErr.errorCode).toBe('unauthorized');
+      expect(apiErr.message).toMatch(/login/i);
+    }
+  });
+
+  it('should map 403 forbidden to ownership hint', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ error: 'forbidden', message: 'Forbidden' }),
+    });
+
+    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    try {
+      await client.get('/api/developer/agents/xxx');
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlatformApiError);
+      expect((err as InstanceType<typeof PlatformApiError>).message).toMatch(/own/i);
+    }
+  });
+
+  it('should map 404 not_found to hint', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({ error: 'not_found', message: 'Not found' }),
+    });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    await expect(client.get('/api/developer/agents/xxx')).rejects.toThrow(/not found/i);
+  });
+
+  it('should map agent_offline error', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'agent_offline', message: 'Must be online' }),
+    });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    await expect(
+      client.put('/api/developer/agents/abc', { is_published: true }),
+    ).rejects.toThrow(/online/i);
+  });
+
+  it('should map email_required error', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'email_required', message: 'Email required' }),
+    });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    await expect(
+      client.put('/api/developer/agents/abc', { is_published: true }),
+    ).rejects.toThrow(/email/i);
+  });
+
+  it('should map confirm_required error', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'confirm_required', message: 'Has purchases' }),
+    });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    await expect(client.del('/api/developer/agents/abc')).rejects.toThrow(/--confirm/);
+  });
+
+  it('should handle network errors', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    try {
+      await client.get('/test');
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlatformApiError);
+      const apiErr = err as InstanceType<typeof PlatformApiError>;
+      expect(apiErr.errorCode).toBe('network_error');
+      expect(apiErr.statusCode).toBe(0);
+      expect(apiErr.message).toMatch(/network/i);
+    }
+  });
+
+  it('should handle non-JSON error body gracefully', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.reject(new Error('not JSON')),
+    });
+
+    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    try {
+      await client.get('/test');
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlatformApiError);
+      const apiErr = err as InstanceType<typeof PlatformApiError>;
+      expect(apiErr.statusCode).toBe(500);
+      expect(apiErr.message).toMatch(/500/);
+    }
+  });
+
+  it('should fall back to raw message for unknown error codes', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({ error: 'some_custom_error', message: 'Custom detail here' }),
+    });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test-token');
+
+    await expect(client.get('/test')).rejects.toThrow('Custom detail here');
+  });
+});
+
+describe('createClient', () => {
+  it('should throw PlatformApiError if no token available', async () => {
     const auth = await import('../../packages/cli/src/platform/auth.js');
+    const original = vi.mocked(auth.loadToken).getMockImplementation();
 
-    // Mock loadToken to return undefined for both assertions
     vi.mocked(auth.loadToken).mockReturnValue(undefined as unknown as string);
 
     try {
+      const { createClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
       expect(() => createClient()).toThrow(PlatformApiError);
       expect(() => createClient()).toThrow(/login/i);
     } finally {
-      // Restore default mock
-      vi.mocked(auth.loadToken).mockReturnValue('sb_test-token-123');
+      vi.mocked(auth.loadToken).mockImplementation(original!);
+    }
+  });
+
+  it('should create client with auto-loaded token', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    try {
+      const { createClient } = await import('../../packages/cli/src/platform/api-client.js');
+      const client = createClient();
+      await client.get('/test');
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer sb_test-token-123',
+          }),
+        }),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });

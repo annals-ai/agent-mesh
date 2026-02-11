@@ -95,7 +95,7 @@ function mockFetchError(status: number, error: string, message: string) {
   });
 }
 
-// --- Tests ---
+// --- resolveAgentId tests ---
 
 describe('resolveAgentId', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -103,16 +103,21 @@ describe('resolveAgentId', () => {
   beforeEach(() => { originalFetch = globalThis.fetch; });
   afterEach(() => { globalThis.fetch = originalFetch; });
 
-  it('should accept UUID directly', async () => {
+  it('should accept UUID directly without API call', async () => {
+    globalThis.fetch = vi.fn();
+
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
 
     const client = new PlatformClient('sb_test');
     const result = await resolveAgentId(AGENT_UUID, client);
     expect(result.id).toBe(AGENT_UUID);
+    expect(result.name).toBe(AGENT_UUID);
+    // Should not make any API calls for UUID input
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('should resolve local alias', async () => {
+  it('should resolve local config alias', async () => {
     const config = await import('../../packages/cli/src/utils/config.js');
     vi.mocked(config.listAgents).mockReturnValueOnce({
       'my-agent': {
@@ -124,6 +129,8 @@ describe('resolveAgentId', () => {
       },
     });
 
+    globalThis.fetch = vi.fn();
+
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
 
@@ -131,9 +138,11 @@ describe('resolveAgentId', () => {
     const result = await resolveAgentId('my-agent', client);
     expect(result.id).toBe(AGENT_UUID);
     expect(result.name).toBe('my-agent');
+    // Local alias should not trigger API call
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('should resolve remote name (case-insensitive)', async () => {
+  it('should resolve remote agent name (case-insensitive)', async () => {
     globalThis.fetch = mockFetchSuccess(mockAgentList);
 
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
@@ -145,7 +154,7 @@ describe('resolveAgentId', () => {
     expect(result.name).toBe('code-review-pro');
   });
 
-  it('should throw if not found', async () => {
+  it('should throw for non-existent agent name', async () => {
     globalThis.fetch = mockFetchSuccess({ agents: [] });
 
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
@@ -154,23 +163,44 @@ describe('resolveAgentId', () => {
     const client = new PlatformClient('sb_test');
     await expect(resolveAgentId('nonexistent', client)).rejects.toThrow(/not found/i);
   });
+
+  it('should resolve by findAgentByAgentId fallback', async () => {
+    const config = await import('../../packages/cli/src/utils/config.js');
+    vi.mocked(config.listAgents).mockReturnValueOnce({});
+    vi.mocked(config.findAgentByAgentId).mockReturnValueOnce({
+      name: 'local-name',
+      entry: {
+        agentId: AGENT_UUID,
+        agentType: 'claude',
+        bridgeUrl: 'wss://bridge.agents.hot/ws',
+        bridgeToken: 'bt_yyy',
+        addedAt: '2026-01-01',
+      },
+    });
+
+    globalThis.fetch = vi.fn();
+
+    const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+
+    const client = new PlatformClient('sb_test');
+    // Use a non-UUID string that won't match listAgents keys
+    const result = await resolveAgentId('some-partial-id', client);
+    expect(result.id).toBe(AGENT_UUID);
+    expect(result.name).toBe('local-name');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
 });
+
+// --- agents list ---
 
 describe('agents list', () => {
   let originalFetch: typeof globalThis.fetch;
-  const consoleSpy = { log: vi.fn() };
 
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-    consoleSpy.log = vi.spyOn(console, 'log').mockImplementation(() => {});
-  });
+  beforeEach(() => { originalFetch = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = originalFetch; });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    consoleSpy.log.mockRestore();
-  });
-
-  it('should display agent table', async () => {
+  it('should fetch agent list from API', async () => {
     globalThis.fetch = mockFetchSuccess(mockAgentList);
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -179,10 +209,12 @@ describe('agents list', () => {
 
     expect(data.agents).toHaveLength(2);
     expect(data.agents[0].name).toBe('code-review-pro');
+    expect(data.agents[0].is_online).toBe(true);
     expect(data.agents[1].name).toBe('sql-helper');
+    expect(data.agents[1].is_online).toBe(false);
   });
 
-  it('should handle empty list', async () => {
+  it('should handle empty agent list', async () => {
     globalThis.fetch = mockFetchSuccess({ agents: [], author_login: null });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -192,7 +224,7 @@ describe('agents list', () => {
     expect(data.agents).toHaveLength(0);
   });
 
-  it('should return raw JSON with --json flag', async () => {
+  it('should serialize to JSON correctly', async () => {
     globalThis.fetch = mockFetchSuccess(mockAgentList);
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -202,8 +234,11 @@ describe('agents list', () => {
     const json = JSON.stringify(data.agents, null, 2);
     expect(json).toContain('code-review-pro');
     expect(json).toContain('sql-helper');
+    expect(json).toContain(AGENT_UUID);
   });
 });
+
+// --- agents create ---
 
 describe('agents create', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -211,7 +246,7 @@ describe('agents create', () => {
   beforeEach(() => { originalFetch = globalThis.fetch; });
   afterEach(() => { globalThis.fetch = originalFetch; });
 
-  it('should create agent and return details', async () => {
+  it('should create agent and fetch details with bridge_token', async () => {
     globalThis.fetch = mockFetchSequence(
       { ok: true, data: { success: true, agent: { id: AGENT_UUID, name: 'new-agent' } } },
       { ok: true, data: mockAgentDetail },
@@ -233,17 +268,44 @@ describe('agents create', () => {
     expect(detail.bridge_token).toBe('bt_abc123def456');
   });
 
-  it('should fail with invalid request', async () => {
+  it('should fail with server validation error', async () => {
     globalThis.fetch = mockFetchError(400, 'invalid_request', 'Name is required');
 
-    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('sb_test');
 
     await expect(
       client.post('/api/developer/agents', { price: 0 }),
     ).rejects.toThrow('Name is required');
   });
+
+  it('should send all create fields', async () => {
+    globalThis.fetch = mockFetchSuccess({ success: true, agent: { id: 'x', name: 'full' } });
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test');
+
+    const body = {
+      name: 'Full Agent',
+      description: 'A complete agent',
+      agent_type: 'claude',
+      price: 5,
+      billing_period: 'day',
+      min_units: 2,
+    };
+    await client.post('/api/developer/agents', body);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/developer/agents'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    );
+  });
 });
+
+// --- agents update ---
 
 describe('agents update', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -251,7 +313,7 @@ describe('agents update', () => {
   beforeEach(() => { originalFetch = globalThis.fetch; });
   afterEach(() => { globalThis.fetch = originalFetch; });
 
-  it('should update agent with partial fields', async () => {
+  it('should send only specified fields', async () => {
     globalThis.fetch = mockFetchSuccess({
       success: true,
       agent: { ...mockAgentDetail, price: 20 },
@@ -287,13 +349,15 @@ describe('agents update', () => {
   });
 });
 
+// --- agents show ---
+
 describe('agents show', () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => { originalFetch = globalThis.fetch; });
   afterEach(() => { globalThis.fetch = originalFetch; });
 
-  it('should return full agent details with bridge_token', async () => {
+  it('should return full agent details including bridge_token', async () => {
     globalThis.fetch = mockFetchSuccess(mockAgentDetail);
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -304,8 +368,24 @@ describe('agents show', () => {
     expect(detail.bridge_token).toBe('bt_abc123def456');
     expect(detail.is_online).toBe(true);
     expect(detail.is_published).toBe(true);
+    expect(detail.agent_type).toBe('openclaw');
+  });
+
+  it('should work with --json flag (raw JSON output)', async () => {
+    globalThis.fetch = mockFetchSuccess(mockAgentDetail);
+
+    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const client = new PlatformClient('sb_test');
+
+    const detail = await client.get<typeof mockAgentDetail>(`/api/developer/agents/${AGENT_UUID}`);
+    const json = JSON.stringify(detail, null, 2);
+
+    expect(json).toContain('"bridge_token": "bt_abc123def456"');
+    expect(json).toContain('"agent_type": "openclaw"');
   });
 });
+
+// --- agents publish / unpublish ---
 
 describe('agents publish / unpublish', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -313,7 +393,7 @@ describe('agents publish / unpublish', () => {
   beforeEach(() => { originalFetch = globalThis.fetch; });
   afterEach(() => { globalThis.fetch = originalFetch; });
 
-  it('should publish agent', async () => {
+  it('should publish agent with is_published=true', async () => {
     globalThis.fetch = mockFetchSuccess({ success: true, agent: { ...mockAgentDetail, is_published: true } });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -321,6 +401,13 @@ describe('agents publish / unpublish', () => {
 
     const result = await client.put<{ success: boolean }>(`/api/developer/agents/${AGENT_UUID}`, { is_published: true });
     expect(result.success).toBe(true);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        body: JSON.stringify({ is_published: true }),
+      }),
+    );
   });
 
   it('should fail publish if agent offline', async () => {
@@ -345,7 +432,7 @@ describe('agents publish / unpublish', () => {
     ).rejects.toThrow(/email/i);
   });
 
-  it('should unpublish agent', async () => {
+  it('should unpublish agent with is_published=false', async () => {
     globalThis.fetch = mockFetchSuccess({ success: true, agent: { ...mockAgentDetail, is_published: false } });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -355,6 +442,8 @@ describe('agents publish / unpublish', () => {
     expect(result.success).toBe(true);
   });
 });
+
+// --- agents delete ---
 
 describe('agents delete', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -372,22 +461,28 @@ describe('agents delete', () => {
     expect(result.success).toBe(true);
   });
 
-  it('should require confirm when active purchases exist', async () => {
+  it('should throw confirm_required when active purchases exist', async () => {
     globalThis.fetch = mockFetchError(409, 'confirm_required', 'Has active purchases');
 
-    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('sb_test');
 
-    await expect(
-      client.del(`/api/developer/agents/${AGENT_UUID}`),
-    ).rejects.toThrow(/--confirm/);
+    try {
+      await client.del(`/api/developer/agents/${AGENT_UUID}`);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlatformApiError);
+      const apiErr = err as InstanceType<typeof PlatformApiError>;
+      expect(apiErr.errorCode).toBe('confirm_required');
+      expect(apiErr.message).toMatch(/--confirm/);
+    }
   });
 
-  it('should delete with confirm flag and process refunds', async () => {
+  it('should delete with confirm body and process refunds', async () => {
     globalThis.fetch = mockFetchSuccess({
       success: true,
       message: 'Agent deleted successfully',
-      refund: { refunded: 2 },
+      refund: { refunded: 2, total_amount: 100 },
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -399,5 +494,14 @@ describe('agents delete', () => {
     );
     expect(result.success).toBe(true);
     expect(result.refund).toBeDefined();
+
+    // Verify confirm flag was sent in body
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        method: 'DELETE',
+        body: JSON.stringify({ confirm: true }),
+      }),
+    );
   });
 });

@@ -1,3 +1,13 @@
+---
+name: agent-management
+description: |
+  Guide developers through creating, configuring, connecting, and publishing
+  AI agents on Agents.Hot using the agent-bridge CLI. Helps with naming,
+  description writing, skill tagging, pricing strategy, and troubleshooting.
+  Trigger words: create agent, manage agent, publish agent, agent pricing,
+  agent description, agent setup, list agents, delete agent.
+---
+
 # Agent Management — Agents.Hot Platform
 
 Guide developers through creating, configuring, connecting, and publishing AI agents on the Agents.Hot platform using the `agent-bridge` CLI.
