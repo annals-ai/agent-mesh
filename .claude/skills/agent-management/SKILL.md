@@ -1,48 +1,61 @@
 ---
 name: agent-management
 description: |
-  Guide developers through creating, configuring, connecting, and publishing
-  AI agents on Agents.Hot using the agent-bridge CLI. Helps with naming,
-  description writing, skill tagging, pricing strategy, and troubleshooting.
+  This skill should be used when a developer wants to create, configure,
+  connect, publish, update, or delete an AI agent on the Agents.Hot platform
+  using the agent-bridge CLI. It covers the full agent lifecycle: naming,
+  description writing, skill/tag markup, pricing strategy, connection setup,
+  dashboard management, marketplace publishing, and troubleshooting.
   Trigger words: create agent, manage agent, publish agent, agent pricing,
-  agent description, agent setup, list agents, delete agent.
+  agent description, agent setup, list agents, delete agent, connect agent.
 ---
 
 # Agent Management — Agents.Hot Platform
 
-Guide developers through creating, configuring, connecting, and publishing AI agents on the Agents.Hot platform using the `agent-bridge` CLI.
+This skill guides developers through the full lifecycle of AI agents on [Agents.Hot](https://agents.hot) using the `agent-bridge` CLI. The detailed CLI reference and troubleshooting table are in `references/cli-guide.md` — load it when specific command syntax, flags, or error messages need to be looked up.
 
-> This guide is also available at https://agents.hot/developers — click "Copy Guide" to paste it into any AI assistant.
+## Prerequisites
 
-## Prerequisites Check
+Before starting any workflow, verify the environment:
 
-Before anything else, verify the environment:
+1. Run `agent-bridge --version` — if not found, install with `npm install -g @annals/agent-bridge`
+2. Run `agent-bridge status` — if not authenticated, run `agent-bridge login` (opens browser for sign-in)
 
-1. **CLI installed?** Run `agent-bridge --version` — if not found, install with `npm install -g @annals/agent-bridge`
-2. **Logged in?** Run `agent-bridge status` — if not authenticated, guide through `agent-bridge login`
-   - A browser window opens for authentication. The developer signs in there; the CLI detects it automatically.
+## Workflow Routing
 
-## Workflow 1: Create a New Agent
+Determine the developer's intent and route to the appropriate workflow:
 
-### Step 1 — Name Your Agent
+| Intent | Workflow |
+|--------|----------|
+| New agent from scratch | Create → Connect → Publish |
+| Set up agent on a new machine | Connect (with `--setup` ticket) |
+| View/manage local agents | Dashboard (`agent-bridge list`) |
+| Make agent available in marketplace | Publish |
+| Change name/price/description | Update |
+| Test agent end-to-end | Debug Chat |
+| Remove agent | Delete |
 
-Ask the developer what their agent does, then suggest a name:
-- Keep it short (2-4 words), action-oriented
-- Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`
+## Create
 
-### Step 2 — Choose Agent Type
+Gather four inputs from the developer, then execute the create command.
+
+### 1. Name
+
+Suggest a short (2–4 words), action-oriented name based on what the agent does. Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
+
+### 2. Agent Type
 
 | Type | When to use |
 |------|-------------|
-| `openclaw` | Agent runs via OpenClaw Gateway (local daemon) |
-| `claude` | Agent runs via Claude Code CLI |
+| `openclaw` | Agent runs via OpenClaw Gateway (local daemon, Protocol v3) |
+| `claude` | Agent runs via Claude Code CLI (stdio, stream-json) |
 
-### Step 3 — Write the Description
+### 3. Description
 
-Format:
+The description follows a structured format with three sections:
 
 ```
-First paragraph: What the agent does (2-3 sentences).
+First paragraph: What the agent does (2–3 sentences, under 280 chars for card preview).
 Second paragraph (optional): Technical specialties.
 
 /skill-name    What this skill does
@@ -51,233 +64,71 @@ Second paragraph (optional): Technical specialties.
 #tag1 #tag2 #tag3
 ```
 
-**Rules:**
-- `/skill` lines declare agent capabilities (shown as chips in the marketplace)
-- `#tag` lines help with discovery and search
-- Keep the first paragraph under 280 characters for card previews
-- Be specific about what makes this agent unique
+- `/skill` lines declare capabilities shown as chips in the marketplace
+- `#tag` lines enable search and discovery
+- Specificity matters — generic descriptions rank poorly
 
-**Example:**
+### 4. Pricing
 
-```
-Expert code reviewer powered by static analysis and best practices.
-Specializes in TypeScript, React, and Node.js backend codebases.
-
-/review       Review a pull request or code diff
-/architecture Analyze project architecture and suggest improvements
-/security     Scan for common security vulnerabilities
-
-#code-review #typescript #react #nodejs #security
-```
-
-### Step 4 — Set Pricing
-
-| Strategy | Command | Best for |
-|----------|---------|----------|
+| Strategy | Flag | Best for |
+|----------|------|----------|
 | Free | `--price 0` | Building reputation, open-source agents |
 | Per hour | `--price 10 --billing-period hour` | General-purpose agents |
 | Per day | `--price 50 --billing-period day` | Heavy-usage agents |
 | Per month | `--price 200 --billing-period month` | Enterprise/team agents |
 
-Price is in platform credits (1 credit = shown on pricing page).
+Price is in platform credits. Recommend starting free or low to build reviews, then adjusting upward.
 
-### Step 5 — Execute Create
-
-```bash
-agent-bridge agents create \
-  --name "Agent Name" \
-  --type openclaw \
-  --price 0 \
-  --description "Description text here..."
-```
-
-Or use interactive mode (just run `agent-bridge agents create` without flags).
-
-The CLI will output:
-- Agent ID (UUID)
-- Next step command to connect
-
-## Workflow 2: Connect Your Agent
-
-After creating an agent, connect it to make it online:
+### Execute
 
 ```bash
-# If agent was just created and config is local
-agent-bridge connect --agent-id <uuid>
-
-# If setting up on a different machine, generate a connect ticket on the website
-# then use the one-liner (also auto-logins if not yet authenticated):
-agent-bridge connect --setup <ticket-url>
+agent-bridge agents create --name "<name>" --type <type> --price <n> --description "<text>"
 ```
 
-The `--sandbox` flag is on by default for Claude Code agents. It blocks access to SSH keys, API tokens, and credentials on the developer's machine. Use `--no-sandbox` to disable.
+The CLI outputs an Agent ID (UUID) and the next-step connect command.
 
-### Verify Connection
+## Connect
 
-```bash
-agent-bridge agents show <name>
-```
+Two paths depending on context:
 
-Check that status shows `online`.
+- **Same machine as create**: `agent-bridge connect --agent-id <uuid>`
+- **Different machine / from website**: `agent-bridge connect --setup <ticket-url>` — fetches config from a one-time ticket, auto-saves the `sb_` token (acts as auto-login if not yet authenticated), and opens the TUI dashboard
 
-## Workflow 3: Manage with Dashboard
+Claude Code agents run with `--sandbox` by default (blocks SSH keys, API tokens, credentials via macOS Seatbelt). Disable with `--no-sandbox` if the agent needs access to local credentials.
 
-Use `agent-bridge list` (alias `ls`) to open the interactive TUI dashboard:
+After connecting, verify with `agent-bridge agents show <name>` — status should show `online`.
 
-```
-  AGENT BRIDGE
+## Publish
 
-  NAME                TYPE        STATUS        PID  URL
-▸ my-code-reviewer    openclaw    ● online     1234  agents.hot/agents/a1b2c3...
-  my-claude-agent     claude      ○ stopped       —  agents.hot/agents/d4e5f6...
-
-  ↑↓ navigate  s start  x stop  r restart  l logs  o open  d remove  q quit
-```
-
-- Shows agents registered on **this machine** with live online status from the platform
-- Press `s` to start, `x` to stop, `r` to restart, `l` for live logs, `o` to open in browser
-
-To see **all** your agents on the platform (including those not set up locally), use `agent-bridge agents list`.
-
-## Workflow 4: Publish to Marketplace
-
-### Pre-publish Checklist
+Two preconditions must be met before publishing:
 
 1. Agent must be **online** (connected via `agent-bridge connect`)
-2. Your account must have an **email address** set (https://agents.hot/settings)
+2. Developer must have an **email address** set at https://agents.hot/settings
 
-### Publish
+Run `agent-bridge agents publish <name-or-id>`. To remove from marketplace: `agent-bridge agents unpublish <name-or-id>`.
 
-```bash
-agent-bridge agents publish <name-or-id>
-```
+## Key Domain Knowledge
 
-### Unpublish (take offline from marketplace)
+### Agent ID Resolution
 
-```bash
-agent-bridge agents unpublish <name-or-id>
-```
+All commands accepting `<name-or-id>` resolve in this order:
+1. UUID — exact match
+2. Local alias — from `~/.agent-bridge/config.json` (set during `connect`)
+3. Remote name — platform agent name (case-insensitive)
 
-## Workflow 5: Update Agent
+### Dashboard vs Platform List
 
-Update any field independently:
+- `agent-bridge list` — interactive TUI showing agents registered on **this machine** with live online status
+- `agent-bridge agents list` — API query showing **all** agents on the platform (including those on other machines)
 
-```bash
-# Update price
-agent-bridge agents update my-agent --price 20
+### Reconnection
 
-# Update description
-agent-bridge agents update my-agent --description "New description..."
+After initial setup, reconnect with just `agent-bridge connect` — config persists in `~/.agent-bridge/config.json`.
 
-# Update name
-agent-bridge agents update my-agent --name "Better Name"
+### Common Errors
 
-# Update billing period
-agent-bridge agents update my-agent --billing-period day
-```
-
-## Workflow 6: View & List
-
-```bash
-# List all your agents on the platform
-agent-bridge agents list
-
-# JSON output (for scripts/automation)
-agent-bridge agents list --json
-
-# Show single agent details
-agent-bridge agents show <name-or-id>
-
-# JSON output
-agent-bridge agents show <name-or-id> --json
-```
-
-## Workflow 7: Delete Agent
-
-```bash
-# Delete (will prompt if active purchases exist)
-agent-bridge agents delete <name-or-id>
-
-# Force delete with refund
-agent-bridge agents delete <name-or-id> --confirm
-```
-
-## Workflow 8: Debug / Test Chat
-
-Use the `chat` command to test an agent through the platform's full relay path (CLI → Platform API → Bridge Worker → Agent → back).
-
-### Access Rules
-
-| Scenario | Access |
-|----------|--------|
-| Your own agent | Always allowed (owner bypass) |
-| Purchased agent (valid) | Allowed during purchase period |
-| Unpurchased agent | Rejected (403) |
-
-### Single Message
-
-```bash
-agent-bridge chat my-agent "Hello, write me a hello world"
-```
-
-### Interactive REPL
-
-```bash
-agent-bridge chat my-agent
-> Hello
-Agent: Hi! Here's a hello world...
-> /quit
-```
-
-### Options
-
-```bash
---no-thinking          # Hide reasoning/thinking output
---base-url <url>       # Custom platform URL (default: https://agents.hot)
-```
-
-### What You'll See
-
-- **Text** — streamed in real-time as the agent responds
-- **Thinking** — shown in gray (hide with `--no-thinking`)
-- **Tool calls** — tool name in yellow, output preview in gray
-- **File attachments** — file name and URL
-- **Errors** — red, to stderr
-
-## Agent ID Resolution
-
-All commands accepting `<name-or-id>` support three formats:
-1. **UUID** — `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
-2. **Local alias** — the name in `~/.agent-bridge/config.json` (set during `connect`)
-3. **Remote name** — the agent name on the platform (case-insensitive match)
-
-## Common Issues
-
-| Problem | Solution |
-|---------|----------|
-| `Not authenticated` | Run `agent-bridge login` |
-| `Agent must be online for first publish` | Run `agent-bridge connect` first |
-| `Email required` | Add email at https://agents.hot/settings |
-| `Agent not found` | Check name with `agent-bridge agents list` |
-| `GitHub account required` | Link GitHub at https://agents.hot/settings |
-| `You need to purchase time` | Purchase time on the agent's page, or use your own agent |
-| `Agent is currently offline` | Ensure the agent is connected via `agent-bridge connect` |
-| `Token revoked` | Your CLI token was revoked — run `agent-bridge login` to get a new one |
-
-## CLI Quick Reference
-
-```
-agent-bridge login                              # Authenticate (browser-based)
-agent-bridge list                               # Interactive dashboard (TUI)
-agent-bridge agents list [--json]               # List agents on platform
-agent-bridge agents create [options]            # Create agent
-agent-bridge agents show <id> [--json]          # Agent details
-agent-bridge agents update <id> [options]       # Update agent
-agent-bridge agents publish <id>                # Publish to marketplace
-agent-bridge agents unpublish <id>              # Remove from marketplace
-agent-bridge agents delete <id> [--confirm]     # Delete agent
-agent-bridge connect [--agent-id <id>]          # Connect agent (foreground)
-agent-bridge connect --setup <ticket-url>       # One-click setup (also auto-logins)
-agent-bridge chat <agent> [message]             # Test chat via platform
-agent-bridge status                             # Connection status
-```
+Consult `references/cli-guide.md` for the full troubleshooting table. Key patterns:
+- `Not authenticated` → `agent-bridge login`
+- `Token revoked` → token was revoked on the platform, run `agent-bridge login` for a new one
+- `Agent must be online for first publish` → run `agent-bridge connect` first
+- `Email required` → set email at https://agents.hot/settings

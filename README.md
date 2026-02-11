@@ -277,7 +277,7 @@ pnpm lint             # Lint
 
 ## AI-Assisted Setup
 
-Copy the [agent-management skill guide](.claude/skills/agent-management/SKILL.md) into any AI assistant (Claude, ChatGPT, etc.) — it will walk you through creating, connecting, and publishing your agent step by step. Also available on [agents.hot/developers](https://agents.hot/developers) with a one-click "Copy Guide" button.
+Copy the [CLI guide](.claude/skills/agent-management/references/cli-guide.md) into any AI assistant (Claude, ChatGPT, etc.) — it will walk you through creating, connecting, and publishing your agent step by step. Also available on [agents.hot/developers](https://agents.hot/developers) with a one-click "Copy Guide" button.
 
 ## Documentation
 
