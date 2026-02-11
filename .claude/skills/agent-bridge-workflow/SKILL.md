@@ -203,50 +203,59 @@ Keep it focused — this file is read on every conversation turn.
 
 ### 4. Create agent-specific skills
 
-**⚠️ MANDATORY: Invoke `/skill-creator`** to create each skill listed in the agent's description. For every `/skill-name` line in the description, you must create a corresponding `SKILL.md` file in the agent's skills directory.
+**⚠️ DO NOT SKIP THIS STEP. DO NOT PROCEED TO CONNECT UNTIL ALL SKILLS ARE CREATED.**
+
+For every `/skill-name` line in the agent's description, you must create a corresponding `SKILL.md` file **inside the agent's folder**. Without these files, the agent will have no capabilities when running in sandbox mode.
 
 For each skill:
-1. Invoke `/skill-creator`
-2. Specify the target path: `~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/` (or `.agents/skills/` for universal agents)
-3. Follow the skill-creator's interactive flow to generate the SKILL.md
+1. If `/find-skills` found an existing community skill that fits → download its SKILL.md directly into the agent's skills directory
+2. Otherwise → invoke `/skill-creator` to generate a new SKILL.md
+3. Target path: `~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/SKILL.md` (or `.agents/skills/` for universal agents)
 
-If `/find-skills` found existing community skills that fit, download them directly instead of creating from scratch.
-
-Each skill lives in its own subfolder with a `SKILL.md` file:
+Each skill lives in its own subfolder:
 ```
 .claude/skills/          # or .agents/skills/
 ├── skill-a/
 │   └── SKILL.md
 └── skill-b/
-    ├── SKILL.md
-    └── references/      # optional supporting files
+    └── SKILL.md
 ```
 
-### Resulting folder structure
+### 5. Verify folder structure before proceeding
 
-**Claude Code agent**:
+**⚠️ STOP. Run `find <agent-folder> -type f` and verify that:**
+1. The instruction file exists (`CLAUDE.md` or `AGENTS.md`)
+2. Every `/skill-name` from the description has a matching `.claude/skills/<skill-name>/SKILL.md`
+
+Expected structure (**Claude Code agent**):
 ```
 ~/.agent-bridge/agents/<agent-name>/
 ├── CLAUDE.md
 └── .claude/
     └── skills/
-        └── <skill-name>/
+        ├── skill-a/
+        │   └── SKILL.md
+        └── skill-b/
             └── SKILL.md
 ```
 
-**Universal agent**:
+Expected structure (**Universal agent**):
 ```
 ~/.agent-bridge/agents/<agent-name>/
 ├── AGENTS.md
 └── .agents/
     └── skills/
-        └── <skill-name>/
+        ├── skill-a/
+        │   └── SKILL.md
+        └── skill-b/
             └── SKILL.md
 ```
 
-**After folder setup, immediately proceed to Connect.**
+If any skill is missing, go back and create it. **Do NOT proceed to Connect with an incomplete folder.**
 
 ## Connect
+
+**Pre-check**: Before connecting, confirm the agent folder has BOTH the instruction file AND all skill files. If you skipped "Set up Agent Folder → step 4", go back now — the agent will have no capabilities in sandbox mode without skills in its folder.
 
 **Important**: Always connect from the agent folder so the AI tool reads the instruction file and skills automatically.
 
