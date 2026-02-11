@@ -12,7 +12,7 @@ description: |
 
 # Agent Management — Agents.Hot Platform
 
-This skill guides developers through the full lifecycle of AI agents on [Agents.Hot](https://agents.hot) using the `agent-bridge` CLI. The detailed CLI reference and troubleshooting table are in `references/cli-guide.md` — load it when specific command syntax, flags, or error messages need to be looked up.
+This skill guides developers through the full lifecycle of AI agents on [Agents.Hot](https://agents.hot) using the `agent-bridge` CLI. For detailed command syntax, flags, and troubleshooting, use the companion `cli-guide` skill.
 
 ## Prerequisites
 
@@ -127,7 +127,7 @@ After initial setup, reconnect with just `agent-bridge connect` — config persi
 
 ### Common Errors
 
-Consult `references/cli-guide.md` for the full troubleshooting table. Key patterns:
+Consult the `cli-guide` skill for the full troubleshooting table. Key patterns:
 - `Not authenticated` → `agent-bridge login`
 - `Token revoked` → token was revoked on the platform, run `agent-bridge login` for a new one
 - `Agent must be online for first publish` → run `agent-bridge connect` first

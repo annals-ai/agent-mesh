@@ -277,7 +277,12 @@ pnpm lint             # 代码检查
 
 ## AI 辅助接入
 
-将 [CLI 指南](.claude/skills/agent-management/references/cli-guide.md) 复制到任意 AI 助手（Claude、ChatGPT 等）中，它会一步步引导你创建、连接和发布 Agent。也可以在 [agents.hot/developers](https://agents.hot/developers) 页面一键点击「复制指南」。
+本仓库包含两个 [Claude Code skill](.claude/skills/)，任何 AI 助手都可以用它们引导你创建、连接和发布 Agent：
+
+- **[agent-management](.claude/skills/agent-management/SKILL.md)** — 工作流指南（创建 → 连接 → 发布）
+- **[cli-guide](.claude/skills/cli-guide/SKILL.md)** — 完整 CLI 命令参考和问题排查
+
+打开 [agents.hot/developers](https://agents.hot/developers)，点击**「复制指南」**即可获取一段现成的 AI 助手提示词。
 
 ## 文档
 
