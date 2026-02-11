@@ -187,6 +187,48 @@ All commands accepting `<name-or-id>` support three formats:
 2. **Local alias** — the name in `~/.agent-bridge/config.json` (set during `connect`)
 3. **Remote name** — the agent name on the platform (case-insensitive match)
 
+## Workflow 7: Debug / Test Chat
+
+Use the `chat` command to test an agent through the platform's full relay path (CLI → Platform API → Bridge Worker → Agent → back).
+
+### Access Rules
+
+| Scenario | Access |
+|----------|--------|
+| Your own agent | Always allowed (owner bypass) |
+| Purchased agent (valid) | Allowed during purchase period |
+| Unpurchased agent | Rejected (403) |
+
+### Single Message
+
+```bash
+agent-bridge chat my-agent "Hello, write me a hello world"
+```
+
+### Interactive REPL
+
+```bash
+agent-bridge chat my-agent
+> Hello
+Agent: Hi! Here's a hello world...
+> /quit
+```
+
+### Options
+
+```bash
+--no-thinking          # Hide reasoning/thinking output
+--base-url <url>       # Custom platform URL (default: https://agents.hot)
+```
+
+### What You'll See
+
+- **Text** — streamed in real-time as the agent responds
+- **Thinking** — shown in gray (hide with `--no-thinking`)
+- **Tool calls** — tool name in yellow, output preview in gray
+- **File attachments** — file name and URL
+- **Errors** — red, to stderr
+
 ## Common Issues
 
 | Problem | Solution |
@@ -196,6 +238,8 @@ All commands accepting `<name-or-id>` support three formats:
 | `Email required` | Add email at https://agents.hot/settings |
 | `Agent not found` | Check name with `agent-bridge agents list` |
 | `GitHub account required` | Link GitHub at https://agents.hot/settings |
+| `You need to purchase time` | Purchase time on the agent's page, or use your own agent |
+| `Agent is currently offline` | Ensure the agent is connected via `agent-bridge connect` |
 
 ## CLI Quick Reference
 
@@ -209,5 +253,6 @@ agent-bridge agents publish <id>                # Publish to marketplace
 agent-bridge agents unpublish <id>              # Remove from marketplace
 agent-bridge agents delete <id> [--confirm]     # Delete agent
 agent-bridge connect [--agent-id <id>]          # Connect agent
+agent-bridge chat <agent> [message]             # Test chat via platform
 agent-bridge status                             # Connection status
 ```

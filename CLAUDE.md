@@ -136,10 +136,33 @@ agent-bridge connect [type]                  # 连接 Agent
   --gateway-token <token># OpenClaw Gateway token
   --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
 
+agent-bridge chat <agent> [message]          # 通过平台对话调试 Agent
+  --no-thinking          # 隐藏思考过程
+  --base-url <url>       # 平台地址 (默认 https://agents.hot)
+
+agent-bridge agents list [--json]            # 列出我的 Agent
+agent-bridge agents create [options]         # 创建 Agent
+agent-bridge agents show <id> [--json]       # 查看 Agent 详情
+agent-bridge agents update <id> [options]    # 更新 Agent
+agent-bridge agents publish <id>             # 发布到市场
+agent-bridge agents unpublish <id>           # 从市场下架
+agent-bridge agents delete <id> [--confirm]  # 删除 Agent
+
 agent-bridge status                          # 查看连接状态
 ```
 
 `type` 可选。省略时从保存的 config 读取 `defaultAgentType`。
+
+### chat 命令
+
+通过平台 API（`/api/agents/[id]/chat`）向 Agent 发消息，解析 SSE 流式响应。
+适用于开发者调试自己的 Agent 或测试已购买的 Agent。
+
+- **自己的 Agent** → owner bypass，跳过购买校验
+- **已购买的 Agent** → 有效期内正常使用
+- **未购买的 Agent** → 403 拒绝
+
+支持单条消息模式和交互式 REPL 模式（`/quit` 退出）。
 
 ## 平台集成（agents-hot 仓库）
 

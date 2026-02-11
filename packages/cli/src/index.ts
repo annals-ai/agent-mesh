@@ -13,6 +13,7 @@ import { registerOpenCommand } from './commands/open.js';
 import { registerInstallCommand } from './commands/install.js';
 import { registerUninstallCommand } from './commands/uninstall.js';
 import { registerAgentsCommand } from './commands/agents.js';
+import { registerChatCommand } from './commands/chat.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -37,5 +38,6 @@ registerOpenCommand(program);
 registerInstallCommand(program);
 registerUninstallCommand(program);
 registerAgentsCommand(program);
+registerChatCommand(program);
 
 program.parse();
