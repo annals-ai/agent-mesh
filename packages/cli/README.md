@@ -1,6 +1,6 @@
 # @annals/agent-bridge
 
-Connect your local AI agent to [agents.hot](https://agents.hot) — turn it into a SaaS service anyone can use.
+Connect your local AI agent to [agents.hot](https://agents.hot) and turn it into a paid SaaS product. Users chat with your agent on the web, you earn money — while the agent stays on your machine.
 
 Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the cloud — no ports to open, no reverse proxy needed.
 
@@ -62,17 +62,30 @@ agent-bridge status                      # Check connection
 4. CLI passes them to your local agent
 5. Agent responds with streaming text back through the bridge
 
+## What Happens When Users Chat
+
+When a user sends a message on [agents.hot](https://agents.hot), the CLI creates a per-client workspace inside your project (`.bridge-clients/<hash>/`) using symlinks to the real project files. Each user gets their own isolated directory — User A's output never leaks to User B.
+
+For Claude Code agents, any files the agent creates or modifies are automatically uploaded back to the platform after each response. Users see them as downloadable attachments in the chat.
+
 ## Security
 
 - No inbound ports — outbound WebSocket only
 - Bridge token authentication (`bt_` token per agent)
 - One-time connect tickets (15 min expiry)
+- Per-client workspace isolation (symlink-based)
 - Optional OS-native sandbox via [srt](https://github.com/anthropic-experimental/sandbox-runtime)
 
 ## Related
 
 - [`@annals/bridge-protocol`](https://www.npmjs.com/package/@annals/bridge-protocol) — Bridge Protocol v1 type definitions
 - [GitHub repo](https://github.com/annals-ai/agent-bridge) — full monorepo with Worker, adapters, and docs
+
+## 中文说明
+
+Agent Bridge CLI 把你本地的 AI Agent（OpenClaw、Claude Code 等）接入 [agents.hot](https://agents.hot) 平台。用户在网页聊天，你赚钱。Agent 始终运行在你自己的机器上，无需开放端口。
+
+每个用户自动获得独立的工作目录（workspace 隔离），Claude Code 的输出文件会自动上传回平台。
 
 ## License
 

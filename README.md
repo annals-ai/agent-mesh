@@ -1,6 +1,13 @@
 # Agent Bridge
 
-Connect your local AI agent to [agents.hot](https://agents.hot) — turn it into a SaaS service anyone can use.
+[![npm version](https://img.shields.io/npm/v/@annals/agent-bridge.svg)](https://www.npmjs.com/package/@annals/agent-bridge)
+[![npm downloads](https://img.shields.io/npm/dm/@annals/agent-bridge.svg)](https://www.npmjs.com/package/@annals/agent-bridge)
+[![GitHub stars](https://img.shields.io/github/stars/annals-ai/agent-bridge.svg?style=social)](https://github.com/annals-ai/agent-bridge)
+[![license](https://img.shields.io/github/license/annals-ai/agent-bridge.svg)](./LICENSE)
+
+[English](./README.md) | [中文](./README.zh-CN.md)
+
+Connect your local AI agent to [agents.hot](https://agents.hot) and turn it into a paid SaaS product. Users chat with your agent on the web, you earn money — while the agent stays on your machine.
 
 ```
   Your machine                          Cloud                         Users
@@ -18,7 +25,31 @@ Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the clo
 
 ## Quick Start
 
-### One-click setup (recommended)
+### CLI-first (recommended)
+
+```bash
+# Install
+npm install -g @annals/agent-bridge
+
+# Log in to agents.hot
+agent-bridge login
+
+# Create an agent
+agent-bridge agents create --name "Code Review Pro" --type openclaw --price 10
+# ✓ Agent created: Code Review Pro (a1b2c3...)
+#   Bridge token: bt_xxxxxxxxxx
+
+# Connect your agent
+agent-bridge connect --agent-id a1b2c3...
+# ✓ Connected to bridge.agents.hot
+# ✓ Agent is online — waiting for messages
+
+# Publish to marketplace
+agent-bridge agents publish code-review-pro
+# ✓ Agent published: Code Review Pro
+```
+
+### One-click setup (from web)
 
 1. Create an agent on [agents.hot/settings](https://agents.hot/settings)
 2. Click the **Connect** button — copy the command
@@ -28,23 +59,7 @@ Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the clo
 npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-Done. The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. The ticket is one-time use and expires in 15 minutes.
-
-### Manual setup
-
-```bash
-# Install globally
-npm install -g @annals/agent-bridge
-
-# Authenticate with the platform
-agent-bridge login
-
-# Connect an OpenClaw agent
-agent-bridge connect openclaw --agent-id <uuid>
-
-# Connect a Claude Code agent
-agent-bridge connect claude --agent-id <uuid> --project /path/to/project
-```
+The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. The ticket is one-time use and expires in 15 minutes.
 
 ### Reconnect
 
@@ -79,7 +94,37 @@ No API keys exposed. No ports opened. Your agent stays local.
 
 ## CLI Commands
 
+### Agent Management
+
 ```bash
+agent-bridge agents list [--json]        # List your agents on the platform
+agent-bridge agents create               # Create a new agent (interactive or flags)
+  --name <name>                          #   Agent name (required)
+  --type <type>                          #   openclaw | claude (default: openclaw)
+  --price <n>                            #   Price per period, 0 = free (default: 0)
+  --billing-period <period>              #   hour | day | week | month (default: hour)
+  --description <text>                   #   Agent description
+
+agent-bridge agents show <id> [--json]   # View agent details (includes bridge token)
+agent-bridge agents update <id>          # Update agent fields
+  --name <name>                          #   New name
+  --price <n>                            #   New price
+  --description <text>                   #   New description
+
+agent-bridge agents publish <id>         # Publish to marketplace
+agent-bridge agents unpublish <id>       # Remove from marketplace
+agent-bridge agents delete <id>          # Delete agent (prompts if active purchases)
+  --confirm                              #   Skip confirmation, refund active purchases
+```
+
+The `<id>` argument accepts a UUID, a local config alias, or an agent name (case-insensitive).
+
+### Connection & Auth
+
+```bash
+agent-bridge login                       # Authenticate with agents.hot
+agent-bridge status                      # Check connection status
+
 agent-bridge connect [type]              # Connect agent to platform
   --setup <url>                          #   One-click setup from ticket URL
   --agent-id <id>                        #   Agent UUID on agents.hot
@@ -89,10 +134,53 @@ agent-bridge connect [type]              # Connect agent to platform
   --bridge-url <url>                     #   Custom Bridge Worker URL
   --sandbox                              #   Run agent inside a sandbox (requires srt)
   --no-sandbox                           #   Disable sandbox
-
-agent-bridge login                       # Authenticate with agents.hot
-agent-bridge status                      # Check connection status
 ```
+
+## Workspace Isolation
+
+Each user gets their own workspace inside the project directory. The CLI creates a per-client directory filled with symlinks to the real project files:
+
+```
+/your-project/
+├── .bridge-clients/
+│   ├── a1b2c3d4e5f6/           ← User A
+│   │   ├── CLAUDE.md → ../../CLAUDE.md        (symlink)
+│   │   ├── src/ → ../../src/                  (symlink)
+│   │   ├── package.json → ../../package.json  (symlink)
+│   │   └── report.md                          (real file — agent output)
+│   └── f6e5d4c3b2a1/           ← User B
+│       ├── CLAUDE.md → ../../CLAUDE.md
+│       ├── src/ → ../../src/
+│       └── analysis.json                      (real file — agent output)
+├── src/
+├── CLAUDE.md
+└── package.json
+```
+
+The client ID is derived from the user's account (SHA-256 of userId, truncated to 12 hex chars). Same user always maps to the same workspace — persistent across chat sessions.
+
+How isolation works per agent type:
+
+| Agent | Isolation | How |
+|-------|-----------|-----|
+| Claude Code | **Hard** | Process spawned with `cwd` set to the client workspace. Combined with sandbox, the agent physically cannot access other workspaces. |
+| OpenClaw | **Soft** | Workspace path injected as a text prompt (`[WORKSPACE] Your working directory is: ...`). Agent compliance is advisory. |
+
+Excluded from symlinks: `.git`, `node_modules`, `.next`, `dist`, `build`, `.env`, and `.bridge-clients` itself.
+
+## Auto-upload
+
+When a Claude Code agent finishes processing a message, the CLI automatically uploads any new or modified files back to the platform.
+
+The mechanism:
+
+1. **Snapshot** — before each message, record `mtime` and `size` of every file in the workspace
+2. **Diff** — after the agent responds, compare current files against the snapshot
+3. **Upload** — new or changed files are uploaded to the platform (up to 50 files, 10 MB each)
+
+Users see these files as downloadable attachments in the chat UI on [agents.hot](https://agents.hot). The upload uses a one-time token generated per request.
+
+Auto-upload is currently supported for **Claude Code only**. OpenClaw agents don't support this — the agent itself would need to handle file output.
 
 ## Sandbox (Optional)
 
@@ -100,14 +188,13 @@ When you publish your agent as a SaaS service, remote users can send it arbitrar
 
 ### What the sandbox does
 
-- **Per-session isolation** — each user gets their own workspace via [git worktree](https://git-scm.com/docs/git-worktree), so User A's files never leak to User B
 - **Credential protection** — blocks reading API keys, tokens, and sensitive config files:
   - `~/.claude.json`, `~/.claude/projects`, `~/.claude/history.jsonl` (Claude Code)
   - `~/.openclaw`, `~/.agent-bridge` (agent configs)
   - `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.docker`, `~/.kube` (system credentials)
   - `~/.npmrc`, `~/.netrc`, `~/.gitconfig`, `~/.git-credentials` (tokens)
 - **Skills accessible** — `~/.claude/skills/` and `~/.claude/agents/` remain readable so agents can use their configured skills
-- **Limits writes** to the session workspace and `/tmp` only — not the original project
+- **Write scope** — the entire project directory (including all client workspaces) plus `/tmp`
 - **Blocks `.env` writes** to prevent secret exfiltration
 - **Network unrestricted** — agents can freely access the internet (no whitelist)
 - **Covers all child processes** — the agent can't escape by spawning subprocesses
@@ -128,22 +215,6 @@ To always run with sandbox enabled:
 # Edit ~/.agent-bridge/config.json
 { "sandbox": true, ... }
 ```
-
-### Session isolation
-
-When `--sandbox` is active with a `--project` pointing to a git repo, each chat session gets an isolated [git worktree](https://git-scm.com/docs/git-worktree):
-
-```
-/tmp/agent-bridge-sessions/
-├── session-aaa/    ← User A's isolated workspace (git worktree)
-├── session-bbb/    ← User B's isolated workspace (git worktree)
-└── ...
-```
-
-- **Git projects**: Each session is a detached worktree — shared git objects, independent working tree. Changes in one session are invisible to others.
-- **Non-git projects**: Each session gets a temp directory. The agent can read the shared project but writes are restricted to the session dir.
-
-Workspaces are cleaned up automatically when sessions end.
 
 ### Known limitations
 
@@ -185,6 +256,10 @@ pnpm lint             # Lint
 - [Bridge Protocol v1](docs/protocol.md)
 - Adapters: [OpenClaw](docs/adapters/openclaw.md) | [Claude Code](docs/adapters/claude-code.md)
 - Channels: [Telegram](docs/channels/telegram.md) | [Discord](docs/channels/discord.md)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-bridge&type=Date)](https://star-history.com/#annals-ai/agent-bridge&Date)
 
 ## License
 

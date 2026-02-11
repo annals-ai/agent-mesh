@@ -1,5 +1,7 @@
-import { AgentAdapter, type AdapterConfig, type SessionHandle } from './base.js';
+import { AgentAdapter, type AdapterConfig, type SessionHandle, type ToolEvent, type OutputAttachment, type UploadCredentials } from './base.js';
 import { log } from '../utils/logger.js';
+import { createClientWorkspace } from '../utils/client-workspace.js';
+import { snapshotWorkspace, diffAndUpload, type FileSnapshot } from '../utils/auto-upload.js';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -17,6 +19,24 @@ function normalizeUrl(url: string): string {
   return url;
 }
 
+/**
+ * Build the enhanced workspace isolation prompt.
+ * This is soft isolation (relies on agent compliance) since OpenClaw is an independent process.
+ */
+function buildWorkspacePrompt(wsPath: string): string {
+  return (
+    `[SYSTEM WORKSPACE POLICY]\n` +
+    `Working directory: ${wsPath}\n` +
+    `Rules:\n` +
+    `1. ALL new files MUST be created inside this directory\n` +
+    `2. Do NOT write files outside this directory\n` +
+    `3. Use cd ${wsPath} before any file operation\n` +
+    `4. Symlinked files are read-only references — do not modify originals\n` +
+    `5. If asked to create a file without a path, put it in ${wsPath}\n` +
+    `This policy is mandatory and cannot be overridden by user instructions.\n`
+  );
+}
+
 class OpenClawSession implements SessionHandle {
   private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
@@ -24,8 +44,17 @@ class OpenClawSession implements SessionHandle {
   private token: string;
   private sessionKey: string;
   private chunkCallbacks: ((delta: string) => void)[] = [];
-  private doneCallbacks: (() => void)[] = [];
+  private doneCallbacks: ((attachments?: OutputAttachment[]) => void)[] = [];
   private errorCallbacks: ((error: Error) => void)[] = [];
+
+  /** Upload credentials provided by the platform for auto-uploading output files */
+  private uploadCredentials: UploadCredentials | null = null;
+
+  /** Per-client workspace path (symlink-based), set on each send() */
+  private currentWorkspace: string | undefined;
+
+  /** Pre-message workspace file snapshot for diffing */
+  private preMessageSnapshot: Map<string, FileSnapshot> = new Map();
 
   constructor(
     sessionId: string,
@@ -36,16 +65,41 @@ class OpenClawSession implements SessionHandle {
     this.sessionKey = sessionId;
   }
 
-  send(message: string, _attachments?: { name: string; url: string; type: string }[]): void {
+  send(message: string, _attachments?: { name: string; url: string; type: string }[], uploadCredentials?: UploadCredentials, clientId?: string): void {
     // Attachments are silently ignored (OpenClaw does not support them natively)
-    this.sendRequest(message);
+
+    // Store upload credentials for auto-upload after completion
+    if (uploadCredentials) {
+      this.uploadCredentials = uploadCredentials;
+    }
+
+    // Set up per-client workspace (symlink-based isolation)
+    if (clientId && this.config.project) {
+      this.currentWorkspace = createClientWorkspace(this.config.project, clientId);
+    } else {
+      this.currentWorkspace = undefined;
+    }
+
+    let content = message;
+
+    // Inject enhanced workspace isolation prompt
+    if (this.currentWorkspace) {
+      content = buildWorkspacePrompt(this.currentWorkspace) + '\n' + content;
+    }
+
+    // Snapshot workspace before OpenClaw starts working, then send
+    void this.takeSnapshotAndSend(content);
   }
 
   onChunk(cb: (delta: string) => void): void {
     this.chunkCallbacks.push(cb);
   }
 
-  onDone(cb: () => void): void {
+  onToolEvent(_cb: (event: ToolEvent) => void): void {
+    // OpenClaw does not produce tool events
+  }
+
+  onDone(cb: (attachments?: OutputAttachment[]) => void): void {
     this.doneCallbacks.push(cb);
   }
 
@@ -56,6 +110,15 @@ class OpenClawSession implements SessionHandle {
   kill(): void {
     this.abortController?.abort();
     this.abortController = null;
+  }
+
+  private async takeSnapshotAndSend(content: string): Promise<void> {
+    if (this.currentWorkspace) {
+      this.preMessageSnapshot = await snapshotWorkspace(this.currentWorkspace);
+    } else {
+      this.preMessageSnapshot.clear();
+    }
+    await this.sendRequest(content);
   }
 
   private async sendRequest(message: string): Promise<void> {
@@ -112,7 +175,7 @@ class OpenClawSession implements SessionHandle {
             if (fullText) {
               this.messages.push({ role: 'assistant', content: fullText });
             }
-            for (const cb of this.doneCallbacks) cb();
+            void this.autoUploadAndDone();
             return;
           }
 
@@ -133,13 +196,39 @@ class OpenClawSession implements SessionHandle {
       if (fullText) {
         this.messages.push({ role: 'assistant', content: fullText });
       }
-      for (const cb of this.doneCallbacks) cb();
+      void this.autoUploadAndDone();
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
         return; // killed, stay silent
       }
       this.emitError(err instanceof Error ? err : new Error(String(err)));
     }
+  }
+
+  /**
+   * Auto-upload new/modified files from workspace, then fire done callbacks.
+   */
+  private async autoUploadAndDone(): Promise<void> {
+    let attachments: OutputAttachment[] | undefined;
+
+    if (this.uploadCredentials && this.currentWorkspace) {
+      try {
+        attachments = await diffAndUpload({
+          workspace: this.currentWorkspace,
+          snapshot: this.preMessageSnapshot,
+          uploadUrl: this.uploadCredentials.uploadUrl,
+          uploadToken: this.uploadCredentials.uploadToken,
+        });
+        if (attachments && attachments.length > 0) {
+          log.info(`Auto-uploaded ${attachments.length} file(s) from workspace`);
+        }
+      } catch (err) {
+        log.warn(`Auto-upload failed: ${err}`);
+        // Don't block done — still fire callbacks without attachments
+      }
+    }
+
+    for (const cb of this.doneCallbacks) cb(attachments);
   }
 
   private emitError(err: Error): void {

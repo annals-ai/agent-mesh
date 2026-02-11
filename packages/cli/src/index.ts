@@ -10,6 +10,9 @@ import { registerRestartCommand } from './commands/restart.js';
 import { registerLogsCommand } from './commands/logs.js';
 import { registerRemoveCommand } from './commands/remove.js';
 import { registerOpenCommand } from './commands/open.js';
+import { registerInstallCommand } from './commands/install.js';
+import { registerUninstallCommand } from './commands/uninstall.js';
+import { registerAgentsCommand } from './commands/agents.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -31,5 +34,8 @@ registerRestartCommand(program);
 registerLogsCommand(program);
 registerRemoveCommand(program);
 registerOpenCommand(program);
+registerInstallCommand(program);
+registerUninstallCommand(program);
+registerAgentsCommand(program);
 
 program.parse();

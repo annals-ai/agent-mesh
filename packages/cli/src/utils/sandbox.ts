@@ -28,18 +28,18 @@ const SENSITIVE_PATHS: string[] = [
   '~/.config/gcloud',
   '~/.azure',
   '~/.kube',
-  // Claude Code — fine-grained: block credentials & privacy, allow skills/agents
-  '~/.claude.json',              // API key
+  // Claude Code — fine-grained: block privacy-sensitive data, allow operational config
+  // NOT blocked (Claude Code needs these to function):
+  //   ~/.claude.json        — API provider config, model settings (Claude Code reads on startup)
+  //   ~/.claude/settings.json — model preferences, provider config
+  //   ~/.claude/skills/     — skill code & prompts
+  //   ~/.claude/agents/     — custom agent definitions
+  //   ~/.claude/commands/   — custom commands
+  //   ~/.claude/hooks/      — event hooks
   '~/.claude/projects',          // per-project memory (may contain secrets from other projects)
   '~/.claude/history.jsonl',     // conversation history (privacy)
-  '~/.claude/settings.json',     // may contain sensitive config
   '~/.claude/sessions',          // session data
   '~/.claude/ide',               // IDE integration data
-  // NOT blocked (needed for functionality):
-  //   ~/.claude/skills/    — skill code & prompts
-  //   ~/.claude/agents/    — custom agent definitions
-  //   ~/.claude/commands/  — custom commands
-  //   ~/.claude/hooks/     — event hooks
   // Other AI agent configs (contain API keys / tokens)
   '~/.openclaw',
   '~/.agent-bridge',

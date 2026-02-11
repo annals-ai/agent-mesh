@@ -14,12 +14,21 @@ export interface Register {
   capabilities: string[];
 }
 
-/** Incremental text chunk from agent */
+/** Chunk kind — determines how the chunk is handled by the platform */
+export type ChunkKind = 'text' | 'tool_start' | 'tool_input' | 'tool_result' | 'thinking' | 'status';
+
+/** Incremental chunk from agent (text or tool activity) */
 export interface Chunk {
   type: 'chunk';
   session_id: string;
   request_id: string;
   delta: string;
+  /** Chunk kind. Omitted or 'text' = normal text content. */
+  kind?: ChunkKind;
+  /** Tool name (e.g. 'Write', 'Bash') — present when kind is tool_* */
+  tool_name?: string;
+  /** Unique tool call ID — groups tool_start/tool_input/tool_result */
+  tool_call_id?: string;
 }
 
 /** Agent finished responding */
@@ -27,6 +36,8 @@ export interface Done {
   type: 'done';
   session_id: string;
   request_id: string;
+  /** Files produced by the agent during this request (auto-uploaded from workspace) */
+  attachments?: Attachment[];
 }
 
 /** Agent encountered an error */
@@ -66,6 +77,12 @@ export interface Message {
   request_id: string;
   content: string;
   attachments: Attachment[];
+  /** Upload endpoint for agent to auto-upload workspace output files */
+  upload_url?: string;
+  /** One-time token for authenticating uploads */
+  upload_token?: string;
+  /** Stable client identifier for per-client workspace isolation */
+  client_id?: string;
 }
 
 /** Cancel an in-progress request */
@@ -102,16 +119,27 @@ export interface RelayRequest {
   request_id: string;
   content: string;
   attachments?: Attachment[];
+  /** Upload endpoint for agent to auto-upload workspace output files */
+  upload_url?: string;
+  /** One-time token for authenticating uploads */
+  upload_token?: string;
+  /** Stable client identifier for per-client workspace isolation */
+  client_id?: string;
 }
 
 /** SSE event from relay endpoint */
 export interface RelayChunkEvent {
   type: 'chunk';
   delta: string;
+  kind?: ChunkKind;
+  tool_name?: string;
+  tool_call_id?: string;
 }
 
 export interface RelayDoneEvent {
   type: 'done';
+  /** Files produced by the agent during this request */
+  attachments?: Attachment[];
 }
 
 export interface RelayErrorEvent {
@@ -120,4 +148,9 @@ export interface RelayErrorEvent {
   message: string;
 }
 
-export type RelayEvent = RelayChunkEvent | RelayDoneEvent | RelayErrorEvent;
+/** Periodic keepalive forwarded from agent heartbeat — resets platform timeout */
+export interface RelayKeepaliveEvent {
+  type: 'keepalive';
+}
+
+export type RelayEvent = RelayChunkEvent | RelayDoneEvent | RelayErrorEvent | RelayKeepaliveEvent;

@@ -6,10 +6,32 @@ export interface AdapterConfig {
   sandboxEnabled?: boolean;
 }
 
+export type ToolEventKind = 'tool_start' | 'tool_input' | 'tool_result' | 'thinking' | 'status';
+
+export interface ToolEvent {
+  kind: ToolEventKind;
+  tool_name: string;
+  tool_call_id: string;
+  /** JSON fragment for tool_input, result text for tool_result */
+  delta: string;
+}
+
+export interface OutputAttachment {
+  name: string;
+  url: string;
+  type: string;
+}
+
+export interface UploadCredentials {
+  uploadUrl: string;
+  uploadToken: string;
+}
+
 export interface SessionHandle {
-  send(message: string, attachments?: { name: string; url: string; type: string }[]): void;
+  send(message: string, attachments?: { name: string; url: string; type: string }[], uploadCredentials?: UploadCredentials, clientId?: string): void;
   onChunk(cb: (delta: string) => void): void;
-  onDone(cb: () => void): void;
+  onToolEvent(cb: (event: ToolEvent) => void): void;
+  onDone(cb: (attachments?: OutputAttachment[]) => void): void;
   onError(cb: (error: Error) => void): void;
   kill(): void;
 }

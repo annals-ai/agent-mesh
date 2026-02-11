@@ -194,7 +194,7 @@ export function registerConnectCommand(program: Command): void {
         opts.gatewayUrl = opts.gatewayUrl || entry.gatewayUrl;
         opts.gatewayToken = opts.gatewayToken || entry.gatewayToken;
         opts.project = opts.project || entry.projectPath;
-        if (opts.sandbox === undefined && entry.sandbox) opts.sandbox = entry.sandbox;
+        if (opts.sandbox === undefined && entry.sandbox !== undefined) opts.sandbox = entry.sandbox;
         bridgeToken = entry.bridgeToken;
       }
 
@@ -208,7 +208,7 @@ export function registerConnectCommand(program: Command): void {
       const bridgeUrl = opts.bridgeUrl || DEFAULT_BRIDGE_URL;
 
       // Sandbox
-      const sandboxEnabled = opts.sandbox ?? false;
+      const sandboxEnabled = opts.sandbox ?? true;
       if (sandboxEnabled) {
         const ok = await initSandbox(agentType);
         if (!ok) {
@@ -314,8 +314,7 @@ export function registerConnectCommand(program: Command): void {
       });
 
       wsClient.on('reconnect', () => {
-        manager.stop();
-        manager.start();
+        manager.reconnect();
       });
     });
 }

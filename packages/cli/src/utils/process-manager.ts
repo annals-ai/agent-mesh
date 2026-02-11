@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import {
   readFileSync, writeFileSync, unlinkSync, readdirSync,
   statSync, renameSync, openSync, closeSync,
@@ -87,6 +87,42 @@ export function rotateLogIfNeeded(name: string): void {
   }
 }
 
+// --- Login shell env ---
+
+/**
+ * Get environment variables from the user's login shell.
+ * Ensures vars set in .zshrc/.bash_profile are available to background processes,
+ * even when agent-bridge is started from a non-interactive SSH session.
+ */
+let _loginEnvCache: Record<string, string> | null = null;
+
+export function getLoginShellEnv(): Record<string, string> {
+  if (_loginEnvCache) return _loginEnvCache;
+  try {
+    const shell = process.env.SHELL || '/bin/zsh';
+    // Use interactive login shell (-li) to source both .zprofile AND .zshrc.
+    // Fallback: explicit source for shells that don't support -i in script mode.
+    const isZsh = shell.endsWith('/zsh');
+    const cmd = isZsh
+      ? `${shell} -c 'source ~/.zshrc 2>/dev/null; env'`
+      : `${shell} -li -c env`;
+    const output = execSync(cmd, {
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const env: Record<string, string> = {};
+    for (const line of output.split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    _loginEnvCache = env;
+    return env;
+  } catch {
+    return {};
+  }
+}
+
 // --- Background process ---
 
 export function spawnBackground(name: string, entry: AgentEntry, platformToken?: string): number {
@@ -107,8 +143,29 @@ export function spawnBackground(name: string, entry: AgentEntry, platformToken?:
   if (entry.projectPath)  args.push('--project', entry.projectPath);
   if (entry.sandbox)      args.push('--sandbox');
 
-  const env: Record<string, string> = { ...process.env } as Record<string, string>;
+  // Merge login shell env → process.env → our explicit vars
+  // This ensures vars from .zshrc (like ANTHROPIC_API_KEY) are available
+  // even when started from non-interactive SSH sessions or LaunchAgents
+  const loginEnv = getLoginShellEnv();
+
+  // Build env: loginEnv as base, process.env overrides (except PATH which merges)
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(loginEnv)) {
+    if (v !== undefined) env[k] = v;
+  }
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && k !== 'PATH') env[k] = v;
+  }
   env.AGENT_BRIDGE_TOKEN = entry.bridgeToken;
+
+  // Merge PATH: combine loginEnv PATH + process.env PATH + common locations
+  // This prevents non-interactive SSH's minimal PATH from overwriting loginEnv's full PATH
+  const pathSet = new Set<string>();
+  for (const src of [loginEnv.PATH, process.env.PATH, '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin']) {
+    if (src) for (const p of src.split(':')) { if (p) pathSet.add(p); }
+  }
+  env.PATH = [...pathSet].join(':');
+
   if (platformToken) env.AGENT_BRIDGE_PLATFORM_TOKEN = platformToken;
 
   const child = spawn(process.execPath, args, {

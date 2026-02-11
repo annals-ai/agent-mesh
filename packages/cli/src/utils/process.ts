@@ -1,6 +1,36 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { buildCommandString, wrapWithSandbox, type SandboxFilesystemConfig } from './sandbox.js';
 
+const SANDBOX_ENV_PASSTHROUGH_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_MODEL',
+  'HAPPY_CLAUDE_PATH',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+] as const;
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export function applySandboxEnv(command: string, env: NodeJS.ProcessEnv = process.env): string {
+  const assignments: string[] = [];
+
+  for (const key of SANDBOX_ENV_PASSTHROUGH_KEYS) {
+    const value = env[key];
+    if (typeof value === 'string' && value.length > 0) {
+      assignments.push(`${key}=${shellQuote(value)}`);
+    }
+  }
+
+  if (assignments.length === 0) {
+    return command;
+  }
+
+  return `${assignments.join(' ')} ${command}`;
+}
+
 export interface SpawnResult {
   child: ChildProcess;
   stdout: NodeJS.ReadableStream;
@@ -27,7 +57,8 @@ export async function spawnAgent(
   let finalArgs: string[];
 
   if (sandboxEnabled) {
-    const cmdString = buildCommandString(command, args);
+    const rawCommand = buildCommandString(command, args);
+    const cmdString = applySandboxEnv(rawCommand);
     const wrapped = await wrapWithSandbox(cmdString, sandboxFilesystem);
 
     if (wrapped) {

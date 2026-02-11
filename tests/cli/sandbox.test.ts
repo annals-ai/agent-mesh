@@ -67,8 +67,8 @@ describe('getSandboxPreset', () => {
     const preset = sandboxModule.getSandboxPreset('claude');
     const criticalPaths = [
       '~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud',
-      '~/.openclaw', '~/.claude.json', '~/.claude/projects',
-      '~/.claude/history.jsonl', '~/.claude/settings.json',
+      '~/.openclaw', '~/.claude/projects',
+      '~/.claude/history.jsonl',
       '~/.agent-bridge', '~/.docker', '~/.npmrc', '~/.gitconfig',
       '~/.netrc', '~/Library/Keychains',
     ];

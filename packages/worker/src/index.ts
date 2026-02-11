@@ -6,6 +6,7 @@
  *   GET  /health                   → Health check
  *   GET  /api/agents/:id/status    → Agent online status (via DO)
  *   POST /api/relay                → Relay message to agent (via DO)
+ *   POST /api/cancel               → Cancel session on agent (via DO)
  *
  * Architecture:
  *   Each agent gets a Durable Object (AgentSession) keyed by agent_id.
@@ -71,6 +72,31 @@ export default {
       const id = env.AGENT_SESSIONS.idFromName(agentId);
       const stub = env.AGENT_SESSIONS.get(id);
       return stub.fetch(new Request(`${url.origin}/status`));
+    }
+
+    // Cancel session — route to Durable Object
+    if (path === '/api/cancel' && request.method === 'POST') {
+      let body: { agent_id?: string };
+      try {
+        body = await request.clone().json() as typeof body;
+      } catch {
+        return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+      }
+
+      if (!body.agent_id) {
+        return json(400, { error: 'invalid_message', message: 'Missing agent_id' });
+      }
+      if (!isValidAgentId(body.agent_id)) {
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+      }
+
+      const id = env.AGENT_SESSIONS.idFromName(body.agent_id);
+      const stub = env.AGENT_SESSIONS.get(id);
+      return stub.fetch(new Request(`${url.origin}/cancel`, {
+        method: 'POST',
+        headers: request.headers,
+        body: request.body,
+      }));
     }
 
     // Relay — route to Durable Object

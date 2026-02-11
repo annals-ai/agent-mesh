@@ -8,7 +8,7 @@ import type {
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED } from '@annals/bridge-protocol';
 import { log } from '../utils/logger.js';
 
-const HEARTBEAT_INTERVAL = 30_000;
+const HEARTBEAT_INTERVAL = 20_000;
 const INITIAL_RECONNECT_DELAY = 1_000;
 const MAX_RECONNECT_DELAY = 30_000;
 
@@ -29,6 +29,7 @@ export class BridgeWSClient extends EventEmitter {
   private activeSessions = 0;
   private intentionalClose = false;
   private registered = false;
+  private sendWarnSuppressed = false;
 
   private opts: BridgeWSClientOptions;
 
@@ -129,9 +130,14 @@ export class BridgeWSClient extends EventEmitter {
 
   send(msg: BridgeToWorkerMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.sendWarnSuppressed = false;
       this.ws.send(JSON.stringify(msg));
     } else {
-      log.warn('Cannot send: WebSocket not connected');
+      // Log once per disconnection to avoid spamming when chunks arrive rapidly
+      if (!this.sendWarnSuppressed) {
+        log.warn('Cannot send: WebSocket not connected (suppressing further warnings until reconnect)');
+        this.sendWarnSuppressed = true;
+      }
     }
   }
 
@@ -163,11 +169,16 @@ export class BridgeWSClient extends EventEmitter {
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
+      // Application-level heartbeat (tracked by DO for online status)
       this.send({
         type: 'heartbeat',
         active_sessions: this.activeSessions,
         uptime_ms: Date.now() - this.startTime,
       });
+      // WS-level ping keeps the TCP connection alive through proxies/LBs
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try { this.ws.ping(); } catch {}
+      }
     }, HEARTBEAT_INTERVAL);
   }
 

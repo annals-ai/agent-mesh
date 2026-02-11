@@ -22,10 +22,10 @@ import type {
   Attachment,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED } from '@annals/bridge-protocol';
-import { ContentScanner } from './content-scanner.js';
 
 const MAX_PENDING_RELAYS = 10;
-const HEARTBEAT_TIMEOUT_MS = 60_000;  // 2x CLI heartbeat interval (30s)
+const HEARTBEAT_TIMEOUT_MS = 50_000;  // 2.5x CLI heartbeat interval (20s)
+const RELAY_TIMEOUT_MS = 120_000;     // 120s without any chunk or heartbeat = dead
 
 interface PendingRelay {
   controller: ReadableStreamDefaultController<string>;
@@ -41,7 +41,6 @@ export class AgentSession implements DurableObject {
   private lastHeartbeat = '';
   private activeSessions = 0;
   private agentId = '';
-  private scanner: ContentScanner | null = null;
 
   private pendingRelays = new Map<string, PendingRelay>();
 
@@ -49,14 +48,6 @@ export class AgentSession implements DurableObject {
     private state: DurableObjectState,
     private env: { SUPABASE_URL: string; SUPABASE_SERVICE_KEY: string; PLATFORM_SECRET: string; BRIDGE_KV: KVNamespace }
   ) {}
-
-  /** Lazily initialize ContentScanner (loads rules from KV on first use) */
-  private async getScanner(): Promise<ContentScanner> {
-    if (!this.scanner) {
-      this.scanner = await ContentScanner.fromKV(this.env.BRIDGE_KV);
-    }
-    return this.scanner;
-  }
 
   // ========================================================
   // HTTP fetch handler — dispatches WebSocket upgrades and relay
@@ -76,6 +67,11 @@ export class AgentSession implements DurableObject {
     // Relay message from platform
     if (url.pathname === '/relay' && request.method === 'POST') {
       return this.handleRelay(request);
+    }
+
+    // Cancel session from platform
+    if (url.pathname === '/cancel' && request.method === 'POST') {
+      return this.handleCancel(request);
     }
 
     // Status check
@@ -180,6 +176,7 @@ export class AgentSession implements DurableObject {
           this.lastHeartbeat = new Date().toISOString();
           this.activeSessions = msg.active_sessions;
           this.scheduleHeartbeatAlarm();
+          this.keepaliveAllRelays();
           break;
 
         case 'chunk':
@@ -212,7 +209,7 @@ export class AgentSession implements DurableObject {
       return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
     }
 
-    let body: { session_id: string; request_id: string; content: string; attachments?: Attachment[] };
+    let body: { session_id: string; request_id: string; content: string; attachments?: Attachment[]; upload_url?: string; upload_token?: string; client_id?: string };
     try {
       body = await request.json() as typeof body;
     } catch {
@@ -227,13 +224,16 @@ export class AgentSession implements DurableObject {
       return json(429, { error: 'too_many_requests', message: 'Agent has too many pending requests' });
     }
 
-    // Send message to agent via WebSocket
+    // Send message to agent via WebSocket (include upload creds if provided)
     const message: Message = {
       type: 'message',
       session_id: body.session_id,
       request_id: body.request_id,
       content: body.content,
       attachments: body.attachments ?? [],
+      ...(body.upload_url && { upload_url: body.upload_url }),
+      ...(body.upload_token && { upload_token: body.upload_token }),
+      ...(body.client_id && { client_id: body.client_id }),
     };
 
     try {
@@ -248,24 +248,15 @@ export class AgentSession implements DurableObject {
 
     const stream = new ReadableStream<Uint8Array>({
       start: (controller) => {
-        const timer = setTimeout(() => {
-          try {
-            const event = JSON.stringify({ type: 'error', code: 'timeout', message: 'Agent did not respond within 120 seconds' });
-            controller.enqueue(encoder.encode(`data: ${event}\n\n`));
-            controller.close();
-          } catch {}
-          this.pendingRelays.delete(requestId);
-        }, 120_000);
+        const wrappedController = {
+          enqueue: (chunk: string) => controller.enqueue(encoder.encode(chunk)),
+          close: () => controller.close(),
+          error: (e: unknown) => controller.error(e),
+        } as unknown as ReadableStreamDefaultController<string>;
 
-        // Store the controller with a wrapper that encodes strings
-        this.pendingRelays.set(requestId, {
-          controller: {
-            enqueue: (chunk: string) => controller.enqueue(encoder.encode(chunk)),
-            close: () => controller.close(),
-            error: (e: unknown) => controller.error(e),
-          } as unknown as ReadableStreamDefaultController<string>,
-          timer,
-        });
+        const timer = this.createRelayTimeout(requestId);
+
+        this.pendingRelays.set(requestId, { controller: wrappedController, timer });
       },
       cancel: () => {
         const pending = this.pendingRelays.get(requestId);
@@ -291,6 +282,41 @@ export class AgentSession implements DurableObject {
     });
   }
 
+  private async handleCancel(request: Request): Promise<Response> {
+    if (!this.ws || !this.authenticated) {
+      return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
+    }
+
+    let body: { session_id: string; request_id?: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+    }
+
+    if (!body.session_id) {
+      return json(400, { error: 'invalid_message', message: 'Missing session_id' });
+    }
+
+    const requestId = body.request_id || crypto.randomUUID();
+
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'cancel',
+        session_id: body.session_id,
+        request_id: requestId,
+      }));
+    } catch {
+      return json(502, { error: 'agent_offline', message: 'Failed to send cancel to agent' });
+    }
+
+    return json(200, {
+      success: true,
+      session_id: body.session_id,
+      request_id: requestId,
+    });
+  }
+
   // ========================================================
   // Agent message routing (chunk/done/error → SSE)
   // ========================================================
@@ -304,14 +330,28 @@ export class AgentSession implements DurableObject {
 
     try {
       if (msg.type === 'chunk') {
-        // ContentScanner: scan agent output before relaying to user
-        const scanner = await this.getScanner();
-        const scannedDelta = scanner.scan((msg as Chunk).delta);
+        // Reset timeout on every chunk (prevents timeout during long tasks)
+        clearTimeout(timer);
+        pending.timer = this.createRelayTimeout(msg.request_id);
 
-        const event = JSON.stringify({ type: 'chunk', delta: scannedDelta });
+        const chunk = msg as Chunk;
+
+        const delta = chunk.delta;
+
+        const event = JSON.stringify({
+          type: 'chunk',
+          delta,
+          ...(chunk.kind && { kind: chunk.kind }),
+          ...(chunk.tool_name && { tool_name: chunk.tool_name }),
+          ...(chunk.tool_call_id && { tool_call_id: chunk.tool_call_id }),
+        });
         controller.enqueue(`data: ${event}\n\n`);
       } else if (msg.type === 'done') {
-        controller.enqueue(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        const doneMsg = msg as Done;
+        const doneEvent = doneMsg.attachments && doneMsg.attachments.length > 0
+          ? { type: 'done', attachments: doneMsg.attachments }
+          : { type: 'done' };
+        controller.enqueue(`data: ${JSON.stringify(doneEvent)}\n\n`);
         clearTimeout(timer);
         this.pendingRelays.delete(msg.request_id);
         controller.close();
@@ -462,6 +502,39 @@ export class AgentSession implements DurableObject {
       await this.state.storage.delete('agentId');
       await this.updatePlatformStatus(storedAgentId, false);
       try { await this.env.BRIDGE_KV.delete(`agent:${storedAgentId}`); } catch {}
+    }
+  }
+
+  // ========================================================
+  // Relay keepalive (forward CLI heartbeat to all pending SSE streams)
+  // ========================================================
+  private createRelayTimeout(requestId: string): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
+      const pending = this.pendingRelays.get(requestId);
+      if (!pending) return;
+      try {
+        const event = JSON.stringify({ type: 'error', code: 'timeout', message: `Agent did not respond within ${RELAY_TIMEOUT_MS / 1000} seconds` });
+        pending.controller.enqueue(`data: ${event}\n\n`);
+        pending.controller.close();
+      } catch {}
+      this.pendingRelays.delete(requestId);
+    }, RELAY_TIMEOUT_MS);
+  }
+
+  private keepaliveAllRelays(): void {
+    const keepaliveData = `data: ${JSON.stringify({ type: 'keepalive' })}\n\n`;
+    for (const [requestId, pending] of this.pendingRelays) {
+      try {
+        // Reset timeout — agent is still alive
+        clearTimeout(pending.timer);
+        pending.timer = this.createRelayTimeout(requestId);
+        // Send keepalive to platform
+        pending.controller.enqueue(keepaliveData);
+      } catch {
+        // Stream already closed, clean up
+        clearTimeout(pending.timer);
+        this.pendingRelays.delete(requestId);
+      }
     }
   }
 

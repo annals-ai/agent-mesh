@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
+import { EventEmitter } from 'node:events';
 
 // Mock modules before importing
 vi.mock('../../packages/cli/src/utils/process.js', () => ({
@@ -90,6 +92,110 @@ describe('ClaudeAdapter', () => {
 
     adapter.destroySession('session-1');
     adapter.destroySession('non-existent');
+  });
+
+  it('should include project path and claude runtime paths in sandbox write scope', async () => {
+    const { spawnAgent } = await import('../../packages/cli/src/utils/process.js');
+    vi.mocked(spawnAgent).mockClear();
+    const { ClaudeAdapter } = await import('../../packages/cli/src/adapters/claude.js');
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const stdin = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & { kill: () => void };
+    child.kill = vi.fn();
+
+    vi.mocked(spawnAgent).mockResolvedValue({
+      child: child as never,
+      stdout,
+      stderr,
+      stdin,
+      kill: vi.fn(),
+    });
+
+    const adapter = new ClaudeAdapter({ project: '/workspace' });
+    const session = adapter.createSession('session-sandbox', { sandboxEnabled: true });
+
+    // send without clientId — cwd should be project path
+    session.send('hello');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(spawnAgent).toHaveBeenCalled();
+
+    const options = vi.mocked(spawnAgent).mock.calls[0][2] as {
+      sandboxFilesystem?: { allowWrite?: string[] };
+      cwd?: string;
+    };
+
+    // Without clientId, cwd is the project path
+    expect(options?.cwd).toBe('/workspace');
+
+    // allowWrite should include the project path (not a temp workspace)
+    expect(options?.sandboxFilesystem?.allowWrite).toEqual(expect.arrayContaining(['/workspace']));
+    expect(options?.sandboxFilesystem?.allowWrite).toEqual(expect.arrayContaining(['/tmp']));
+    expect(options?.sandboxFilesystem?.allowWrite?.some((item) => item.endsWith('/.claude'))).toBe(true);
+    expect(options?.sandboxFilesystem?.allowWrite?.some((item) => item.endsWith('/.claude.json'))).toBe(true);
+
+    adapter.destroySession('session-sandbox');
+  });
+
+  it('should upload workspace files directly for platform collect task', async () => {
+    const { spawnAgent } = await import('../../packages/cli/src/utils/process.js');
+    vi.mocked(spawnAgent).mockClear();
+    const { ClaudeAdapter } = await import('../../packages/cli/src/adapters/claude.js');
+    const { mkdtemp, mkdir, rm, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'bridge-collect-'));
+    const originalFetch = globalThis.fetch;
+
+    try {
+      await mkdir(join(tempDir, 'nested'), { recursive: true });
+      await writeFile(join(tempDir, 'root.txt'), 'root-file');
+      await writeFile(join(tempDir, 'nested', 'child.txt'), 'child-file');
+
+      const uploadedNames: string[] = [];
+      const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        const payload = JSON.parse(String(init?.body || '{}')) as { filename?: string };
+        if (payload.filename) uploadedNames.push(payload.filename);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ url: `https://files.agents.hot/mock/${uploadedNames.length}` }),
+        } as unknown as Response;
+      });
+      globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+      const adapter = new ClaudeAdapter({ project: tempDir });
+      const session = adapter.createSession('session-collect', {});
+
+      const chunks: string[] = [];
+      const donePromise = new Promise<void>((resolve) => session.onDone(resolve));
+      session.onChunk((delta) => chunks.push(delta));
+
+      const platformTaskMessage = [
+        '[PLATFORM TASK]',
+        'Collect files task (platform-issued):',
+        'UPLOAD_URL=https://agents.hot/api/files/agent-upload',
+        'UPLOAD_TOKEN=test-token',
+        '[END PLATFORM TASK]',
+      ].join('\n');
+
+      session.send(platformTaskMessage);
+      await donePromise;
+
+      expect(spawnAgent).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalled();
+      expect(uploadedNames).toContain('root.txt');
+      expect(uploadedNames).toContain('nested/child.txt');
+      expect(chunks.join('')).toContain('https://files.agents.hot/mock/');
+
+      adapter.destroySession('session-collect');
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
