@@ -284,13 +284,15 @@ export class ListTUI {
     await sleep(600);
     await this.refresh();
     this.busy = false;
-    if (isProcessAlive(pid)) {
-      this.flash(`${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} started (PID: ${pid})`);
-    } else {
+    if (!isProcessAlive(pid)) {
       const reason = getFailReason(row.name);
       this.flash(reason
         ? `${RED}✗${RESET} ${BOLD}${row.name}${RESET} — ${reason}`
         : `${RED}✗${RESET} ${BOLD}${row.name}${RESET} failed to start — press ${BOLD}l${RESET} for logs`);
+    } else {
+      this.flash(`${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} started (PID: ${pid})`);
+      // Delayed recheck: auth failures may take 1-3s (WS connect + register + reject)
+      this.schedulePostStartCheck(row.name, pid);
     }
     this.draw();
   }
@@ -323,15 +325,31 @@ export class ListTUI {
     await sleep(600);
     await this.refresh();
     this.busy = false;
-    if (isProcessAlive(pid)) {
-      this.flash(`${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} restarted (PID: ${pid})`);
-    } else {
+    if (!isProcessAlive(pid)) {
       const reason = getFailReason(row.name);
       this.flash(reason
         ? `${RED}✗${RESET} ${BOLD}${row.name}${RESET} — ${reason}`
         : `${RED}✗${RESET} ${BOLD}${row.name}${RESET} failed to restart — press ${BOLD}l${RESET} for logs`);
+    } else {
+      this.flash(`${GREEN}✓${RESET} ${BOLD}${row.name}${RESET} restarted (PID: ${pid})`);
+      this.schedulePostStartCheck(row.name, pid);
     }
     this.draw();
+  }
+
+  /** Recheck after 3s: catch auth failures that take longer than initial 600ms wait */
+  private schedulePostStartCheck(name: string, pid: number): void {
+    setTimeout(async () => {
+      if (!this.ok || this.busy) return;
+      if (!isProcessAlive(pid)) {
+        await this.refresh();
+        const reason = getFailReason(name);
+        this.flash(reason
+          ? `${RED}✗${RESET} ${BOLD}${name}${RESET} — ${reason}`
+          : `${RED}✗${RESET} ${BOLD}${name}${RESET} exited shortly after start — press ${BOLD}l${RESET} for logs`, 8000);
+        this.draw();
+      }
+    }, 3000);
   }
 
   private async doLogs(row: AgentRow): Promise<void> {
