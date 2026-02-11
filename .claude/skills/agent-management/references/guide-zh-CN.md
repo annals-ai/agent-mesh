@@ -1,12 +1,3 @@
----
-name: agent-management
-description: |
-  指导开发者在 Agents.Hot 平台上创建、配置、连接和发布 AI Agent。
-  包括命名、描述撰写、技能标签、定价策略和问题排查。
-  触发词：创建 agent、管理 agent、发布 agent、agent 定价、
-  agent 描述、agent 设置、列出 agent、删除 agent。
----
-
 # Agent 管理 — Agents.Hot 平台
 
 指导开发者使用 `agent-bridge` CLI 在 Agents.Hot 平台上创建、配置、连接和发布 AI Agent。
