@@ -1,47 +1,204 @@
 import type { Command } from 'commander';
-import { createInterface } from 'node:readline';
-import { saveToken, hasToken } from '../platform/auth.js';
+import { exec } from 'node:child_process';
+import * as tty from 'node:tty';
+import { saveToken, hasToken, loadToken } from '../platform/auth.js';
 import { getConfigPath } from '../utils/config.js';
 import { log } from '../utils/logger.js';
 
-function readLine(prompt: string): Promise<string> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stderr,
+const DEFAULT_BASE_URL = 'https://agents.hot';
+const POLL_INTERVAL_MS = 5_000;
+const SLOW_DOWN_INCREASE_MS = 5_000;
+
+type DeviceCodeResponse = {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string;
+  expires_in: number;
+  interval: number;
+};
+
+type TokenResponse = {
+  access_token: string;
+  token_type: string;
+  user: { id: string; email: string; name: string };
+};
+
+type TokenErrorResponse = {
+  error: string;
+  error_description: string;
+};
+
+/** Open a URL in the default browser (cross-platform) */
+function openBrowser(url: string): void {
+  const cmd =
+    process.platform === 'darwin'
+      ? `open "${url}"`
+      : process.platform === 'win32'
+        ? `start "" "${url}"`
+        : `xdg-open "${url}"`;
+
+  exec(cmd, (err) => {
+    if (err) {
+      log.debug(`Failed to open browser: ${err.message}`);
+    }
   });
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
-      rl.close();
-      resolve(answer.trim());
+}
+
+/** Simple spinner for terminal */
+function createSpinner(message: string) {
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let i = 0;
+  const timer = setInterval(() => {
+    process.stderr.write(`\r${message} ${frames[i++ % frames.length]}`);
+  }, 80);
+  return {
+    stop(finalMessage: string) {
+      clearInterval(timer);
+      process.stderr.write(`\r${finalMessage}\n`);
+    },
+  };
+}
+
+/** Check if running in an interactive terminal */
+function isTTY(): boolean {
+  return tty.isatty(process.stdin.fd);
+}
+
+/** Poll for token until authorized, expired, or timeout */
+async function pollForToken(
+  baseUrl: string,
+  deviceCode: string,
+  expiresIn: number,
+  interval: number,
+): Promise<TokenResponse> {
+  const deadline = Date.now() + expiresIn * 1000;
+  let pollMs = Math.max(interval * 1000, POLL_INTERVAL_MS);
+
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+
+    const res = await fetch(`${baseUrl}/api/auth/device/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_code: deviceCode }),
     });
-  });
+
+    if (res.ok) {
+      return (await res.json()) as TokenResponse;
+    }
+
+    const data = (await res.json()) as TokenErrorResponse;
+
+    if (data.error === 'authorization_pending') {
+      continue; // keep polling
+    }
+
+    if (data.error === 'slow_down') {
+      // RFC 8628: increase polling interval by 5 seconds
+      pollMs += SLOW_DOWN_INCREASE_MS;
+      continue;
+    }
+
+    // Any other error is terminal
+    throw new Error(data.error_description || data.error);
+  }
+
+  throw new Error('Device code expired. Run `agent-bridge login` again.');
 }
 
 export function registerLoginCommand(program: Command): void {
   program
     .command('login')
     .description('Authenticate with the Agents.Hot platform')
-    .option('--token <token>', 'Provide token directly (skip interactive prompt)')
-    .action(async (opts: { token?: string }) => {
-      if (hasToken()) {
-        log.info('You are already logged in. Use --token to update your token.');
+    .option('--token <token>', 'Provide token directly (skip browser flow)')
+    .option('--force', 'Re-login even if already authenticated')
+    .option('--base-url <url>', 'Platform base URL', DEFAULT_BASE_URL)
+    .action(async (opts: { token?: string; force?: boolean; baseUrl?: string }) => {
+      const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
+
+      // Direct token mode (CI/CD)
+      if (opts.token) {
+        saveToken(opts.token);
+        log.success(`Token saved to ${getConfigPath()}`);
+        return;
       }
 
-      let token = opts.token;
-
-      if (!token) {
-        log.banner('Agent Bridge Login');
-        console.log('1. Visit https://agents.hot/dashboard/settings to get your CLI token');
-        console.log('2. Copy the token and paste it below\n');
-        token = await readLine('Token: ');
+      // Already logged in check
+      if (hasToken() && !opts.force) {
+        const existing = loadToken();
+        log.info(
+          `Already logged in (token: ${existing!.slice(0, 6)}...). Use --force to re-login.`,
+        );
+        return;
       }
 
-      if (!token) {
-        log.error('No token provided');
+      // Non-TTY check (CI, piped stdin, SSH without terminal)
+      if (!isTTY()) {
+        log.error(
+          'Cannot use interactive login in non-TTY environments.\n' +
+            'Use one of:\n' +
+            '  agent-bridge login --token <token>\n' +
+            '  AGENT_BRIDGE_TOKEN=<token> agent-bridge connect',
+        );
         process.exit(1);
       }
 
-      saveToken(token);
-      log.success(`Token saved to ${getConfigPath()}`);
+      // --- Device Auth Flow ---
+      log.banner('Agent Bridge Login');
+
+      // 1. Request device code
+      let deviceData: DeviceCodeResponse;
+      try {
+        const res = await fetch(`${baseUrl}/api/auth/device`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_info: {
+              device_name: `CLI ${process.platform}`,
+              os: process.platform,
+              version: process.env.npm_package_version || 'unknown',
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        deviceData = (await res.json()) as DeviceCodeResponse;
+      } catch (err) {
+        log.error(`Failed to request device code: ${(err as Error).message}`);
+        console.log('\nFallback: visit https://agents.hot/settings?tab=developer');
+        console.log('Create a CLI token and run: agent-bridge login --token <token>');
+        process.exit(1);
+      }
+
+      // 2. Open browser
+      const url = deviceData.verification_uri_complete;
+      openBrowser(url);
+      console.log(`Opening browser at ${url}\n`);
+      console.log(`If the browser didn't open, visit:`);
+      console.log(`  ${url}\n`);
+
+      // 3. Poll for authorization
+      const spinner = createSpinner('Waiting for authorization...');
+
+      try {
+        const tokenData = await pollForToken(
+          baseUrl,
+          deviceData.device_code,
+          deviceData.expires_in,
+          deviceData.interval,
+        );
+
+        spinner.stop(`✓ Logged in as ${tokenData.user.email || tokenData.user.name}`);
+
+        saveToken(tokenData.access_token);
+        log.success(`Token saved to ${getConfigPath()}`);
+      } catch (err) {
+        spinner.stop(`✗ ${(err as Error).message}`);
+        process.exit(1);
+      }
     });
 }
