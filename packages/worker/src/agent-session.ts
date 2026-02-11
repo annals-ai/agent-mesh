@@ -43,6 +43,8 @@ export class AgentSession implements DurableObject {
   private agentId = '';
 
   private pendingRelays = new Map<string, PendingRelay>();
+  private lastPlatformSyncAt = 0;
+  private static readonly PLATFORM_SYNC_INTERVAL_MS = 120_000; // 2 min
 
   constructor(
     private state: DurableObjectState,
@@ -164,6 +166,7 @@ export class AgentSession implements DurableObject {
 
         // Notify platform: agent is online
         await this.updatePlatformStatus(registerMsg.agent_id, true);
+        this.lastPlatformSyncAt = Date.now();
 
         server.send(JSON.stringify({ type: 'registered', status: 'ok' } satisfies Registered));
         this.scheduleHeartbeatAlarm();
@@ -177,6 +180,11 @@ export class AgentSession implements DurableObject {
           this.activeSessions = msg.active_sessions;
           this.scheduleHeartbeatAlarm();
           this.keepaliveAllRelays();
+          // Periodically sync online status to DB (self-healing if DB drifts)
+          if (this.agentId && Date.now() - this.lastPlatformSyncAt >= AgentSession.PLATFORM_SYNC_INTERVAL_MS) {
+            this.lastPlatformSyncAt = Date.now();
+            this.syncHeartbeat(this.agentId);
+          }
           break;
 
         case 'chunk':
@@ -426,6 +434,28 @@ export class AgentSession implements DurableObject {
   // ========================================================
   // Platform DB status update (replaces health cron polling)
   // ========================================================
+
+  /** Lightweight heartbeat sync — only is_online + last_heartbeat */
+  private async syncHeartbeat(agentId: string): Promise<void> {
+    try {
+      await fetch(
+        `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${agentId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': this.env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify({ is_online: true, last_heartbeat: new Date().toISOString() }),
+        }
+      );
+    } catch {
+      // Best-effort
+    }
+  }
+
   private async updatePlatformStatus(agentId: string, online: boolean): Promise<void> {
     try {
       const now = new Date().toISOString();

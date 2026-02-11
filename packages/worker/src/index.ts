@@ -71,7 +71,11 @@ export default {
       }
       const id = env.AGENT_SESSIONS.idFromName(agentId);
       const stub = env.AGENT_SESSIONS.get(id);
-      return stub.fetch(new Request(`${url.origin}/status`));
+      try {
+        return await stub.fetch(new Request(`${url.origin}/status`));
+      } catch {
+        return json(503, { error: 'agent_unavailable', message: 'Agent session temporarily unavailable' });
+      }
     }
 
     // Cancel session — route to Durable Object
@@ -92,11 +96,15 @@ export default {
 
       const id = env.AGENT_SESSIONS.idFromName(body.agent_id);
       const stub = env.AGENT_SESSIONS.get(id);
-      return stub.fetch(new Request(`${url.origin}/cancel`, {
-        method: 'POST',
-        headers: request.headers,
-        body: request.body,
-      }));
+      try {
+        return await stub.fetch(new Request(`${url.origin}/cancel`, {
+          method: 'POST',
+          headers: request.headers,
+          body: request.body,
+        }));
+      } catch {
+        return json(503, { error: 'agent_unavailable', message: 'Agent session temporarily unavailable' });
+      }
     }
 
     // Relay — route to Durable Object
@@ -117,11 +125,15 @@ export default {
 
       const id = env.AGENT_SESSIONS.idFromName(body.agent_id);
       const stub = env.AGENT_SESSIONS.get(id);
-      return stub.fetch(new Request(`${url.origin}/relay`, {
-        method: 'POST',
-        headers: request.headers,
-        body: request.body,
-      }));
+      try {
+        return await stub.fetch(new Request(`${url.origin}/relay`, {
+          method: 'POST',
+          headers: request.headers,
+          body: request.body,
+        }));
+      } catch {
+        return json(503, { error: 'agent_unavailable', message: 'Agent session temporarily unavailable, please retry' });
+      }
     }
 
     return json(404, { error: 'not_found', message: 'Route not found' });
