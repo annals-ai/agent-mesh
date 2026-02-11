@@ -1,5 +1,5 @@
 ---
-name: agent-management
+name: agent-bridge-workflow
 description: |
   Guide developers through creating, configuring, connecting, and publishing
   AI agents on Agents.Hot using the agent-bridge CLI. Helps with naming,
@@ -23,11 +23,22 @@ This is an **interactive workflow**, not a reference document.
 5. **Verify before proceeding** — After each step, confirm it succeeded (check command output, verify status) before moving to the next step.
 6. **Write files yourself** — When setting up the agent folder, create `CLAUDE.md` / `AGENTS.md` and skill files directly. Do NOT just show templates.
 
+**Companion skills — you MUST use these at the indicated points:**
+
+| Skill | When to invoke | Purpose |
+|-------|----------------|---------|
+| `/find-skills` | Before drafting the description (Create step 3) | Search for real community skills to reference |
+| `/agent-bridge-cli` | When any CLI command fails or you need exact syntax | Command reference & troubleshooting |
+| `/skill-creator` | During folder setup (step 4) to create each skill | Interactively generate SKILL.md files |
+
+Do NOT skip these — they are integral parts of the workflow, not optional extras.
+
 **You MUST NOT:**
 - Dump all steps as a numbered guide or checklist
 - Show commands with `<placeholder>` values and ask the user to fill them in
 - Skip ahead or combine multiple steps into one message
 - Describe what the user should do — actually do it
+- Invent skill names — only use skills found via `/find-skills` or created via `/skill-creator`
 
 **Conversation flow example (Create workflow):**
 ```
@@ -37,10 +48,11 @@ You:  [suggests name] → asks about type (claude vs openclaw)
 User: "claude"
 You:  [asks about pricing] → explains options briefly
 User: "free for now"
-You:  [drafts description based on conversation] → shows it for approval
+You:  [invokes /find-skills to search "code review", "typescript", "linting"]
+You:  [drafts description using real skill names from search results] → shows for approval
 User: "looks good"
 You:  [runs `agent-bridge agents create ...`] → shows result
-You:  [proceeds to set up folder, writes CLAUDE.md, etc.]
+You:  [proceeds to set up folder, invokes /skill-creator for each skill]
 ```
 
 ---
@@ -86,7 +98,9 @@ Ask which runtime the agent uses:
 
 ### 3. Description
 
-Draft the description yourself based on the conversation so far. Follow this structure:
+**⚠️ MANDATORY: Invoke `/find-skills` first.** Search for existing community skills relevant to the agent's domain. For example, if the agent does SEO work, search for "SEO", "keyword", "marketing", etc. Do NOT proceed to drafting until you have search results.
+
+Then draft the description based on the conversation and the skills you found. Follow this structure:
 
 ```
 First paragraph: What the agent does (2–3 sentences, under 280 chars for card preview).
@@ -98,9 +112,10 @@ Second paragraph (optional): Technical specialties.
 #tag1 #tag2 #tag3
 ```
 
-- `/skill` lines declare capabilities shown as chips in the marketplace
+- `/skill` lines declare capabilities shown as chips in the marketplace — they must correspond to real skills that will be installed in the agent's folder
 - `#tag` lines enable search and discovery
 - Specificity matters — generic descriptions rank poorly
+- Do NOT invent skill names — only use skills found via `/find-skills` or ones you will create via `/skill-creator` in the folder setup step
 
 Show the draft and ask for approval before proceeding.
 
@@ -119,11 +134,23 @@ Price is in platform credits. Recommend starting free or low to build reviews, t
 
 ### Execute
 
-Once all four inputs are collected, run the command:
+Once all four inputs are collected, run the command.
+
+**Shell escaping**: Descriptions often contain special characters, quotes, or non-ASCII text. Always pass the description via a heredoc or a temporary file to avoid shell parsing errors:
 
 ```bash
-agent-bridge agents create --name "<name>" --type <type> --price <n> --description "<text>"
+agent-bridge agents create \
+  --name "<name>" \
+  --type <type> \
+  --price <n> \
+  --description "$(cat <<'DESC'
+Your description text here...
+Can span multiple lines safely.
+DESC
+)"
 ```
+
+If the command fails, **invoke `/agent-bridge-cli`** to check the correct syntax and flags. Do NOT guess or retry blindly.
 
 The CLI outputs an Agent ID (UUID). Save it — you'll need it for the connect step.
 
@@ -174,24 +201,16 @@ Create `CLAUDE.md` (for claude) or `AGENTS.md` (for others) in the agent folder 
 
 Keep it focused — this file is read on every conversation turn.
 
-### 4. Create agent-specific skills (optional but recommended)
+### 4. Create agent-specific skills
 
-Skills give the agent specialized capabilities beyond its base instructions.
+**⚠️ MANDATORY: Invoke `/skill-creator`** to create each skill listed in the agent's description. For every `/skill-name` line in the description, you must create a corresponding `SKILL.md` file in the agent's skills directory.
 
-Use the `/skill-creator` skill to interactively create skills for the agent:
+For each skill:
+1. Invoke `/skill-creator`
+2. Specify the target path: `~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/` (or `.agents/skills/` for universal agents)
+3. Follow the skill-creator's interactive flow to generate the SKILL.md
 
-1. Load `/skill-creator` — it guides through skill structure, naming, and content
-2. When prompted for a path, specify the agent's skills directory:
-   - Claude: `~/.agent-bridge/agents/<agent-name>/.claude/skills/`
-   - Universal: `~/.agent-bridge/agents/<agent-name>/.agents/skills/`
-
-If the skills are not installed, the developer can install them:
-```bash
-npx skills add https://github.com/davila7/claude-code-templates --skill skill-creator
-npx skills add https://github.com/vercel-labs/skills --skill find-skills
-```
-
-Use `/find-skills` to search for existing community skills before creating new ones from scratch.
+If `/find-skills` found existing community skills that fit, download them directly instead of creating from scratch.
 
 Each skill lives in its own subfolder with a `SKILL.md` file:
 ```
@@ -282,7 +301,7 @@ After initial setup, reconnect with just `agent-bridge connect` — config persi
 
 ### Common Errors
 
-Consult the `cli-guide` skill for the full troubleshooting table. Key patterns:
+Invoke `/agent-bridge-cli` for the full troubleshooting table. Key patterns:
 - `Not authenticated` → `agent-bridge login`
 - `Token revoked` → token was revoked on the platform, run `agent-bridge login` for a new one
 - `Agent must be online for first publish` → run `agent-bridge connect` first

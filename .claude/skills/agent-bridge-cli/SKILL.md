@@ -1,5 +1,5 @@
 ---
-name: cli-guide
+name: agent-bridge-cli
 description: |
   This skill should be used when a developer needs help with agent-bridge
   CLI commands, flags, or troubleshooting. Covers installation, authentication,
