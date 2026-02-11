@@ -7,8 +7,9 @@
     "lint": "eslint packages/*/src/**/*.ts"
   },
   "devDependencies": {
+    "eslint": "^9.0.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "eslint": "^9.0.0"
+    "typescript-eslint": "^8.55.0",
+    "vitest": "^3.0.0"
   }
 }
