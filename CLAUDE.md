@@ -48,6 +48,8 @@ agent-bridge/
 |------|------|------|
 | `POST /api/relay` | 向 Agent 发消息，返回 SSE 流 | `X-Platform-Secret` |
 | `GET /api/agents/:id/status` | Agent 在线状态 | `X-Platform-Secret` |
+| `POST /api/disconnect` | 主动断连指定 Agent | `X-Platform-Secret` |
+| `POST /api/agents-by-token` | 查询使用指定 tokenHash 的在线 Agent | `X-Platform-Secret` |
 | `GET /health` | 健康检查 | 无 |
 | `GET /ws?agent_id=<uuid>` | WebSocket 升级（CLI 连接） | 协议内 register 认证 |
 
@@ -62,9 +64,14 @@ agent-bridge/
 关键行为：
 - **认证优先替换**：新 WebSocket 连接必须先完成 register + token 验证，才会替换旧连接。未认证的连接不会踢掉已有连接。
 - **实时状态推送**：DO 在 agent 连接/断开时直接 PATCH `agents` 表（Supabase REST API），无需 health cron 轮询。
-- **Token 验证**：先尝试 JWT（Supabase Auth），失败则 fallback 到 `bridge_token` 字段匹配。空 token 立即拒绝。
+- **统一 sb_ Token 验证**（三路径）：
+  1. `sb_` 前缀 → SHA-256 hash → 查 `cli_tokens` 表（Partial Covering Index）→ 验证 agent 所有权 → DO 内存缓存 tokenHash/userId
+  2. JWT（Supabase Auth）→ 浏览器调试场景
+  3. 空 token → 立即拒绝
+- **心跳 Revalidation**：每次平台同步心跳时，用缓存的 tokenHash 查 `cli_tokens.revoked_at`。Token 被吊销 → WS close `4002` (TOKEN_REVOKED)。Fail-open：网络错误不断连，只有确认 "0 rows" 才断连。
+- **主动断连端点**：`POST /disconnect` — 平台吊销 token 时主动断开 Agent。
 - **速率限制**：每个 Agent 最多 10 个并发 pending relay（`MAX_PENDING_RELAYS`）。
-- **KV 缓存**：Agent 状态写入 KV（TTL 300s），用于全局状态查询。
+- **KV 缓存**：Agent 状态写入 KV（TTL 300s），metadata 含 `token_hash`/`user_id`/`agent_type`（`list()` 直接返回，无需额外 `get()`）。
 
 安全措施：
 - `PLATFORM_SECRET` 使用 `crypto.subtle.timingSafeEqual` 常量时间比较
@@ -112,21 +119,24 @@ abstract destroySession(id: string): Promise<void>
 ```
 网站创建 Agent → 点击"接入" → 生成 ct_ ticket（15 分钟过期）
      ↓
-用户复制命令: npx @agents-hot/agent-bridge connect --setup <ticket-url>
+用户复制命令: npx @annals/agent-bridge connect --setup <ticket-url>
      ↓
-CLI fetch ticket → 获取 { agent_id, bridge_token, agent_type, bridge_url }
+CLI fetch ticket → 获取 { agent_id, token (sb_), agent_type, bridge_url }
+     ↓
+自动保存 sb_ token（等于 auto-login，仅在本地未登录时）
      ↓
 自动检测 OpenClaw token（~/.openclaw/openclaw.json → gateway.auth.token）
      ↓
-保存配置到 ~/.agent-bridge/config.json → 连接 Bridge Worker
+注册 Agent 到本地 config → 后台 spawn 连接 → 打开 TUI 管理面板
 ```
 
-之后重连只需 `agent-bridge connect`（从本地 config 读取）。
+之后重连只需 `agent-bridge connect`（从本地 config 读取），或用 `agent-bridge list` 管理。
 
 ## CLI 命令
 
 ```bash
-agent-bridge login                           # 登录平台
+agent-bridge login                           # 登录平台（Device Auth Flow）
+agent-bridge list                            # 交互式 TUI 管理面板（本机 Agent）
 
 agent-bridge connect [type]                  # 连接 Agent
   --setup <url>          # 一键接入 ticket URL
@@ -168,18 +178,21 @@ agent-bridge status                          # 查看连接状态
 
 | agents-hot 文件 | 用途 |
 |-----------------|------|
-| `src/lib/bridge-client.ts` | `sendToBridge()` — 平台向 Agent 发消息 |
-| `src/lib/connect-token.ts` | `generateBridgeToken()`, `generateConnectTicket()` |
+| `src/lib/bridge-client.ts` | `sendToBridge()` + `disconnectAgent()` + `getAgentsByToken()` |
+| `src/lib/connect-token.ts` | `generateConnectTicket()` — 一次性接入 ticket |
+| `src/lib/cli-token.ts` | `generateCliToken()` + `hashCliToken()` — sb_ token 生成与哈希 |
 | `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay |
-| `src/app/api/developer/agents/route.ts` | 创建 Agent 时自动生成 `bridge_token` |
+| `src/app/api/developer/agents/route.ts` | 创建 Agent |
 | `src/app/api/developer/agents/[id]/connect-ticket/route.ts` | 生成一次性接入 ticket |
-| `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket（无需认证） |
+| `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket — 创建 sb_ token 并返回 |
+| `src/app/api/settings/cli-tokens/[id]/route.ts` | 吊销 token 时主动断连关联 Agent |
+| `src/app/api/settings/cli-tokens/[id]/agents/route.ts` | 查询 token 关联的在线 Agent |
 
 数据库字段：
 - `agents.agent_type`: `'openclaw' | 'claude' | 'codex' | 'gemini'`
-- `agents.bridge_token`: `bt_` 前缀，32 字符 Base62，CLI 认证用
 - `agents.bridge_connected_at`: Bridge 连接时间戳
 - `agents.is_online`: 由 Bridge Worker DO 实时更新（连接时 true，断开时 false）
+- `cli_tokens` 表: sb_ token 的 SHA-256 hash，支持吊销（`revoked_at`），Partial Covering Index
 - `connect_tickets` 表: 一次性 ticket，15 分钟过期
 
 ## 开发
@@ -203,10 +216,13 @@ npx wrangler deploy --config packages/worker/wrangler.toml
 - Bindings: `AGENT_SESSIONS` (Durable Object), `BRIDGE_KV` (KV)
 - Secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `PLATFORM_SECRET`
 
-### CLI (npm)
+### CLI (npm — via GitHub Actions)
+
+**不要手动 `npm publish`**。打 tag 触发 Release workflow 自动发布：
 
 ```bash
-cd packages/cli && npm publish
+git tag v<x.y.z> && git push origin v<x.y.z>
+# → GitHub Actions: build → test → npm publish → GitHub Release
 ```
 
 ## Sandbox（srt 编程 API）

@@ -37,7 +37,6 @@ agent-bridge login
 # 创建 Agent
 agent-bridge agents create --name "Code Review Pro" --type openclaw --price 10
 # ✓ Agent 已创建: Code Review Pro (a1b2c3...)
-#   Bridge token: bt_xxxxxxxxxx
 
 # 连接 Agent
 agent-bridge connect --agent-id a1b2c3...
@@ -59,7 +58,7 @@ agent-bridge agents publish code-review-pro
 npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-CLI 从 ticket URL 获取所有配置，自动检测本地 Agent 并连接。Ticket 一次性使用，15 分钟过期。
+CLI 从 ticket URL 获取所有配置，自动检测本地 Agent 并连接。如果尚未登录，ticket 中的 `sb_` token 会自动保存——一条命令完成登录和配置。Ticket 一次性使用，15 分钟过期。
 
 ### 重连
 
@@ -105,7 +104,7 @@ agent-bridge agents create               # 创建新 Agent（交互式或参数�
   --billing-period <周期>                 #   hour | day | week | month（默认 hour）
   --description <描述>                    #   Agent 描述
 
-agent-bridge agents show <id> [--json]   # 查看 Agent 详情（含 bridge token）
+agent-bridge agents show <id> [--json]   # 查看 Agent 详情
 agent-bridge agents update <id>          # 更新 Agent 信息
   --name <名称>                           #   新名称
   --price <价格>                          #   新价格
@@ -124,9 +123,10 @@ agent-bridge agents delete <id>          # 删除 Agent（有活跃购买时会�
 ```bash
 agent-bridge login                       # 登录 agents.hot
 agent-bridge status                      # 查看连接状态
+agent-bridge list                        # 交互式 Agent 管理面板（TUI）
 
 agent-bridge connect [type]              # 连接 Agent 到平台
-  --setup <url>                          #   一键接入 ticket URL
+  --setup <url>                          #   一键接入 ticket URL（同时自动登录）
   --agent-id <id>                        #   Agent UUID
   --project <path>                       #   项目路径（Claude 适配器）
   --gateway-url <url>                    #   OpenClaw Gateway 地址
@@ -135,6 +135,30 @@ agent-bridge connect [type]              # 连接 Agent 到平台
   --sandbox                              #   在沙箱中运行（需要 srt）
   --no-sandbox                           #   禁用沙箱
 ```
+
+### 管理面板（`agent-bridge list`）
+
+`list` 命令（别名 `ls`）打开交互式 TUI，管理**本机**注册的 Agent：
+
+```
+  AGENT BRIDGE
+
+  NAME                TYPE        STATUS        PID  URL
+▸ my-code-reviewer    openclaw    ● online     1234  agents.hot/agents/a1b2c3...
+  my-claude-agent     claude      ○ stopped       —  agents.hot/agents/d4e5f6...
+
+  2 agents · 1 online · 1 stopped
+
+  ↑↓ navigate  s start  x stop  r restart  l logs  o open  d remove  q quit
+```
+
+- 只显示本机注册的 Agent（通过 `connect --setup` 或 `connect --agent-id` 注册）
+- 联网查询平台在线状态（`GET /api/developer/agents`）
+- 状态：`● online`（进程存活 + 平台确认）· `◐ running`（进程存活，尚未确认）· `○ stopped`
+- 按 `l` 查看实时日志，`o` 在浏览器打开 Agent 页面
+- Agent 启动后短时间死亡（如 token 被吊销），会显示具体错误原因
+
+要查看平台上**所有** Agent（包括未在本机配置的），使用 `agent-bridge agents list`。
 
 ## Workspace 隔离
 
@@ -225,7 +249,8 @@ agent-bridge connect claude --sandbox
 ## 安全性
 
 - **无入站端口** — CLI 发起 outbound WebSocket，Agent 从不在网络上监听
-- **Bridge token 认证** — 每个 Agent 获得唯一 `bt_` token，每次连接时验证
+- **统一 `sb_` token 认证** — CLI token 在 agents.hot 创建，数据库存储 SHA-256 hash，每次 Bridge 连接时验证。在平台吊销 token 后 Agent 立即断连。
+- **心跳重验证** — Bridge Worker 定期检查 token 有效性。若已吊销，以 close code `4002`（TOKEN_REVOKED）断开连接。
 - **一次性接入 ticket** — `ct_` ticket 15 分钟过期，只能使用一次
 - **常量时间密钥比较** — PLATFORM_SECRET 使用 `timingSafeEqual` 验证
 - **CORS 限制** — Bridge Worker 只接受来自 `agents.hot` 的跨域请求

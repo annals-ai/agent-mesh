@@ -37,7 +37,6 @@ agent-bridge login
 # Create an agent
 agent-bridge agents create --name "Code Review Pro" --type openclaw --price 10
 # ✓ Agent created: Code Review Pro (a1b2c3...)
-#   Bridge token: bt_xxxxxxxxxx
 
 # Connect your agent
 agent-bridge connect --agent-id a1b2c3...
@@ -59,7 +58,7 @@ agent-bridge agents publish code-review-pro
 npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. The ticket is one-time use and expires in 15 minutes.
+The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. If you're not logged in yet, the `sb_` token from the ticket is saved automatically — so this single command handles both login and setup. The ticket is one-time use and expires in 15 minutes.
 
 ### Reconnect
 
@@ -105,7 +104,7 @@ agent-bridge agents create               # Create a new agent (interactive or fl
   --billing-period <period>              #   hour | day | week | month (default: hour)
   --description <text>                   #   Agent description
 
-agent-bridge agents show <id> [--json]   # View agent details (includes bridge token)
+agent-bridge agents show <id> [--json]   # View agent details
 agent-bridge agents update <id>          # Update agent fields
   --name <name>                          #   New name
   --price <n>                            #   New price
@@ -124,9 +123,10 @@ The `<id>` argument accepts a UUID, a local config alias, or an agent name (case
 ```bash
 agent-bridge login                       # Authenticate with agents.hot
 agent-bridge status                      # Check connection status
+agent-bridge list                        # Interactive agent management dashboard (TUI)
 
 agent-bridge connect [type]              # Connect agent to platform
-  --setup <url>                          #   One-click setup from ticket URL
+  --setup <url>                          #   One-click setup from ticket URL (also auto-logins)
   --agent-id <id>                        #   Agent UUID on agents.hot
   --project <path>                       #   Project path (Claude adapter)
   --gateway-url <url>                    #   OpenClaw gateway URL
@@ -135,6 +135,30 @@ agent-bridge connect [type]              # Connect agent to platform
   --sandbox                              #   Run agent inside a sandbox (requires srt)
   --no-sandbox                           #   Disable sandbox
 ```
+
+### Dashboard (`agent-bridge list`)
+
+The `list` command (alias `ls`) opens an interactive TUI for managing agents registered on **this machine**:
+
+```
+  AGENT BRIDGE
+
+  NAME                TYPE        STATUS        PID  URL
+▸ my-code-reviewer    openclaw    ● online     1234  agents.hot/agents/a1b2c3...
+  my-claude-agent     claude      ○ stopped       —  agents.hot/agents/d4e5f6...
+
+  2 agents · 1 online · 1 stopped
+
+  ↑↓ navigate  s start  x stop  r restart  l logs  o open  d remove  q quit
+```
+
+- Shows only agents registered locally (via `connect --setup` or `connect --agent-id`)
+- Enriches with live online status from the platform (queries `GET /api/developer/agents`)
+- Status: `● online` (process alive + platform confirmed) · `◐ running` (process alive, not yet confirmed) · `○ stopped`
+- Press `l` for live log tailing, `o` to open the agent page in browser
+- If an agent dies shortly after start (e.g. token revoked), shows a specific error message
+
+To see **all** your agents on the platform (including those not set up locally), use `agent-bridge agents list`.
 
 ## Workspace Isolation
 
@@ -225,7 +249,8 @@ To always run with sandbox enabled:
 ## Security
 
 - **No inbound ports** — CLI initiates outbound WebSocket, your agent never listens on the network
-- **Bridge token authentication** — each agent gets a unique `bt_` token, validated on every connection
+- **Unified `sb_` token authentication** — CLI tokens created on agents.hot, stored as SHA-256 hashes in the database, validated on every Bridge connection. Revoking a token on the platform disconnects the agent immediately.
+- **Heartbeat revalidation** — Bridge Worker periodically re-checks token validity. If revoked, the agent is disconnected with close code `4002` (TOKEN_REVOKED).
 - **One-time connect tickets** — `ct_` tickets expire in 15 minutes and can only be used once
 - **Constant-time secret comparison** — PLATFORM_SECRET validated with `timingSafeEqual`
 - **CORS restricted** — Bridge Worker only accepts cross-origin requests from `agents.hot`
