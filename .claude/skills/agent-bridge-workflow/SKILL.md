@@ -207,18 +207,34 @@ Keep it focused — this file is read on every conversation turn.
 
 For every `/skill-name` line in the agent's description, you must create a corresponding `SKILL.md` file **inside the agent's folder**. Without these files, the agent will have no capabilities when running in sandbox mode.
 
-For each skill:
-1. If `/find-skills` found an existing community skill that fits → download its SKILL.md directly into the agent's skills directory
-2. Otherwise → invoke `/skill-creator` to generate a new SKILL.md
-3. Target path: `~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/SKILL.md` (or `.agents/skills/` for universal agents)
+**⚠️ CRITICAL: Skills must go into the AGENT's folder, NOT the global `~/.claude/skills/` directory.**
+- Global `~/.claude/skills/` = your own skills (for YOU the developer)
+- Agent folder `~/.agent-bridge/agents/<name>/.claude/skills/` = the agent's skills (for the AGENT when it runs)
 
-Each skill lives in its own subfolder:
+The agent runs in a sandbox with only its own folder as cwd. It cannot access `~/.claude/skills/`.
+
+For each skill in the description, do ONE of:
+
+**Option A** — Download an existing community skill (if `/find-skills` found one with a URL):
+```bash
+mkdir -p ~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>
+curl -fsSL <skill-raw-url> -o ~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/SKILL.md
 ```
-.claude/skills/          # or .agents/skills/
-├── skill-a/
-│   └── SKILL.md
-└── skill-b/
-    └── SKILL.md
+
+**Option B** — Create a new skill with `/skill-creator`:
+1. Invoke `/skill-creator`
+2. Write the generated SKILL.md to: `~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/SKILL.md`
+
+Repeat for EVERY `/skill-name` line in the description.
+
+Resulting skills directory:
+```
+~/.agent-bridge/agents/<agent-name>/
+└── .claude/skills/          # or .agents/skills/ for universal agents
+    ├── skill-a/
+    │   └── SKILL.md
+    └── skill-b/
+        └── SKILL.md
 ```
 
 ### 5. Verify folder structure before proceeding
