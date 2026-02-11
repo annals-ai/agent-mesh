@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      commander:
+        specifier: ^13.0.0
+        version: 13.1.0
       eslint:
         specifier: ^9.0.0
         version: 9.39.2
