@@ -87,7 +87,24 @@ For setting up on a new machine or from the website:
 npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-This single command handles login + config + connection. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with just `agent-bridge connect`.
+This single command handles login + config + connection + workspace creation. The CLI prints the workspace path after registration. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with just `agent-bridge connect`.
+
+### Workspace
+
+`--setup` and foreground `connect` automatically create and set `projectPath` to the agent's workspace directory:
+
+```
+~/.agent-bridge/agents/<agent-name>/
+├── CLAUDE.md              # Role instructions (claude type)
+├── AGENTS.md              # Role instructions (openclaw/codex/gemini)
+└── .claude/skills/        # Agent-specific skills
+    └── my-skill/
+        └── SKILL.md
+```
+
+The CLI prints the workspace path after registration. The AI tool reads `CLAUDE.md` and `.claude/skills/` from this directory automatically.
+
+**Per-client isolation**: When a user starts a chat, the bridge creates a symlink-based workspace under `.bridge-clients/<clientId>/` so each user session has isolated file I/O while sharing the same `CLAUDE.md` and skills.
 
 ### Sandbox
 

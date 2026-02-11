@@ -164,6 +164,8 @@ After creating an agent on the platform, set up a local folder with role instruc
 
 Default location: `~/.agent-bridge/agents/<agent-name>/` (use a lowercase slug, e.g. `translator`, `code-review-pro`).
 
+**Note**: If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path in the terminal output. You can skip `mkdir` and go straight to adding files.
+
 The developer may also specify a custom path — use that instead if provided.
 
 ```bash
@@ -277,7 +279,9 @@ If any skill is missing, go back and create it. **Do NOT proceed to Connect with
 
 Three paths depending on context:
 
-- **From agent folder (recommended)**:
+- **`--setup` (recommended for first time)**: `agent-bridge connect --setup <ticket-url>` — fetches config from a one-time ticket, auto-saves the `sb_` token (acts as auto-login if not yet authenticated), automatically creates the workspace directory and sets `projectPath`, then opens the TUI dashboard. The CLI prints the workspace path — no need to manually `cd` or pass `--project`.
+
+- **From agent folder**:
   ```bash
   cd ~/.agent-bridge/agents/<agent-name>
   agent-bridge connect --agent-id <uuid> <type>
@@ -288,8 +292,6 @@ Three paths depending on context:
   ```bash
   agent-bridge connect --agent-id <uuid> --project ~/.agent-bridge/agents/<agent-name> <type>
   ```
-
-- **Different machine / from website**: `agent-bridge connect --setup <ticket-url>` — fetches config from a one-time ticket, auto-saves the `sb_` token (acts as auto-login if not yet authenticated), and opens the TUI dashboard
 
 Claude Code agents run with `--sandbox` by default (blocks SSH keys, API tokens, credentials via macOS Seatbelt). Disable with `--no-sandbox` if the agent needs access to local credentials.
 

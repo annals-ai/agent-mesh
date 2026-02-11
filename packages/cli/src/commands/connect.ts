@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { loadToken, saveToken } from '../platform/auth.js';
-import { loadConfig, addAgent, findAgentByAgentId, uniqueSlug } from '../utils/config.js';
+import { loadConfig, addAgent, findAgentByAgentId, uniqueSlug, getAgentWorkspaceDir } from '../utils/config.js';
 import { writePid, removePid, spawnBackground, isProcessAlive, getLogPath } from '../utils/process-manager.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { BridgeManager } from '../bridge/manager.js';
@@ -12,9 +12,14 @@ import type { AgentAdapter, AdapterConfig } from '../adapters/base.js';
 import { readOpenClawToken } from '../utils/openclaw-config.js';
 import { initSandbox, resetSandbox } from '../utils/sandbox.js';
 import { log } from '../utils/logger.js';
-import { RESET, BOLD, GREEN } from '../utils/table.js';
+import { RESET, BOLD, GREEN, GRAY } from '../utils/table.js';
 
 const DEFAULT_BRIDGE_URL = 'wss://bridge.agents.hot/ws';
+
+function logWorkspaceHint(slug: string, projectPath: string): void {
+  console.log(`  ${GRAY}Workspace: ${RESET}${projectPath}`);
+  console.log(`  ${GRAY}Put CLAUDE.md (role instructions) and .claude/skills/ here.${RESET}`);
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -123,13 +128,14 @@ export function registerConnectCommand(program: Command): void {
             bridgeUrl: ticketData.bridge_url,
             gatewayUrl: opts.gatewayUrl,
             gatewayToken: gatewayToken,
-            projectPath: process.cwd(),
+            projectPath: opts.project || getAgentWorkspaceDir(slug),
             sandbox: opts.sandbox,
             addedAt: new Date().toISOString(),
           };
           addAgent(slug, entry);
 
           log.success(`Agent registered as "${slug}"`);
+          logWorkspaceHint(slug, entry.projectPath!);
 
           // --foreground flag forces foreground mode even with --setup
           if (opts.foreground) {
@@ -198,8 +204,30 @@ export function registerConnectCommand(program: Command): void {
         opts.bridgeUrl = opts.bridgeUrl || entry.bridgeUrl;
         opts.gatewayUrl = opts.gatewayUrl || entry.gatewayUrl;
         opts.gatewayToken = opts.gatewayToken || entry.gatewayToken;
-        opts.project = opts.project || entry.projectPath;
+        opts.project = opts.project || entry.projectPath || getAgentWorkspaceDir(found.name);
         if (opts.sandbox === undefined && entry.sandbox !== undefined) opts.sandbox = entry.sandbox;
+      }
+
+      // Resolve agent name early (needed for default workspace directory)
+      if (!agentName) {
+        let nameBase = agentId.slice(0, 8);
+        if (config.token) {
+          try {
+            const res = await fetch(`https://agents.hot/api/developer/agents/${agentId}`, {
+              headers: { Authorization: `Bearer ${config.token}` },
+            });
+            if (res.ok) {
+              const agentData = await res.json() as { name?: string };
+              if (agentData.name) nameBase = agentData.name;
+            }
+          } catch { /* fallback to id prefix */ }
+        }
+        agentName = uniqueSlug(nameBase);
+      }
+
+      // Default project to agent's dedicated workspace directory
+      if (!opts.project) {
+        opts.project = getAgentWorkspaceDir(agentName);
       }
 
       // Resolve token: env var > platform token (sb_) > legacy bridgeToken (bt_)
@@ -269,6 +297,29 @@ export function registerConnectCommand(program: Command): void {
         process.exit(1);
       }
       log.success(`Registered as agent "${agentId}" (${agentType})`);
+      logWorkspaceHint(agentName!, opts.project!);
+
+      // Auto-register to config if not already present (e.g. direct --agent-id without --setup)
+      if (!found) {
+        addAgent(agentName, {
+          agentId,
+          agentType,
+          bridgeUrl,
+          gatewayUrl: opts.gatewayUrl,
+          gatewayToken: opts.gatewayToken,
+          projectPath: opts.project,
+          sandbox: opts.sandbox,
+          addedAt: new Date().toISOString(),
+        });
+        log.info(`Agent saved as "${agentName}"`);
+      } else if (found && !found.entry.projectPath) {
+        // Backfill projectPath for legacy entries that are missing it
+        addAgent(agentName!, {
+          ...found.entry,
+          projectPath: opts.project,
+        });
+        log.info(`Updated "${agentName}" with workspace directory`);
+      }
 
       if (agentName) writePid(agentName, process.pid);
 
