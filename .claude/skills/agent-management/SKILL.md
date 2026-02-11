@@ -146,10 +146,13 @@ Use the `/skill-creator` skill to interactively create skills for the agent:
    - Claude: `~/.agent-bridge/agents/<agent-name>/.claude/skills/`
    - Universal: `~/.agent-bridge/agents/<agent-name>/.agents/skills/`
 
-If `/skill-creator` is not installed, the developer can install it:
+If the skills are not installed, the developer can install them:
 ```bash
 npx skills add https://github.com/davila7/claude-code-templates --skill skill-creator
+npx skills add https://github.com/vercel-labs/skills --skill find-skills
 ```
+
+Use `/find-skills` to search for existing community skills before creating new ones from scratch.
 
 Each skill lives in its own subfolder with a `SKILL.md` file:
 ```
