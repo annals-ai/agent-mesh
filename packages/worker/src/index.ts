@@ -107,6 +107,68 @@ export default {
       }
     }
 
+    // Disconnect agent — route to Durable Object
+    if (path === '/api/disconnect' && request.method === 'POST') {
+      let body: { agent_id?: string };
+      try {
+        body = await request.clone().json() as typeof body;
+      } catch {
+        return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+      }
+
+      if (!body.agent_id) {
+        return json(400, { error: 'invalid_message', message: 'Missing agent_id' });
+      }
+      if (!isValidAgentId(body.agent_id)) {
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+      }
+
+      const id = env.AGENT_SESSIONS.idFromName(body.agent_id);
+      const stub = env.AGENT_SESSIONS.get(id);
+      try {
+        return await stub.fetch(new Request(`${url.origin}/disconnect`, {
+          method: 'POST',
+          headers: request.headers,
+          body: request.body,
+        }));
+      } catch {
+        return json(503, { error: 'agent_unavailable', message: 'Agent session temporarily unavailable' });
+      }
+    }
+
+    // Query agents by token hash — scans KV metadata
+    if (path === '/api/agents-by-token' && request.method === 'POST') {
+      let body: { token_hash?: string };
+      try {
+        body = await request.clone().json() as typeof body;
+      } catch {
+        return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+      }
+
+      if (!body.token_hash) {
+        return json(400, { error: 'invalid_message', message: 'Missing token_hash' });
+      }
+
+      const tokenHash = body.token_hash;
+      const agents: { agent_id: string; agent_type: string }[] = [];
+      let cursor: string | undefined;
+      do {
+        const result = await env.BRIDGE_KV.list({ prefix: 'agent:', cursor });
+        for (const key of result.keys) {
+          const meta = key.metadata as { token_hash?: string; agent_type?: string } | null;
+          if (meta?.token_hash === tokenHash) {
+            agents.push({
+              agent_id: key.name.replace('agent:', ''),
+              agent_type: meta.agent_type || '',
+            });
+          }
+        }
+        cursor = result.list_complete ? undefined : result.cursor;
+      } while (cursor);
+
+      return json(200, { agents });
+    }
+
     // Relay — route to Durable Object
     if (path === '/api/relay' && request.method === 'POST') {
       let body: { agent_id?: string };

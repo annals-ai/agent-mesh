@@ -5,7 +5,7 @@ import type {
   WorkerToBridgeMessage,
   Register,
 } from '@annals/bridge-protocol';
-import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED } from '@annals/bridge-protocol';
+import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 import { log } from '../utils/logger.js';
 
 const HEARTBEAT_INTERVAL = 20_000;
@@ -103,6 +103,10 @@ export class BridgeWSClient extends EventEmitter {
           // Another CLI connected for this agent — do NOT reconnect
           log.error('Another CLI has connected for this agent. This instance is being replaced.');
           this.emit('replaced');
+        } else if (code === WS_CLOSE_TOKEN_REVOKED) {
+          // Token was revoked by user — do NOT reconnect
+          log.error('Your CLI token has been revoked. Please create a new token and reconnect.');
+          this.emit('token_revoked');
         } else {
           const reasonStr = reason ? reason.toString() : '';
           log.warn(`Connection lost (${code}: ${reasonStr}), reconnecting in ${this.reconnectDelay}ms...`);

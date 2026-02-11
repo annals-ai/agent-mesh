@@ -6,7 +6,7 @@ export interface AgentEntry {
   agentId: string;
   agentType: string;          // openclaw | claude | codex | gemini
   bridgeUrl: string;
-  bridgeToken: string;        // bt_ prefix
+  bridgeToken?: string;       // bt_ prefix (legacy, kept for config compat)
   gatewayUrl?: string;
   gatewayToken?: string;
   projectPath?: string;       // working directory (Claude adapter needs)

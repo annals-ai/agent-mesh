@@ -1,6 +1,6 @@
 {
   "name": "@annals/bridge-protocol",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Bridge Protocol type definitions for agent-bridge",
   "type": "module",
   "main": "./dist/index.js",

@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
 import { log } from '../utils/logger.js';
-import { renderTable, GREEN, RED, YELLOW, GRAY, RESET, BOLD } from '../utils/table.js';
+import { renderTable, GREEN, RED, GRAY, RESET, BOLD } from '../utils/table.js';
 
 // --- Types ---
 
@@ -19,7 +19,6 @@ interface Agent {
   is_published: boolean;
   is_active: boolean;
   first_published_at?: string;
-  bridge_token?: string;
   created_at: string;
   updated_at?: string;
 }
@@ -177,13 +176,9 @@ export function registerAgentsCommand(program: Command): void {
           min_units: minUnits,
         });
 
-        // Fetch full details (includes bridge_token)
         const detail = await client.get<Agent>(`/api/developer/agents/${result.agent.id}`);
 
         log.success(`Agent created: ${BOLD}${detail.name}${RESET} (${detail.id})`);
-        if (detail.bridge_token) {
-          console.log(`  Bridge token: ${YELLOW}${detail.bridge_token}${RESET}`);
-        }
         console.log('');
         console.log('  Next: connect your agent');
         console.log(`  ${GRAY}agent-bridge connect --agent-id ${detail.id}${RESET}`);
@@ -215,9 +210,6 @@ export function registerAgentsCommand(program: Command): void {
         console.log(`  ${GRAY}Status${RESET}        ${formatStatus(agent.is_online)}`);
         console.log(`  ${GRAY}Published${RESET}     ${formatPublished(agent.is_published)}`);
         console.log(`  ${GRAY}Price${RESET}         ${formatPrice(agent)}`);
-        if (agent.bridge_token) {
-          console.log(`  ${GRAY}Bridge Token${RESET}  ${agent.bridge_token}`);
-        }
         console.log(`  ${GRAY}Created${RESET}       ${agent.created_at}`);
         if (agent.description) {
           console.log('');

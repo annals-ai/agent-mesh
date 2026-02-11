@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { loadToken } from '../platform/auth.js';
+import { loadToken, saveToken } from '../platform/auth.js';
 import { loadConfig, addAgent, findAgentByAgentId, uniqueSlug } from '../utils/config.js';
 import { writePid, removePid, spawnBackground, isProcessAlive, getLogPath } from '../utils/process-manager.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
@@ -76,7 +76,8 @@ export function registerConnectCommand(program: Command): void {
 
           const ticketData = await response.json() as {
             agent_id: string;
-            bridge_token: string;
+            token: string;         // sb_ CLI token (unified auth)
+            bridge_token?: string; // legacy bt_ fallback
             agent_type: string;
             bridge_url: string;
           };
@@ -109,12 +110,17 @@ export function registerConnectCommand(program: Command): void {
             }
           }
 
+          // Save sb_ token as platform auth token (if not already logged in)
+          const bridgeAuthToken = ticketData.token || ticketData.bridge_token || '';
+          if (bridgeAuthToken.startsWith('sb_') && !loadToken()) {
+            saveToken(bridgeAuthToken);
+          }
+
           const slug = uniqueSlug(nameBase);
           const entry = {
             agentId: ticketData.agent_id,
             agentType: ticketData.agent_type,
             bridgeUrl: ticketData.bridge_url,
-            bridgeToken: ticketData.bridge_token,
             gatewayUrl: opts.gatewayUrl,
             gatewayToken: gatewayToken,
             projectPath: process.cwd(),
@@ -162,7 +168,6 @@ export function registerConnectCommand(program: Command): void {
 
       // === Foreground connection mode ===
 
-      let bridgeToken: string | undefined;
       let agentName: string | undefined;
 
       // Resolve type: explicit arg > registry entry
@@ -195,11 +200,10 @@ export function registerConnectCommand(program: Command): void {
         opts.gatewayToken = opts.gatewayToken || entry.gatewayToken;
         opts.project = opts.project || entry.projectPath;
         if (opts.sandbox === undefined && entry.sandbox !== undefined) opts.sandbox = entry.sandbox;
-        bridgeToken = entry.bridgeToken;
       }
 
-      // Resolve bridge token: env var > registry > platform token
-      const token = process.env.AGENT_BRIDGE_TOKEN || bridgeToken || (loadToken() || config.token);
+      // Resolve token: env var > platform token (sb_) > legacy bridgeToken (bt_)
+      const token = process.env.AGENT_BRIDGE_TOKEN || loadToken() || config.token || found?.entry.bridgeToken;
       if (!token) {
         log.error('Not authenticated. Run `agent-bridge login` or use `agent-bridge connect --setup <url>`.');
         process.exit(1);
@@ -307,6 +311,14 @@ export function registerConnectCommand(program: Command): void {
 
       wsClient.on('replaced', () => {
         log.error('Shutting down — only one CLI per agent is allowed.');
+        manager.stop();
+        resetSandbox();
+        if (agentName) removePid(agentName);
+        process.exit(1);
+      });
+
+      wsClient.on('token_revoked', () => {
+        log.error('Token revoked — shutting down.');
         manager.stop();
         resetSandbox();
         if (agentName) removePid(agentName);

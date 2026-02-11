@@ -15,3 +15,4 @@ export type BridgeErrorCode = (typeof BridgeErrorCode)[keyof typeof BridgeErrorC
 
 /** WebSocket close codes (4000-4999 = application-specific) */
 export const WS_CLOSE_REPLACED = 4001;
+export const WS_CLOSE_TOKEN_REVOKED = 4002;

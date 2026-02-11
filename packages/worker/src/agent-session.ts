@@ -21,7 +21,7 @@ import type {
   BridgeToWorkerMessage,
   Attachment,
 } from '@annals/bridge-protocol';
-import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED } from '@annals/bridge-protocol';
+import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
 const MAX_PENDING_RELAYS = 10;
 const HEARTBEAT_TIMEOUT_MS = 50_000;  // 2.5x CLI heartbeat interval (20s)
@@ -41,6 +41,9 @@ export class AgentSession implements DurableObject {
   private lastHeartbeat = '';
   private activeSessions = 0;
   private agentId = '';
+
+  private cachedTokenHash = '';   // SHA-256 hex of sb_ token (cached after initial validation)
+  private cachedUserId = '';      // token owner's user_id
 
   private pendingRelays = new Map<string, PendingRelay>();
   private lastPlatformSyncAt = 0;
@@ -76,6 +79,16 @@ export class AgentSession implements DurableObject {
       return this.handleCancel(request);
     }
 
+    // Disconnect agent (triggered by platform on token revocation)
+    if (url.pathname === '/disconnect' && request.method === 'POST') {
+      if (this.ws && this.authenticated) {
+        try { this.ws.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked by user'); } catch {}
+        await this.markOffline();
+        return json(200, { success: true, was_online: true });
+      }
+      return json(200, { success: true, was_online: false });
+    }
+
     // Status check
     if (url.pathname === '/status' && request.method === 'GET') {
       return json(200, {
@@ -85,6 +98,8 @@ export class AgentSession implements DurableObject {
         connected_at: this.connectedAt,
         last_heartbeat: this.lastHeartbeat,
         active_sessions: this.activeSessions,
+        token_hash: this.cachedTokenHash,
+        user_id: this.cachedUserId,
       });
     }
 
@@ -184,6 +199,15 @@ export class AgentSession implements DurableObject {
           if (this.agentId && Date.now() - this.lastPlatformSyncAt >= AgentSession.PLATFORM_SYNC_INTERVAL_MS) {
             this.lastPlatformSyncAt = Date.now();
             this.syncHeartbeat(this.agentId);
+            // sb_ token revalidation (DO cached tokenHash → 1 query on revoked_at)
+            if (this.cachedTokenHash) {
+              const stillValid = await this.revalidateToken();
+              if (!stillValid) {
+                try { server.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked'); } catch {}
+                await this.markOffline();
+                return;
+              }
+            }
           }
           break;
 
@@ -377,43 +401,103 @@ export class AgentSession implements DurableObject {
   }
 
   // ========================================================
-  // Token validation
+  // Token hashing (same algorithm as platform cli-token.ts)
+  // ========================================================
+  private async hashToken(token: string): Promise<string> {
+    const data = new TextEncoder().encode(token);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // ========================================================
+  // Token validation — 3 paths: sb_ → JWT → bt_ (fallback)
   // ========================================================
   private async validateToken(token: string, agentId: string): Promise<boolean> {
     // Reject empty tokens immediately
     if (!token || token.length === 0) return false;
 
     try {
-      // Try JWT first
+      // Path 1: sb_ CLI token → hash + lookup in cli_tokens (hits partial covering index)
+      if (token.startsWith('sb_')) {
+        return this.validateCliToken(token, agentId);
+      }
+
+      // Path 2: JWT → Supabase Auth (browser debug scenario)
       const userRes = await fetch(`${this.env.SUPABASE_URL}/auth/v1/user`, {
         headers: { 'Authorization': `Bearer ${token}`, 'apikey': this.env.SUPABASE_SERVICE_KEY },
       });
-
       if (userRes.ok) {
         const user = await userRes.json() as { id: string };
         const agentRes = await fetch(
-          `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${encodeURIComponent(agentId)}&author_id=eq.${encodeURIComponent(user.id)}&select=id`,
+          `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${encodeURIComponent(agentId)}&select=author_id,authors!inner(user_id)`,
           { headers: { 'apikey': this.env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}` } },
         );
         if (agentRes.ok) {
-          const agents = await agentRes.json() as { id: string }[];
-          return agents.length > 0;
+          const agents = await agentRes.json() as { author_id: string; authors: { user_id: string } }[];
+          return agents.length > 0 && agents[0].authors.user_id === user.id;
         }
         return false;
       }
 
-      // Fall back to bridge_token
-      const tokenRes = await fetch(
-        `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${encodeURIComponent(agentId)}&bridge_token=eq.${encodeURIComponent(token)}&select=id`,
-        { headers: { 'apikey': this.env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}` } },
-      );
-      if (tokenRes.ok) {
-        const agents = await tokenRes.json() as { id: string }[];
-        return agents.length > 0;
-      }
       return false;
     } catch {
       return false;
+    }
+  }
+
+  /** Validate sb_ CLI token: hash → lookup cli_tokens → verify agent ownership */
+  private async validateCliToken(token: string, agentId: string): Promise<boolean> {
+    const tokenHash = await this.hashToken(token);
+
+    // Query cli_tokens with partial covering index (token_hash WHERE revoked_at IS NULL → user_id, expires_at)
+    const tokenRes = await fetch(
+      `${this.env.SUPABASE_URL}/rest/v1/cli_tokens?token_hash=eq.${encodeURIComponent(tokenHash)}&revoked_at=is.null&select=user_id,expires_at`,
+      { headers: { 'apikey': this.env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}` } },
+    );
+    if (!tokenRes.ok) return false;
+
+    const rows = await tokenRes.json() as { user_id: string; expires_at: string | null }[];
+    if (rows.length === 0) return false;
+
+    // Check expiration
+    if (rows[0].expires_at && new Date(rows[0].expires_at) < new Date()) return false;
+
+    const userId = rows[0].user_id;
+
+    // Verify agent ownership: agent's author must have this user_id
+    const agentRes = await fetch(
+      `${this.env.SUPABASE_URL}/rest/v1/agents?id=eq.${encodeURIComponent(agentId)}&select=author_id,authors!inner(user_id)`,
+      { headers: { 'apikey': this.env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}` } },
+    );
+    if (!agentRes.ok) return false;
+
+    const agents = await agentRes.json() as { author_id: string; authors: { user_id: string } }[];
+    if (agents.length === 0 || agents[0].authors.user_id !== userId) return false;
+
+    // Cache for revalidation and KV metadata
+    this.cachedTokenHash = tokenHash;
+    this.cachedUserId = userId;
+    return true;
+  }
+
+  // ========================================================
+  // Token revalidation (lightweight: 1 query on cached hash)
+  // ========================================================
+  private async revalidateToken(): Promise<boolean> {
+    if (!this.cachedTokenHash) return true; // No sb_ token → skip
+    try {
+      const res = await fetch(
+        `${this.env.SUPABASE_URL}/rest/v1/cli_tokens?token_hash=eq.${encodeURIComponent(this.cachedTokenHash)}&revoked_at=is.null&select=expires_at`,
+        { headers: { 'apikey': this.env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}` } },
+      );
+      if (!res.ok) return true; // Fail-open: network error → keep connection
+      const rows = await res.json() as { expires_at: string | null }[];
+      if (rows.length === 0) return false; // Token revoked
+      if (rows[0].expires_at && new Date(rows[0].expires_at) < new Date()) return false;
+      return true;
+    } catch {
+      return true; // Fail-open
     }
   }
 
@@ -425,6 +509,8 @@ export class AgentSession implements DurableObject {
     this.ws = null;
     this.authenticated = false;
     this.agentId = '';
+    this.cachedTokenHash = '';
+    this.cachedUserId = '';
     this.cleanupAllRelays();
     await this.state.storage.delete('agentId');
     await this.removeKV();
@@ -493,7 +579,15 @@ export class AgentSession implements DurableObject {
         connected_at: this.connectedAt,
         last_heartbeat: this.lastHeartbeat,
         active_sessions: this.activeSessions,
-      }), { expirationTtl: 300 });
+      }), {
+        expirationTtl: 300,
+        // KV metadata — list() returns metadata directly, no need for extra get()
+        metadata: {
+          token_hash: this.cachedTokenHash,
+          user_id: this.cachedUserId,
+          agent_type: this.agentType,
+        },
+      });
     } catch {}
   }
 
