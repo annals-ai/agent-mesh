@@ -168,10 +168,11 @@ export function spawnBackground(name: string, entry: AgentEntry, platformToken?:
   }
   env.PATH = [...pathSet].join(':');
 
+  const agentWorkspaceDir = join(homedir(), '.agent-bridge', 'agents', name);
   const child = spawn(process.execPath, args, {
     detached: true,
     stdio: ['ignore', logFd, logFd],
-    cwd: entry.projectPath || homedir(),
+    cwd: entry.projectPath || agentWorkspaceDir,
     env,
   });
 

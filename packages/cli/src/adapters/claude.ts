@@ -111,10 +111,12 @@ class ClaudeSession implements SessionHandle {
   }
 
   private async launchProcess(args: string[]): Promise<void> {
+    const cwd = this.currentWorkspace || this.config.project || undefined;
+
     try {
       this.process = await spawnAgent('claude', args, {
         stdio: ['ignore', 'pipe', 'pipe'],
-        cwd: this.currentWorkspace || this.config.project || undefined,
+        cwd: cwd || undefined,
         sandboxEnabled: this.config.sandboxEnabled,
         sandboxFilesystem: this.sandboxFilesystem,
       });

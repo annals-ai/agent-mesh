@@ -42,7 +42,11 @@ const SENSITIVE_PATHS: string[] = [
   '~/.claude/ide',               // IDE integration data
   // Other AI agent configs (contain API keys / tokens)
   '~/.openclaw',
-  '~/.agent-bridge',
+  // ~/.agent-bridge — fine-grained: block tokens/config, allow agent workspaces
+  // NOT blocked: ~/.agent-bridge/agents/ (per-agent project workspaces used as cwd)
+  '~/.agent-bridge/config.json',   // contains sb_ platform token
+  '~/.agent-bridge/pids',
+  '~/.agent-bridge/logs',
   '~/.codex',
   // Package manager tokens
   '~/.npmrc',

@@ -95,6 +95,23 @@ export function findAgentByAgentId(agentId: string): { name: string; entry: Agen
   return undefined;
 }
 
+// --- Agent workspace ---
+
+const AGENTS_DIR = join(CONFIG_DIR, 'agents');
+
+/**
+ * Get (and create) the dedicated workspace directory for an agent.
+ * Each agent gets `~/.agent-bridge/agents/<name>/` as its project root.
+ * Developer puts CLAUDE.md and .claude/skills/ here to define the agent's role.
+ */
+export function getAgentWorkspaceDir(name: string): string {
+  const dir = join(AGENTS_DIR, name);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
 // --- Slug helpers ---
 
 export function slugify(name: string): string {
