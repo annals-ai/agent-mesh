@@ -27,7 +27,8 @@ Determine the developer's intent and route to the appropriate workflow:
 
 | Intent | Workflow |
 |--------|----------|
-| New agent from scratch | Create → Connect → Publish |
+| New agent from scratch | Create → Set up Folder → Connect → Publish |
+| Add skills to existing agent | Set up Folder |
 | Set up agent on a new machine | Connect (with `--setup` ticket) |
 | View/manage local agents | Dashboard (`agent-bridge list`) |
 | Make agent available in marketplace | Publish |
@@ -87,11 +88,119 @@ agent-bridge agents create --name "<name>" --type <type> --price <n> --descripti
 
 The CLI outputs an Agent ID (UUID) and the next-step connect command.
 
+## Set up Agent Folder
+
+After creating an agent on the platform, set up a local folder with role instructions and skills. This folder becomes the agent's working directory when connected — the AI tool reads instructions and skills from it automatically.
+
+### 1. Create the folder
+
+Default location: `~/.agent-bridge/agents/<agent-name>/` (use a lowercase slug, e.g. `translator`, `code-review-pro`).
+
+The developer may also specify a custom path — use that instead if provided.
+
+```bash
+mkdir -p ~/.agent-bridge/agents/<agent-name>
+```
+
+### 2. Choose the protocol based on agent_type
+
+| agent_type | Instruction file | Skills directory | Why |
+|------------|-----------------|------------------|-----|
+| `claude` | `CLAUDE.md` | `.claude/skills/` | Claude Code reads these natively from cwd |
+| `openclaw` / `codex` / `gemini` | `AGENTS.md` | `.agents/skills/` | AAIF standard — Codex, OpenCode, Cursor, Windsurf read natively |
+
+Create the directory structure:
+
+**Claude Code agent** (`--type claude`):
+```bash
+cd ~/.agent-bridge/agents/<agent-name>
+mkdir -p .claude/skills
+```
+
+**Universal agent** (`--type openclaw` / `codex` / `gemini`):
+```bash
+cd ~/.agent-bridge/agents/<agent-name>
+mkdir -p .agents/skills
+```
+
+### 3. Write the role instruction file
+
+Create `CLAUDE.md` (for claude) or `AGENTS.md` (for others) in the agent folder root. This file defines who the agent is and how it behaves.
+
+Write the content based on the developer's description of what the agent should do. Include:
+- **Role**: Who the agent is (e.g. "You are a senior code reviewer specializing in TypeScript")
+- **Behavior rules**: Tone, constraints, what to do and not do
+- **Domain knowledge**: Key context the agent needs
+- **Output format**: How responses should be structured (if relevant)
+
+Keep it focused — this file is read on every conversation turn.
+
+### 4. Create agent-specific skills (optional but recommended)
+
+Skills give the agent specialized capabilities beyond its base instructions.
+
+Use the `/skill-creator` skill to interactively create skills for the agent:
+
+1. Load `/skill-creator` — it guides through skill structure, naming, and content
+2. When prompted for a path, specify the agent's skills directory:
+   - Claude: `~/.agent-bridge/agents/<agent-name>/.claude/skills/`
+   - Universal: `~/.agent-bridge/agents/<agent-name>/.agents/skills/`
+
+If `/skill-creator` is not installed, the developer can install it:
+```bash
+npx skills add https://github.com/davila7/claude-code-templates --skill skill-creator
+```
+
+Each skill lives in its own subfolder with a `SKILL.md` file:
+```
+.claude/skills/          # or .agents/skills/
+├── skill-a/
+│   └── SKILL.md
+└── skill-b/
+    ├── SKILL.md
+    └── references/      # optional supporting files
+```
+
+### Resulting folder structure
+
+**Claude Code agent**:
+```
+~/.agent-bridge/agents/<agent-name>/
+├── CLAUDE.md
+└── .claude/
+    └── skills/
+        └── <skill-name>/
+            └── SKILL.md
+```
+
+**Universal agent**:
+```
+~/.agent-bridge/agents/<agent-name>/
+├── AGENTS.md
+└── .agents/
+    └── skills/
+        └── <skill-name>/
+            └── SKILL.md
+```
+
 ## Connect
 
-Two paths depending on context:
+**Important**: Always connect from the agent folder so the AI tool reads the instruction file and skills automatically.
 
-- **Same machine as create**: `agent-bridge connect --agent-id <uuid>`
+Three paths depending on context:
+
+- **From agent folder (recommended)**:
+  ```bash
+  cd ~/.agent-bridge/agents/<agent-name>
+  agent-bridge connect --agent-id <uuid> <type>
+  ```
+  This sets cwd to the agent folder — Claude Code reads `CLAUDE.md` + `.claude/skills/` automatically.
+
+- **With `--project` flag** (alternative):
+  ```bash
+  agent-bridge connect --agent-id <uuid> --project ~/.agent-bridge/agents/<agent-name> <type>
+  ```
+
 - **Different machine / from website**: `agent-bridge connect --setup <ticket-url>` — fetches config from a one-time ticket, auto-saves the `sb_` token (acts as auto-login if not yet authenticated), and opens the TUI dashboard
 
 Claude Code agents run with `--sandbox` by default (blocks SSH keys, API tokens, credentials via macOS Seatbelt). Disable with `--no-sandbox` if the agent needs access to local credentials.
