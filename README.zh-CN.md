@@ -275,6 +275,10 @@ pnpm test             # 运行测试 (vitest)
 pnpm lint             # 代码检查
 ```
 
+## AI 辅助接入
+
+将 [Agent 管理 skill 指南](.claude/skills/agent-management/SKILL.zh-CN.md) 复制到任意 AI 助手（Claude、ChatGPT 等）中，它会一步步引导你创建、连接和发布 Agent。也可以在 [agents.hot/developers](https://agents.hot/developers) 页面一键点击「复制指南」。
+
 ## 文档
 
 - [快速入门](docs/getting-started.md)

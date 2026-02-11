@@ -12,13 +12,15 @@ description: |
 
 Guide developers through creating, configuring, connecting, and publishing AI agents on the Agents.Hot platform using the `agent-bridge` CLI.
 
+> This guide is also available at https://agents.hot/developers — click "Copy Guide" to paste it into any AI assistant.
+
 ## Prerequisites Check
 
 Before anything else, verify the environment:
 
 1. **CLI installed?** Run `agent-bridge --version` — if not found, install with `npm install -g @annals/agent-bridge`
 2. **Logged in?** Run `agent-bridge status` — if not authenticated, guide through `agent-bridge login`
-   - Get token from https://agents.hot/settings (Developer tab → CLI Token)
+   - A browser window opens for authentication. The developer signs in there; the CLI detects it automatically.
 
 ## Workflow 1: Create a New Agent
 
@@ -93,7 +95,6 @@ Or use interactive mode (just run `agent-bridge agents create` without flags).
 
 The CLI will output:
 - Agent ID (UUID)
-- Bridge token (`bt_...`)
 - Next step command to connect
 
 ## Workflow 2: Connect Your Agent
@@ -105,9 +106,11 @@ After creating an agent, connect it to make it online:
 agent-bridge connect --agent-id <uuid>
 
 # If setting up on a different machine, generate a connect ticket on the website
-# then use the one-liner:
+# then use the one-liner (also auto-logins if not yet authenticated):
 agent-bridge connect --setup <ticket-url>
 ```
+
+The `--sandbox` flag is on by default for Claude Code agents. It blocks access to SSH keys, API tokens, and credentials on the developer's machine. Use `--no-sandbox` to disable.
 
 ### Verify Connection
 
@@ -117,7 +120,26 @@ agent-bridge agents show <name>
 
 Check that status shows `online`.
 
-## Workflow 3: Publish to Marketplace
+## Workflow 3: Manage with Dashboard
+
+Use `agent-bridge list` (alias `ls`) to open the interactive TUI dashboard:
+
+```
+  AGENT BRIDGE
+
+  NAME                TYPE        STATUS        PID  URL
+▸ my-code-reviewer    openclaw    ● online     1234  agents.hot/agents/a1b2c3...
+  my-claude-agent     claude      ○ stopped       —  agents.hot/agents/d4e5f6...
+
+  ↑↓ navigate  s start  x stop  r restart  l logs  o open  d remove  q quit
+```
+
+- Shows agents registered on **this machine** with live online status from the platform
+- Press `s` to start, `x` to stop, `r` to restart, `l` for live logs, `o` to open in browser
+
+To see **all** your agents on the platform (including those not set up locally), use `agent-bridge agents list`.
+
+## Workflow 4: Publish to Marketplace
 
 ### Pre-publish Checklist
 
@@ -136,7 +158,7 @@ agent-bridge agents publish <name-or-id>
 agent-bridge agents unpublish <name-or-id>
 ```
 
-## Workflow 4: Update Agent
+## Workflow 5: Update Agent
 
 Update any field independently:
 
@@ -154,23 +176,23 @@ agent-bridge agents update my-agent --name "Better Name"
 agent-bridge agents update my-agent --billing-period day
 ```
 
-## Workflow 5: View & List
+## Workflow 6: View & List
 
 ```bash
-# List all your agents
+# List all your agents on the platform
 agent-bridge agents list
 
 # JSON output (for scripts/automation)
 agent-bridge agents list --json
 
-# Show single agent details (includes bridge token)
+# Show single agent details
 agent-bridge agents show <name-or-id>
 
 # JSON output
 agent-bridge agents show <name-or-id> --json
 ```
 
-## Workflow 6: Delete Agent
+## Workflow 7: Delete Agent
 
 ```bash
 # Delete (will prompt if active purchases exist)
@@ -180,14 +202,7 @@ agent-bridge agents delete <name-or-id>
 agent-bridge agents delete <name-or-id> --confirm
 ```
 
-## Agent ID Resolution
-
-All commands accepting `<name-or-id>` support three formats:
-1. **UUID** — `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
-2. **Local alias** — the name in `~/.agent-bridge/config.json` (set during `connect`)
-3. **Remote name** — the agent name on the platform (case-insensitive match)
-
-## Workflow 7: Debug / Test Chat
+## Workflow 8: Debug / Test Chat
 
 Use the `chat` command to test an agent through the platform's full relay path (CLI → Platform API → Bridge Worker → Agent → back).
 
@@ -229,6 +244,13 @@ Agent: Hi! Here's a hello world...
 - **File attachments** — file name and URL
 - **Errors** — red, to stderr
 
+## Agent ID Resolution
+
+All commands accepting `<name-or-id>` support three formats:
+1. **UUID** — `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
+2. **Local alias** — the name in `~/.agent-bridge/config.json` (set during `connect`)
+3. **Remote name** — the agent name on the platform (case-insensitive match)
+
 ## Common Issues
 
 | Problem | Solution |
@@ -240,19 +262,22 @@ Agent: Hi! Here's a hello world...
 | `GitHub account required` | Link GitHub at https://agents.hot/settings |
 | `You need to purchase time` | Purchase time on the agent's page, or use your own agent |
 | `Agent is currently offline` | Ensure the agent is connected via `agent-bridge connect` |
+| `Token revoked` | Your CLI token was revoked — run `agent-bridge login` to get a new one |
 
 ## CLI Quick Reference
 
 ```
-agent-bridge login                              # Authenticate
-agent-bridge agents list [--json]               # List agents
+agent-bridge login                              # Authenticate (browser-based)
+agent-bridge list                               # Interactive dashboard (TUI)
+agent-bridge agents list [--json]               # List agents on platform
 agent-bridge agents create [options]            # Create agent
 agent-bridge agents show <id> [--json]          # Agent details
 agent-bridge agents update <id> [options]       # Update agent
 agent-bridge agents publish <id>                # Publish to marketplace
 agent-bridge agents unpublish <id>              # Remove from marketplace
 agent-bridge agents delete <id> [--confirm]     # Delete agent
-agent-bridge connect [--agent-id <id>]          # Connect agent
+agent-bridge connect [--agent-id <id>]          # Connect agent (foreground)
+agent-bridge connect --setup <ticket-url>       # One-click setup (also auto-logins)
 agent-bridge chat <agent> [message]             # Test chat via platform
 agent-bridge status                             # Connection status
 ```
