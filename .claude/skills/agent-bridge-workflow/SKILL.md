@@ -227,6 +227,25 @@ curl -fsSL <skill-raw-url> -o ~/.agent-bridge/agents/<agent-name>/.claude/skills
 1. Invoke `/skill-creator`
 2. Write the generated SKILL.md to: `~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/SKILL.md`
 
+**⚠️ MANDATORY FRONTMATTER — Every SKILL.md MUST start with YAML frontmatter. Without it, Claude Code will NOT register the skill as a slash command and users cannot invoke it.**
+
+```yaml
+---
+name: skill-name
+version: 1.0.0
+description: "What this skill does. When to use it — include trigger words and phrases users might say."
+---
+
+# Skill Title
+
+(rest of skill content...)
+```
+
+- `name`: must match the folder name (e.g. `keyword-research` for `.claude/skills/keyword-research/SKILL.md`)
+- `description`: is the PRIMARY trigger — Claude reads this to decide when to activate the skill. Include both what it does AND trigger phrases (e.g. "when the user mentions 'keyword research', '关键词研究', '扩词'")
+- Do NOT omit the `---` fences — they are required YAML frontmatter delimiters
+- After writing each SKILL.md, verify it starts with `---` on line 1
+
 Repeat for EVERY `/skill-name` line in the description.
 
 Resulting skills directory:
@@ -239,11 +258,12 @@ Resulting skills directory:
         └── SKILL.md
 ```
 
-### 5. Verify folder structure before proceeding
+### 5. Verify folder structure AND frontmatter before proceeding
 
 **⚠️ STOP. Run `find <agent-folder> -type f` and verify that:**
 1. The instruction file exists (`CLAUDE.md` or `AGENTS.md`)
 2. Every `/skill-name` from the description has a matching `.claude/skills/<skill-name>/SKILL.md`
+3. **Every SKILL.md starts with `---` YAML frontmatter** — run `head -3 <agent-folder>/.claude/skills/*/SKILL.md` and confirm each file begins with `---` / `name:` / `description:`
 
 Expected structure (**Claude Code agent**):
 ```
@@ -273,7 +293,7 @@ If any skill is missing, go back and create it. **Do NOT proceed to Connect with
 
 ## Connect
 
-**Pre-check**: Before connecting, confirm the agent folder has BOTH the instruction file AND all skill files. If you skipped "Set up Agent Folder → step 4", go back now — the agent will have no capabilities in sandbox mode without skills in its folder.
+**Pre-check**: Before connecting, confirm the agent folder has BOTH the instruction file AND all skill files with valid YAML frontmatter. If you skipped "Set up Agent Folder → step 4", go back now — the agent will have no capabilities in sandbox mode without skills in its folder. Skills missing frontmatter will NOT be recognized as slash commands.
 
 **Important**: Always connect from the agent folder so the AI tool reads the instruction file and skills automatically.
 
