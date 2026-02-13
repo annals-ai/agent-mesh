@@ -298,13 +298,42 @@ describe('login command', () => {
   });
 
   describe('non-TTY environment', () => {
-    it('should reject interactive login in non-TTY mode', async () => {
+    it('should proceed with device auth flow in non-TTY mode (no spinner)', async () => {
       vi.mocked(hasToken).mockReturnValue(false);
       vi.mocked(isatty).mockReturnValue(false);
 
-      await expect(runLogin([])).rejects.toThrow('process.exit(1)');
-      expect(log.error).toHaveBeenCalledWith(
-        expect.stringContaining('Cannot use interactive login in non-TTY'),
+      globalThis.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              device_code: 'dc_nontty',
+              user_code: 'NTTY-1234',
+              verification_uri: 'https://agents.hot/auth/device',
+              verification_uri_complete: 'https://agents.hot/auth/device?code=NTTY-1234',
+              expires_in: 900,
+              interval: 5,
+            }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              access_token: 'sb_nontty_token',
+              token_type: 'Bearer',
+              user: { id: 'u4', email: 'nontty@test.com', name: 'NonTTY' },
+            }),
+        });
+
+      await runLogin([]);
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'https://agents.hot/api/auth/device',
+        expect.objectContaining({ method: 'POST' }),
+      );
+      expect(saveToken).toHaveBeenCalledWith('sb_nontty_token');
+      expect(log.success).toHaveBeenCalledWith(
+        expect.stringContaining('Logged in as nontty@test.com'),
       );
     });
 
