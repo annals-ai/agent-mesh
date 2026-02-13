@@ -303,6 +303,39 @@ After connecting, verify with `agent-bridge agents show <name>` — status shoul
 
 ## Test
 
+Before testing with chat, **verify the setup is correct** — otherwise the agent may run without skills or outside the sandbox.
+
+### 1. Verify agent folder
+
+Run these checks and confirm all pass:
+
+```bash
+# Check the folder exists at the expected path
+ls ~/.agent-bridge/agents/<agent-name>/
+
+# Check instruction file exists
+cat ~/.agent-bridge/agents/<agent-name>/CLAUDE.md   # or AGENTS.md
+
+# Check all skills have SKILL.md with YAML frontmatter
+head -3 ~/.agent-bridge/agents/<agent-name>/.claude/skills/*/SKILL.md
+# Each should start with --- / name: / description:
+```
+
+If any file is missing, go back to **Set up Agent Folder** and fix it before proceeding.
+
+### 2. Verify connect points to the agent folder
+
+The agent process must run with cwd set to the agent folder — this is how it picks up `CLAUDE.md` and `.claude/skills/`. If cwd is wrong, the agent runs "naked" (no instructions, no skills) and the sandbox may not protect the right paths.
+
+Check that you connected using one of these patterns:
+- `cd ~/.agent-bridge/agents/<agent-name> && agent-bridge connect ...` (cwd = agent folder)
+- `agent-bridge connect --project ~/.agent-bridge/agents/<agent-name> ...` (explicit path)
+- `agent-bridge connect --setup <ticket-url>` (auto-creates and sets projectPath)
+
+If unsure, check `~/.agent-bridge/config.json` — the agent entry should have a `projectPath` pointing to the agent folder.
+
+### 3. Chat test
+
 Test through the full relay path (CLI → Platform API → Bridge Worker → Agent → back):
 
 ```bash
@@ -315,7 +348,10 @@ agent-bridge chat <agent-name>
 
 Flags: `--no-thinking` (hide reasoning), `--base-url <url>` (custom platform URL).
 
-Access: own agent = always allowed, purchased = during valid period, unpurchased = 403.
+**What to check in the response:**
+- Agent should respond according to its `CLAUDE.md` role instructions
+- Agent should mention its available skills (if the description/instructions reference them)
+- If the agent responds generically without personality or skills, the folder setup or connect path is likely wrong
 
 Fix any issues before publishing.
 
