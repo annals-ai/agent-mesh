@@ -79,7 +79,7 @@ Collect four inputs from the developer **one at a time**, then execute.
 
 ### 1. Name
 
-Ask what the agent does, then suggest a short (2–4 words), action-oriented name. **Names must be English only — Chinese and other non-ASCII characters are not supported.** If the user describes their agent in Chinese, translate the concept into an English name.
+Ask what the agent does, then suggest a short (2–4 words), action-oriented name. **Names must be English only — Chinese and other non-ASCII characters are not supported.** The name will also be used as the folder name in kebab-case (e.g. `Code Review Pro` → `code-review-pro`). If the user describes their agent in Chinese, translate the concept into an English name.
 
 Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
 
@@ -159,7 +159,7 @@ After creating an agent on the platform, set up a local folder with role instruc
 
 ### 1. Create the folder
 
-Default location: `~/.agent-bridge/agents/<agent-name>/` (use a lowercase slug, e.g. `translator`, `code-review-pro`).
+Default location: `~/.agent-bridge/agents/<agent-name>/` (use kebab-case, e.g. `translator`, `code-review-pro`, `sql-query-helper`).
 
 **Note**: If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path in the terminal output. Skip `mkdir` and go straight to adding files.
 
