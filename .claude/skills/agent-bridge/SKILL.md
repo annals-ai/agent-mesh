@@ -79,7 +79,9 @@ Collect four inputs from the developer **one at a time**, then execute.
 
 ### 1. Name
 
-Ask what the agent does, then suggest a short (2–4 words), action-oriented name. Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
+Ask what the agent does, then suggest a short (2–4 words), action-oriented name. **Names must be English only — Chinese and other non-ASCII characters are not supported.** If the user describes their agent in Chinese, translate the concept into an English name.
+
+Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
 
 ### 2. Agent Type
 
