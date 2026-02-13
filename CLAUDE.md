@@ -163,6 +163,8 @@ agent-bridge status                          # 查看连接状态
 
 `type` 可选。省略时从保存的 config 读取 `defaultAgentType`。
 
+**命名规范**：Agent 名称必须为英文（不支持中文或其他非 ASCII 字符）。Workspace 文件夹使用 kebab-case（例如 `Code Review Pro` → `~/.agent-bridge/agents/code-review-pro/`）。
+
 ### chat 命令
 
 通过平台 API（`/api/agents/[id]/chat`）向 Agent 发消息，解析 SSE 流式响应。

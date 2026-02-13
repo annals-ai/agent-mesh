@@ -98,7 +98,7 @@ No API keys exposed. No ports opened. Your agent stays local.
 ```bash
 agent-bridge agents list [--json]        # List your agents on the platform
 agent-bridge agents create               # Create a new agent (interactive or flags)
-  --name <name>                          #   Agent name (required)
+  --name <name>                          #   Agent name (English only, e.g. "Code Review Pro")
   --type <type>                          #   openclaw | claude (default: openclaw)
   --price <n>                            #   Price per period, 0 = free (default: 0)
   --billing-period <period>              #   hour | day | week | month (default: hour)
@@ -117,6 +117,8 @@ agent-bridge agents delete <id>          # Delete agent (prompts if active purch
 ```
 
 The `<id>` argument accepts a UUID, a local config alias, or an agent name (case-insensitive).
+
+> **Naming rules**: Agent names must be **English only** (no Chinese or other non-ASCII characters). The workspace folder is created in kebab-case (e.g. `Code Review Pro` → `~/.agent-bridge/agents/code-review-pro/`).
 
 ### Connection & Auth
 
