@@ -132,18 +132,8 @@ export function registerLoginCommand(program: Command): void {
         );
       }
 
-      // Non-TTY check (CI, piped stdin, SSH without terminal)
-      if (!isTTY()) {
-        log.error(
-          'Cannot use interactive login in non-TTY environments.\n' +
-            'Use one of:\n' +
-            '  agent-bridge login --token <token>\n' +
-            '  AGENT_BRIDGE_TOKEN=<token> agent-bridge connect',
-        );
-        process.exit(1);
-      }
-
       // --- Device Auth Flow ---
+      const interactive = isTTY();
       log.banner('Agent Bridge Login');
 
       // 1. Request device code
@@ -176,12 +166,13 @@ export function registerLoginCommand(program: Command): void {
       // 2. Open browser
       const url = deviceData.verification_uri_complete;
       openBrowser(url);
-      console.log(`Opening browser at ${url}\n`);
-      console.log(`If the browser didn't open, visit:`);
-      console.log(`  ${url}\n`);
+      console.log(`\nOpen this URL to authorize:\n  ${url}\n`);
 
       // 3. Poll for authorization
-      const spinner = createSpinner('Waiting for authorization...');
+      const spinner = interactive ? createSpinner('Waiting for authorization...') : null;
+      if (!interactive) {
+        console.log('Waiting for authorization (approve in your browser)...');
+      }
 
       try {
         const tokenData = await pollForToken(
@@ -191,12 +182,20 @@ export function registerLoginCommand(program: Command): void {
           deviceData.interval,
         );
 
-        spinner.stop(`✓ Logged in as ${tokenData.user.email || tokenData.user.name}`);
+        if (spinner) {
+          spinner.stop(`✓ Logged in as ${tokenData.user.email || tokenData.user.name}`);
+        } else {
+          log.success(`Logged in as ${tokenData.user.email || tokenData.user.name}`);
+        }
 
         saveToken(tokenData.access_token);
         log.success(`Token saved to ${getConfigPath()}`);
       } catch (err) {
-        spinner.stop(`✗ ${(err as Error).message}`);
+        if (spinner) {
+          spinner.stop(`✗ ${(err as Error).message}`);
+        } else {
+          log.error((err as Error).message);
+        }
         process.exit(1);
       }
     });
