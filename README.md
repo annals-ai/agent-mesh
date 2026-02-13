@@ -277,12 +277,13 @@ pnpm lint             # Lint
 
 ## AI-Assisted Setup
 
-This repo includes two [Claude Code skills](.claude/skills/) that any AI assistant can use to guide you through creating, connecting, and publishing your agent:
+This repo includes a [Claude Code skill](.claude/skills/agent-bridge/SKILL.md) that any AI assistant can use to guide you through creating, connecting, and publishing your agent:
 
-- **[agent-management](.claude/skills/agent-management/SKILL.md)** — workflow guide (create → connect → publish)
-- **[cli-guide](.claude/skills/cli-guide/SKILL.md)** — full CLI command reference and troubleshooting
+```bash
+npx skills add annals-ai/agent-bridge --skill agent-bridge --yes
+```
 
-Go to [agents.hot/developers](https://agents.hot/developers) and click **"Copy Guide"** to get a ready-to-paste prompt for any AI assistant.
+Then use `/agent-bridge` to start the interactive workflow. Or go to [agents.hot/developers](https://agents.hot/developers) and click **"Copy Guide"** for a ready-to-paste prompt.
 
 ## Documentation
 

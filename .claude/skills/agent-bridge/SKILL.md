@@ -1,14 +1,16 @@
 ---
-name: agent-bridge-workflow
+name: agent-bridge
 description: |
   Guide developers through creating, configuring, connecting, and publishing
-  AI agents on Agents.Hot using the agent-bridge CLI. Helps with naming,
-  description writing, skill tagging, pricing strategy, and troubleshooting.
+  AI agents on Agents.Hot using the agent-bridge CLI. Also covers CLI command
+  reference, flags, and troubleshooting.
   Trigger words: create agent, manage agent, publish agent, agent pricing,
-  agent description, agent setup, list agents, delete agent, connect agent.
+  agent description, agent setup, list agents, delete agent, connect agent,
+  agent-bridge command, CLI help, agent-bridge flags, connect options,
+  agent-bridge troubleshooting, TUI dashboard.
 ---
 
-# Agent Management — Agents.Hot Platform
+# Agent Bridge — Create, Connect & Publish Agents
 
 ## Behavior — READ THIS FIRST
 
@@ -23,37 +25,20 @@ This is an **interactive workflow**, not a reference document.
 5. **Verify before proceeding** — After each step, confirm it succeeded (check command output, verify status) before moving to the next step.
 6. **Write files yourself** — When setting up the agent folder, create `CLAUDE.md` / `AGENTS.md` and skill files directly. Do NOT just show templates.
 
-**Companion skills — you MUST use these at the indicated points:**
+**Companion skills — invoke these at the indicated points:**
 
 | Skill | When to invoke | Purpose |
 |-------|----------------|---------|
-| `/find-skills` | Before drafting the description (Create step 3) | Search for real community skills to reference |
-| `/agent-bridge-cli` | When any CLI command fails or you need exact syntax | Command reference & troubleshooting |
-| `/skill-creator` | During folder setup (step 4) to create each skill | Interactively generate SKILL.md files |
+| `/find-skills` | Before drafting the description (Create step 3) | Search for real community skills to reference in the description |
+| `/skill-creator` | During folder setup (step 4) to create each skill | Interactively generate well-structured SKILL.md files |
 
-Do NOT skip these — they are integral parts of the workflow, not optional extras.
+These skills contain the domain knowledge needed to create good descriptions and skills. If they are not installed, prompt the user to install them first (`npx skills add ...`). Only skip if the user explicitly declines.
 
 **You MUST NOT:**
 - Dump all steps as a numbered guide or checklist
 - Show commands with `<placeholder>` values and ask the user to fill them in
 - Skip ahead or combine multiple steps into one message
 - Describe what the user should do — actually do it
-- Invent skill names — only use skills found via `/find-skills` or created via `/skill-creator`
-
-**Conversation flow example (Create workflow):**
-```
-You:  "What does your agent do? I'll help you pick a good name."
-User: "It reviews TypeScript code"
-You:  [suggests name] → asks about type (claude vs openclaw)
-User: "claude"
-You:  [asks about pricing] → explains options briefly
-User: "free for now"
-You:  [invokes /find-skills to search "code review", "typescript", "linting"]
-You:  [drafts description using real skill names from search results] → shows for approval
-User: "looks good"
-You:  [runs `agent-bridge agents create ...`] → shows result
-You:  [proceeds to set up folder, invokes /skill-creator for each skill]
-```
 
 ---
 
@@ -62,7 +47,14 @@ You:  [proceeds to set up folder, invokes /skill-creator for each skill]
 Before starting any workflow, verify the environment:
 
 1. Run `agent-bridge --version` — if not found, install with `npm install -g @annals/agent-bridge`
-2. Run `agent-bridge status` — if not authenticated, run `agent-bridge login` (opens browser for sign-in)
+2. Run `agent-bridge status` — if not authenticated, run `agent-bridge login`
+
+**Non-TTY fallback** (e.g. SSH without browser, CI, Docker):
+1. Open https://agents.hot/settings?tab=developer
+2. Scroll to "CLI Tokens" and create a new token
+3. Run: `agent-bridge login --token <token>`
+
+---
 
 ## Workflow Routing
 
@@ -70,14 +62,16 @@ Match the developer's intent and jump to the appropriate section:
 
 | Intent | Workflow |
 |--------|----------|
-| New agent from scratch | Create → Set up Folder → Connect → Publish |
+| New agent from scratch | Create → Set up Folder → Connect → Test → Publish |
 | Add skills to existing agent | Set up Folder |
 | Set up agent on a new machine | Connect (with `--setup` ticket) |
 | View/manage local agents | Dashboard (`agent-bridge list`) |
 | Make agent available in marketplace | Publish |
 | Change name/price/description | Update |
-| Test agent end-to-end | Debug Chat |
+| Test agent end-to-end | Test |
 | Remove agent | Delete |
+
+---
 
 ## Create
 
@@ -98,9 +92,9 @@ Ask which runtime the agent uses:
 
 ### 3. Description
 
-**⚠️ MANDATORY: Invoke `/find-skills` first.** Search for existing community skills relevant to the agent's domain. For example, if the agent does SEO work, search for "SEO", "keyword", "marketing", etc. Do NOT proceed to drafting until you have search results.
+**Invoke `/find-skills` first.** Search for existing community skills relevant to the agent's domain. For example, if the agent does SEO work, search for "SEO", "keyword", "marketing", etc. Use the search results to pick real skill names for the description.
 
-Then draft the description based on the conversation and the skills you found. Follow this structure:
+Then draft the description following this structure:
 
 ```
 First paragraph: What the agent does (2–3 sentences, under 280 chars for card preview).
@@ -112,10 +106,9 @@ Second paragraph (optional): Technical specialties.
 #tag1 #tag2 #tag3
 ```
 
-- `/skill` lines declare capabilities shown as chips in the marketplace — they must correspond to real skills that will be installed in the agent's folder
-- `#tag` lines enable search and discovery
-- Specificity matters — generic descriptions rank poorly
-- Do NOT invent skill names — only use skills found via `/find-skills` or ones you will create via `/skill-creator` in the folder setup step
+- `/skill` lines are extracted by the chat UI as slash commands — users type `/` in the chat input to see and invoke the agent's available skills. Each must have a matching SKILL.md in the agent folder.
+- `#tag` lines enable search and discovery.
+- Specificity matters — generic descriptions rank poorly.
 
 Show the draft and ask for approval before proceeding.
 
@@ -136,7 +129,7 @@ Price is in platform credits. Recommend starting free or low to build reviews, t
 
 Once all four inputs are collected, run the command.
 
-**Shell escaping**: Descriptions often contain special characters, quotes, or non-ASCII text. Always pass the description via a heredoc or a temporary file to avoid shell parsing errors:
+**Shell escaping**: Descriptions often contain special characters. Always pass the description via a heredoc:
 
 ```bash
 agent-bridge agents create \
@@ -150,11 +143,13 @@ DESC
 )"
 ```
 
-If the command fails, **invoke `/agent-bridge-cli`** to check the correct syntax and flags. Do NOT guess or retry blindly.
+If the command fails, read `references/cli-reference.md` in this skill for exact syntax and flags. Do NOT guess or retry blindly.
 
 The CLI outputs an Agent ID (UUID). Save it — you'll need it for the connect step.
 
 **Immediately proceed to Set up Agent Folder.**
+
+---
 
 ## Set up Agent Folder
 
@@ -164,13 +159,9 @@ After creating an agent on the platform, set up a local folder with role instruc
 
 Default location: `~/.agent-bridge/agents/<agent-name>/` (use a lowercase slug, e.g. `translator`, `code-review-pro`).
 
-**Note**: If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path in the terminal output. You can skip `mkdir` and go straight to adding files.
+**Note**: If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path in the terminal output. Skip `mkdir` and go straight to adding files.
 
 The developer may also specify a custom path — use that instead if provided.
-
-```bash
-mkdir -p ~/.agent-bridge/agents/<agent-name>
-```
 
 ### 2. Choose the protocol based on agent_type
 
@@ -183,14 +174,12 @@ Create the directory structure:
 
 **Claude Code agent** (`--type claude`):
 ```bash
-cd ~/.agent-bridge/agents/<agent-name>
-mkdir -p .claude/skills
+mkdir -p ~/.agent-bridge/agents/<agent-name>/.claude/skills
 ```
 
 **Universal agent** (`--type openclaw` / `codex` / `gemini`):
 ```bash
-cd ~/.agent-bridge/agents/<agent-name>
-mkdir -p .agents/skills
+mkdir -p ~/.agent-bridge/agents/<agent-name>/.agents/skills
 ```
 
 ### 3. Write the role instruction file
@@ -205,29 +194,17 @@ Keep it focused — this file is read on every conversation turn.
 
 ### 4. Create agent-specific skills
 
-**⚠️ DO NOT SKIP THIS STEP. DO NOT PROCEED TO CONNECT UNTIL ALL SKILLS ARE CREATED.**
-
 For every `/skill-name` line in the agent's description, you must create a corresponding `SKILL.md` file **inside the agent's folder**. Without these files, the agent will have no capabilities when running in sandbox mode.
 
-**⚠️ CRITICAL: Skills must go into the AGENT's folder, NOT the global `~/.claude/skills/` directory.**
+**CRITICAL: Skills must go into the AGENT's folder, NOT the global `~/.claude/skills/` directory.**
 - Global `~/.claude/skills/` = your own skills (for YOU the developer)
 - Agent folder `~/.agent-bridge/agents/<name>/.claude/skills/` = the agent's skills (for the AGENT when it runs)
 
 The agent runs in a sandbox with only its own folder as cwd. It cannot access `~/.claude/skills/`.
 
-For each skill in the description, do ONE of:
+For each skill in the description, **invoke `/skill-creator`** to interactively generate a well-structured SKILL.md file. `/skill-creator` knows the frontmatter requirements, best practices for trigger words, and how to structure skill content — use it instead of writing SKILL.md from scratch.
 
-**Option A** — Download an existing community skill (if `/find-skills` found one with a URL):
-```bash
-mkdir -p ~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>
-curl -fsSL <skill-raw-url> -o ~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/SKILL.md
-```
-
-**Option B** — Create a new skill with `/skill-creator`:
-1. Invoke `/skill-creator`
-2. Write the generated SKILL.md to: `~/.agent-bridge/agents/<agent-name>/.claude/skills/<skill-name>/SKILL.md`
-
-**⚠️ MANDATORY FRONTMATTER — Every SKILL.md MUST start with YAML frontmatter. Without it, Claude Code will NOT register the skill as a slash command and users cannot invoke it.**
+**MANDATORY FRONTMATTER — Every SKILL.md MUST start with YAML frontmatter:**
 
 ```yaml
 ---
@@ -242,27 +219,19 @@ description: "What this skill does. When to use it — include trigger words and
 ```
 
 - `name`: must match the folder name (e.g. `keyword-research` for `.claude/skills/keyword-research/SKILL.md`)
-- `description`: is the PRIMARY trigger — Claude reads this to decide when to activate the skill. Include both what it does AND trigger phrases (e.g. "when the user mentions 'keyword research', '关键词研究', '扩词'")
-- Do NOT omit the `---` fences — they are required YAML frontmatter delimiters
-- After writing each SKILL.md, verify it starts with `---` on line 1
+- `description`: is the PRIMARY trigger — Claude reads this to decide when to activate the skill. Include both what it does AND trigger phrases.
+- Do NOT omit the `---` fences — they are required YAML frontmatter delimiters.
+- After writing each SKILL.md, verify it starts with `---` on line 1.
 
-Repeat for EVERY `/skill-name` line in the description.
-
-Resulting skills directory:
-```
-~/.agent-bridge/agents/<agent-name>/
-└── .claude/skills/          # or .agents/skills/ for universal agents
-    ├── skill-a/
-    │   └── SKILL.md
-    └── skill-b/
-        └── SKILL.md
-```
+Place each skill at:
+- Claude: `<agent-folder>/.claude/skills/<skill-name>/SKILL.md`
+- OpenClaw: `<agent-folder>/.agents/skills/<skill-name>/SKILL.md`
 
 ### 5. Verify folder structure AND frontmatter before proceeding
 
-**⚠️ STOP. Run `find <agent-folder> -type f` and verify that:**
+**STOP. Run `find <agent-folder> -type f` and verify that:**
 1. The instruction file exists (`CLAUDE.md` or `AGENTS.md`)
-2. Every `/skill-name` from the description has a matching `.claude/skills/<skill-name>/SKILL.md`
+2. Every `/skill-name` from the description has a matching SKILL.md
 3. **Every SKILL.md starts with `---` YAML frontmatter** — run `head -3 <agent-folder>/.claude/skills/*/SKILL.md` and confirm each file begins with `---` / `name:` / `description:`
 
 Expected structure (**Claude Code agent**):
@@ -291,33 +260,64 @@ Expected structure (**Universal agent**):
 
 If any skill is missing, go back and create it. **Do NOT proceed to Connect with an incomplete folder.**
 
+---
+
 ## Connect
 
-**Pre-check**: Before connecting, confirm the agent folder has BOTH the instruction file AND all skill files with valid YAML frontmatter. If you skipped "Set up Agent Folder → step 4", go back now — the agent will have no capabilities in sandbox mode without skills in its folder. Skills missing frontmatter will NOT be recognized as slash commands.
+**Pre-check**: Before connecting, confirm the agent folder has BOTH the instruction file AND all skill files with valid YAML frontmatter.
 
 **Important**: Always connect from the agent folder so the AI tool reads the instruction file and skills automatically.
 
 Three paths depending on context:
 
-- **`--setup` (recommended for first time)**: `agent-bridge connect --setup <ticket-url>` — fetches config from a one-time ticket, auto-saves the `sb_` token (acts as auto-login if not yet authenticated), automatically creates the workspace directory and sets `projectPath`, then opens the TUI dashboard. The CLI prints the workspace path — no need to manually `cd` or pass `--project`.
+### One-click setup (recommended for first time)
 
-- **From agent folder**:
-  ```bash
-  cd ~/.agent-bridge/agents/<agent-name>
-  agent-bridge connect --agent-id <uuid> <type>
-  ```
-  This sets cwd to the agent folder — Claude Code reads `CLAUDE.md` + `.claude/skills/` automatically.
+```bash
+agent-bridge connect --setup <ticket-url>
+```
 
-- **With `--project` flag** (alternative):
-  ```bash
-  agent-bridge connect --agent-id <uuid> --project ~/.agent-bridge/agents/<agent-name> <type>
-  ```
+Fetches config from a one-time ticket, auto-saves the `sb_` token (acts as auto-login if not yet authenticated), automatically creates the workspace directory and sets `projectPath`, then opens the TUI dashboard. The CLI prints the workspace path — no need to manually `cd` or pass `--project`.
+
+### From agent folder
+
+```bash
+cd ~/.agent-bridge/agents/<agent-name>
+agent-bridge connect --agent-id <uuid> <type>
+```
+
+This sets cwd to the agent folder — Claude Code reads `CLAUDE.md` + `.claude/skills/` automatically.
+
+### With --project flag (alternative)
+
+```bash
+agent-bridge connect --agent-id <uuid> --project ~/.agent-bridge/agents/<agent-name> <type>
+```
 
 Claude Code agents run with `--sandbox` by default (blocks SSH keys, API tokens, credentials via macOS Seatbelt). Disable with `--no-sandbox` if the agent needs access to local credentials.
 
 After connecting, verify with `agent-bridge agents show <name>` — status should show `online`.
 
-**After successful connection, proceed to Publish (if the user wants marketplace visibility).**
+---
+
+## Test
+
+Test through the full relay path (CLI → Platform API → Bridge Worker → Agent → back):
+
+```bash
+# Single message
+agent-bridge chat <agent-name> "Hello, what can you do?"
+
+# Interactive REPL (/quit to exit)
+agent-bridge chat <agent-name>
+```
+
+Flags: `--no-thinking` (hide reasoning), `--base-url <url>` (custom platform URL).
+
+Access: own agent = always allowed, purchased = during valid period, unpurchased = 403.
+
+Fix any issues before publishing.
+
+---
 
 ## Publish
 
@@ -326,16 +326,42 @@ Two preconditions must be met before publishing:
 1. Agent must be **online** (connected via `agent-bridge connect`)
 2. Developer must have an **email address** set at https://agents.hot/settings
 
-Run `agent-bridge agents publish <name-or-id>`. To remove from marketplace: `agent-bridge agents unpublish <name-or-id>`.
+```bash
+agent-bridge agents publish <name-or-id>
+```
 
-## Key Domain Knowledge
+To remove from marketplace: `agent-bridge agents unpublish <name-or-id>`.
+
+---
+
+## Update
+
+```bash
+agent-bridge agents update <id> --price 20
+agent-bridge agents update <id> --description "New description..."
+agent-bridge agents update <id> --name "Better Name"
+agent-bridge agents update <id> --billing-period day
+```
+
+---
+
+## Delete
+
+```bash
+agent-bridge agents delete <name-or-id>
+agent-bridge agents delete <name-or-id> --confirm   # Skip confirmation, refund active purchases
+```
+
+---
+
+## Quick Reference
 
 ### Agent ID Resolution
 
 All commands accepting `<name-or-id>` resolve in this order:
-1. UUID — exact match
-2. Local alias — from `~/.agent-bridge/config.json` (set during `connect`)
-3. Remote name — platform agent name (case-insensitive)
+1. **UUID** — exact match
+2. **Local alias** — from `~/.agent-bridge/config.json` (set during `connect`)
+3. **Remote name** — platform agent name (case-insensitive)
 
 ### Dashboard vs Platform List
 
@@ -348,8 +374,13 @@ After initial setup, reconnect with just `agent-bridge connect` — config persi
 
 ### Common Errors
 
-Invoke `/agent-bridge-cli` for the full troubleshooting table. Key patterns:
-- `Not authenticated` → `agent-bridge login`
-- `Token revoked` → token was revoked on the platform, run `agent-bridge login` for a new one
-- `Agent must be online for first publish` → run `agent-bridge connect` first
-- `Email required` → set email at https://agents.hot/settings
+| Error | Solution |
+|-------|----------|
+| `Not authenticated` | Run `agent-bridge login` |
+| `Token revoked` | Token was revoked — run `agent-bridge login` for a new one |
+| `Agent must be online for first publish` | Run `agent-bridge connect` first |
+| `Email required` | Set email at https://agents.hot/settings |
+| `Agent not found` | Check with `agent-bridge agents list` |
+| `Agent is currently offline` | Run `agent-bridge connect` |
+
+For detailed command flags, connect options, sandbox config, and full troubleshooting, read `references/cli-reference.md` in this skill directory.

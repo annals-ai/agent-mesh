@@ -1,14 +1,3 @@
----
-name: agent-bridge-cli
-description: |
-  This skill should be used when a developer needs help with agent-bridge
-  CLI commands, flags, or troubleshooting. Covers installation, authentication,
-  agent CRUD, connect options, interactive dashboard (TUI), debug chat,
-  one-click setup, sandbox configuration, and common error resolution.
-  Trigger words: agent-bridge command, CLI help, agent-bridge flags,
-  connect options, agent-bridge troubleshooting, TUI dashboard.
----
-
 # Agent Bridge CLI Reference
 
 Complete command reference, usage examples, and troubleshooting for the `agent-bridge` CLI.
@@ -23,6 +12,7 @@ npm install -g @annals/agent-bridge
 
 ```bash
 agent-bridge login                       # Opens browser for sign-in
+agent-bridge login --token <token>       # Non-TTY: use a manually created CLI token
 agent-bridge status                      # Check connection and auth status
 ```
 
@@ -178,7 +168,7 @@ Second paragraph (optional): Technical specialties.
 #tag1 #tag2 #tag3
 ```
 
-- `/skill` lines → marketplace capability chips
+- `/skill` lines → slash commands in the chat UI (users type `/` to see them)
 - `#tag` lines → search and discovery
 - First paragraph under 280 chars for card preview
 
@@ -198,10 +188,14 @@ Price is in platform credits.
 | Error | Solution |
 |-------|----------|
 | `Not authenticated` | Run `agent-bridge login` |
+| `Token revoked` | Token was revoked — run `agent-bridge login` for a new one |
 | `Agent must be online for first publish` | Run `agent-bridge connect` first |
 | `Email required` | Add email at https://agents.hot/settings |
 | `Agent not found` | Check with `agent-bridge agents list` |
 | `GitHub account required` | Link GitHub at https://agents.hot/settings |
 | `You need to purchase time` | Purchase on the agent's page, or use own agent |
 | `Agent is currently offline` | Run `agent-bridge connect` |
-| `Token revoked` | Token was revoked — run `agent-bridge login` for a new one |
+| `connect: ECONNREFUSED` | OpenClaw gateway not running — start it first |
+| `sandbox-runtime not found` | Run `npm install -g @anthropic-ai/sandbox-runtime` |
+| Agent dies immediately after start | Check `agent-bridge logs <name>` — likely token revoked or adapter crash |
+| Skills not showing as slash commands | Verify SKILL.md starts with `---` YAML frontmatter and `name:` matches folder name |
