@@ -14,6 +14,7 @@ import { registerInstallCommand } from './commands/install.js';
 import { registerUninstallCommand } from './commands/uninstall.js';
 import { registerAgentsCommand } from './commands/agents.js';
 import { registerChatCommand } from './commands/chat.js';
+import { registerSkillsCommand } from './commands/skills.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -39,5 +40,6 @@ registerInstallCommand(program);
 registerUninstallCommand(program);
 registerAgentsCommand(program);
 registerChatCommand(program);
+registerSkillsCommand(program);
 
 program.parse();

@@ -22,6 +22,9 @@ const ERROR_HINTS: Record<string, string> = {
   email_required: 'Email required. Visit https://agents.hot/settings to add one.',
   confirm_required: 'This agent has active purchases. Use --confirm to proceed with refunds.',
   github_required: 'GitHub account required. Visit https://agents.hot/settings to link one.',
+  validation_error: 'Invalid input. Check your skill.json or command flags.',
+  permission_denied: 'You don\'t have permission to modify this skill.',
+  file_too_large: 'Package file exceeds the 50MB limit.',
 };
 
 export class PlatformClient {
@@ -53,6 +56,23 @@ export class PlatformClient {
     return this.request<T>('DELETE', path, body);
   }
 
+  async postFormData<T>(path: string, formData: FormData): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}` },
+        body: formData,
+      });
+    } catch (err) {
+      throw new PlatformApiError(0, 'network_error', `Network error: ${(err as Error).message}`);
+    }
+
+    return this.handleResponse<T>(res);
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path}`;
 
@@ -73,13 +93,17 @@ export class PlatformClient {
       throw new PlatformApiError(0, 'network_error', `Network error: ${(err as Error).message}`);
     }
 
+    return this.handleResponse<T>(res);
+  }
+
+  private async handleResponse<T>(res: Response): Promise<T> {
     if (!res.ok) {
       let errorCode = 'unknown';
       let message = `HTTP ${res.status}`;
       try {
         const data = await res.json();
         errorCode = data.error ?? errorCode;
-        message = data.message ?? message;
+        message = data.error_description ?? data.message ?? message;
       } catch {
         // non-JSON error body
       }
