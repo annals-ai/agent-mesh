@@ -120,6 +120,31 @@ The `<id>` argument accepts a UUID, a local config alias, or an agent name (case
 
 > **Naming rules**: Agent names must be **English only** (no Chinese or other non-ASCII characters). The workspace folder is created in kebab-case (e.g. `Code Review Pro` → `~/.agent-bridge/agents/code-review-pro/`).
 
+### Skill Publishing
+
+Package and publish skills to [agents.hot](https://agents.hot) — like `npm` for AI skills.
+
+```bash
+agent-bridge skills init [path]              # Create skill.json + SKILL.md template
+  --name <name>                              #   Skill name (kebab-case)
+  --description <text>                       #   Skill description
+
+agent-bridge skills version <bump> [path]    # Bump version in skill.json
+                                             #   patch | minor | major | x.y.z
+
+agent-bridge skills pack [path]              # Create .zip locally (preview)
+agent-bridge skills publish [path]           # Pack + upload to agents.hot
+  --stdin                                    #   Read SKILL.md from stdin
+  --name <name>                              #   Override skill name
+  --private                                  #   Private publish
+
+agent-bridge skills info <slug>              # View remote skill details
+agent-bridge skills list                     # List my published skills
+agent-bridge skills unpublish <slug>         # Remove from platform
+```
+
+If the directory has a `SKILL.md` with YAML frontmatter but no `skill.json`, `skills init` auto-migrates the metadata.
+
 ### Connection & Auth
 
 ```bash

@@ -51,6 +51,100 @@ agent-bridge agents update <id> --name "Better Name"
 agent-bridge agents update <id> --billing-period day
 ```
 
+## Skills Management
+
+Package and publish skills to [agents.hot](https://agents.hot). Works like `npm` — `skill.json` is the manifest, `SKILL.md` is the entry point.
+
+### Init
+
+```bash
+agent-bridge skills init [path]              # Create skill.json + SKILL.md
+  --name <name>                              #   Skill name (kebab-case)
+  --description <text>                       #   Skill description
+```
+
+- Empty directory → creates `skill.json` + `SKILL.md` template
+- Existing `SKILL.md` with frontmatter but no `skill.json` → auto-migrates metadata to `skill.json`
+- Output: `{ "success": true, "path": "skill.json", "migrated": false }`
+
+### Version
+
+```bash
+agent-bridge skills version patch [path]     # 1.0.0 → 1.0.1
+agent-bridge skills version minor [path]     # 1.0.0 → 1.1.0
+agent-bridge skills version major [path]     # 1.0.0 → 2.0.0
+agent-bridge skills version 2.5.0 [path]     # Set exact version
+```
+
+Output: `{ "success": true, "old": "1.0.0", "new": "1.0.1" }`
+
+### Pack
+
+```bash
+agent-bridge skills pack [path]              # Create .zip locally
+```
+
+- Collects files based on `skill.json#files` (or entire directory minus `.git`, `node_modules`, etc.)
+- Creates `{name}-{version}.zip` in the skill directory
+- Output: `{ "success": true, "filename": "my-skill-1.0.0.zip", "size": 12345, "files": [...] }`
+
+### Publish
+
+```bash
+agent-bridge skills publish [path]           # Pack + upload
+  --stdin                                    #   Read SKILL.md from stdin (quick publish)
+  --name <name>                              #   Override skill name
+  --private                                  #   Private publish
+```
+
+- Directory mode: reads `skill.json`, packs files, uploads ZIP + metadata
+- Stdin mode: reads SKILL.md content from pipe, publishes directly
+- Idempotent: re-publishing updates the existing skill
+- Output: `{ "success": true, "action": "created"|"updated", "skill": {...}, "url": "..." }`
+
+### Info
+
+```bash
+agent-bridge skills info <slug>              # View remote skill details
+```
+
+Output: JSON with name, slug, version, description, installs, etc.
+
+### List
+
+```bash
+agent-bridge skills list                     # List my published skills
+```
+
+Output: `{ "owned": [...], "authorized": [...] }`
+
+### Unpublish
+
+```bash
+agent-bridge skills unpublish <slug>         # Remove skill from platform
+```
+
+Output: `{ "success": true }`
+
+### skill.json Spec
+
+```json
+{
+  "name": "my-skill",
+  "version": "1.0.0",
+  "description": "What this skill does",
+  "main": "SKILL.md",
+  "category": "development",
+  "tags": ["code-review", "ai"],
+  "files": ["SKILL.md", "references/"]
+}
+```
+
+- `name` (required) — kebab-case identifier
+- `version` (required) — semver
+- `files` — explicit file list to pack (omit to include everything)
+- Falls back to `SKILL.md` frontmatter if `skill.json` is missing
+
 ## Connect
 
 ```bash

@@ -158,6 +158,19 @@ agent-bridge agents publish <id>             # 发布到市场
 agent-bridge agents unpublish <id>           # 从市场下架
 agent-bridge agents delete <id> [--confirm]  # 删除 Agent
 
+agent-bridge skills init [path]              # 初始化 skill.json + SKILL.md
+  --name <name>          # Skill 名称
+  --description <text>   # Skill 描述
+agent-bridge skills pack [path]              # 打包为 .zip（本地预览）
+agent-bridge skills publish [path]           # 打包 + 上传到 agents.hot
+  --stdin                # 从 stdin 读取 SKILL.md
+  --name <name>          # 覆盖 skill.json 名称
+  --private              # 私有发布
+agent-bridge skills info <slug>              # 查看远程 skill 详情
+agent-bridge skills list                     # 列出我发布的 skills
+agent-bridge skills unpublish <slug>         # 取消发布 skill
+agent-bridge skills version <bump> [path]    # 版本管理 (patch|minor|major|x.y.z)
+
 agent-bridge status                          # 查看连接状态
 ```
 

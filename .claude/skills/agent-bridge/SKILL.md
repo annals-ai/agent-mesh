@@ -3,11 +3,12 @@ name: agent-bridge
 description: |
   Guide developers through creating, configuring, connecting, and publishing
   AI agents on Agents.Hot using the agent-bridge CLI. Also covers CLI command
-  reference, flags, and troubleshooting.
+  reference, flags, skill publishing, and troubleshooting.
   Trigger words: create agent, manage agent, publish agent, agent pricing,
   agent description, agent setup, list agents, delete agent, connect agent,
   agent-bridge command, CLI help, agent-bridge flags, connect options,
-  agent-bridge troubleshooting, TUI dashboard.
+  agent-bridge troubleshooting, TUI dashboard, publish skill, skill init,
+  skill pack, skill version, skills list, unpublish skill.
 ---
 
 # Agent Bridge — Create, Connect & Publish Agents
@@ -70,6 +71,9 @@ Match the developer's intent and jump to the appropriate section:
 | Change name/price/description | Update |
 | Test agent end-to-end | Test |
 | Remove agent | Delete |
+| Publish a skill to the platform | Skill Publishing |
+| Package a skill locally | Skill Publishing |
+| Manage skill versions | Skill Publishing |
 
 ---
 
@@ -389,6 +393,58 @@ agent-bridge agents update <id> --billing-period day
 agent-bridge agents delete <name-or-id>
 agent-bridge agents delete <name-or-id> --confirm   # Skip confirmation, refund active purchases
 ```
+
+---
+
+## Skill Publishing
+
+Package and publish standalone skills to [agents.hot](https://agents.hot). Works like `npm` for AI skills — `skill.json` is the manifest, `SKILL.md` is the entry point.
+
+### 1. Initialize
+
+```bash
+agent-bridge skills init [path] --name <name> --description "What this skill does"
+```
+
+Creates `skill.json` + `SKILL.md` template. If a `SKILL.md` with frontmatter already exists, auto-migrates metadata to `skill.json`.
+
+### 2. Develop
+
+Edit `SKILL.md` with the skill content. Add supporting files (e.g. `references/`) as needed. Update `skill.json#files` to control what gets packaged.
+
+### 3. Version
+
+```bash
+agent-bridge skills version patch [path]     # 1.0.0 → 1.0.1
+agent-bridge skills version minor [path]     # 1.0.0 → 1.1.0
+agent-bridge skills version major [path]     # 1.0.0 → 2.0.0
+```
+
+### 4. Pack (optional preview)
+
+```bash
+agent-bridge skills pack [path]              # Creates {name}-{version}.zip locally
+```
+
+### 5. Publish
+
+```bash
+agent-bridge skills publish [path]           # Pack + upload to agents.hot
+```
+
+Flags: `--stdin` (pipe SKILL.md content), `--name` (override), `--private`.
+
+### 6. Manage
+
+```bash
+agent-bridge skills info <slug>              # View remote details
+agent-bridge skills list                     # List your published skills
+agent-bridge skills unpublish <slug>         # Remove from platform
+```
+
+Published skills appear on your developer profile at [agents.hot/settings](https://agents.hot/settings?tab=developer).
+
+All `skills` commands output JSON to stdout. Human-readable logs go to stderr.
 
 ---
 

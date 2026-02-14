@@ -118,6 +118,31 @@ agent-bridge agents delete <id>          # 删除 Agent（有活跃购买时会�
 
 `<id>` 参数支持 UUID、本地配置别名、Agent 名称（不区分大小写）。
 
+### Skill 发布
+
+将 Skill 打包发布到 [agents.hot](https://agents.hot) — 类似 `npm` 的 AI Skill 分发系统。
+
+```bash
+agent-bridge skills init [path]              # 创建 skill.json + SKILL.md 模板
+  --name <名称>                               #   Skill 名称（kebab-case）
+  --description <描述>                        #   Skill 描述
+
+agent-bridge skills version <bump> [path]    # 更新 skill.json 版本号
+                                             #   patch | minor | major | x.y.z
+
+agent-bridge skills pack [path]              # 本地打包为 .zip（预览）
+agent-bridge skills publish [path]           # 打包 + 上传到 agents.hot
+  --stdin                                    #   从 stdin 读取 SKILL.md
+  --name <名称>                               #   覆盖 skill 名称
+  --private                                  #   私有发布
+
+agent-bridge skills info <slug>              # 查看远程 skill 详情
+agent-bridge skills list                     # 列出我发布的 skills
+agent-bridge skills unpublish <slug>         # 从平台移除
+```
+
+如果目录中有带 YAML frontmatter 的 `SKILL.md` 但没有 `skill.json`，`skills init` 会自动迁移元数据。
+
 ### 连接与认证
 
 ```bash
