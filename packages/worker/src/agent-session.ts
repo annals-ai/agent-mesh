@@ -20,6 +20,12 @@ import type {
   BridgeError,
   BridgeToWorkerMessage,
   Attachment,
+  DiscoverAgents,
+  DiscoverAgentsResult,
+  CallAgent,
+  CallAgentChunk,
+  CallAgentDone,
+  CallAgentError,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
@@ -51,7 +57,7 @@ export class AgentSession implements DurableObject {
 
   constructor(
     private state: DurableObjectState,
-    private env: { SUPABASE_URL: string; SUPABASE_SERVICE_KEY: string; PLATFORM_SECRET: string; BRIDGE_KV: KVNamespace }
+    private env: { SUPABASE_URL: string; SUPABASE_SERVICE_KEY: string; PLATFORM_SECRET: string; BRIDGE_KV: KVNamespace; AGENT_SESSIONS: DurableObjectNamespace }
   ) {}
 
   // ========================================================
@@ -87,6 +93,11 @@ export class AgentSession implements DurableObject {
         return json(200, { success: true, was_online: true });
       }
       return json(200, { success: true, was_online: false });
+    }
+
+    // A2A call — relay from another agent (via platform or DO-to-DO)
+    if (url.pathname === '/a2a/call' && request.method === 'POST') {
+      return this.handleA2ACall(request);
     }
 
     // Status check
@@ -215,6 +226,14 @@ export class AgentSession implements DurableObject {
         case 'done':
         case 'error':
           this.handleAgentMessage(msg);
+          break;
+
+        case 'discover_agents':
+          this.handleDiscoverAgents(msg as DiscoverAgents, server);
+          break;
+
+        case 'call_agent':
+          this.handleCallAgentWs(msg as CallAgent, server);
           break;
       }
     });
@@ -663,7 +682,7 @@ export class AgentSession implements DurableObject {
   }
 
   private cleanupAllRelays(): void {
-    for (const [id, pending] of this.pendingRelays) {
+    for (const [, pending] of this.pendingRelays) {
       clearTimeout(pending.timer);
       try {
         pending.controller.enqueue(`data: ${JSON.stringify({ type: 'error', code: 'agent_offline', message: 'Agent disconnected' })}\n\n`);
@@ -671,6 +690,363 @@ export class AgentSession implements DurableObject {
       } catch {}
     }
     this.pendingRelays.clear();
+  }
+
+  // ========================================================
+  // A2A: Agent Discovery (WebSocket-originated)
+  // ========================================================
+  private async handleDiscoverAgents(msg: DiscoverAgents, ws: WebSocket): Promise<void> {
+    try {
+      const params = new URLSearchParams();
+      params.set('select', 'id,name,agent_type,capabilities,is_online');
+      params.set('is_published', 'eq.true');
+      if (msg.capability) {
+        params.set('capabilities', `cs.{${msg.capability}}`);
+      }
+      params.set('limit', String(msg.limit || 20));
+
+      const res = await fetch(
+        `${this.env.SUPABASE_URL}/rest/v1/agents?${params}`,
+        {
+          headers: {
+            'apikey': this.env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+          },
+        }
+      );
+
+      if (!res.ok) {
+        ws.send(JSON.stringify({ type: 'discover_agents_result', agents: [] } satisfies DiscoverAgentsResult));
+        return;
+      }
+
+      const agents = await res.json() as Array<{
+        id: string; name: string; agent_type: string; capabilities: string[]; is_online: boolean;
+      }>;
+
+      ws.send(JSON.stringify({
+        type: 'discover_agents_result',
+        agents: agents.map((a) => ({
+          id: a.id,
+          name: a.name,
+          agent_type: a.agent_type,
+          capabilities: a.capabilities || [],
+          is_online: a.is_online,
+        })),
+      } satisfies DiscoverAgentsResult));
+    } catch {
+      ws.send(JSON.stringify({ type: 'discover_agents_result', agents: [] } satisfies DiscoverAgentsResult));
+    }
+  }
+
+  // ========================================================
+  // A2A: Call Agent (WebSocket-originated — DO-to-DO routing)
+  // ========================================================
+  private async handleCallAgentWs(msg: CallAgent, ws: WebSocket): Promise<void> {
+    const callId = msg.call_id || crypto.randomUUID();
+
+    try {
+      // Check target rate limits
+      const allowed = await this.checkTargetRateLimit(msg.target_agent_id, this.agentId);
+      if (!allowed) {
+        ws.send(JSON.stringify({
+          type: 'call_agent_error',
+          call_id: callId,
+          code: 'rate_limited',
+          message: 'Target agent rate limit exceeded or A2A calls not allowed',
+        } satisfies CallAgentError));
+        return;
+      }
+
+      // Record call
+      const callRecordId = await this.recordCall(this.agentId, msg.target_agent_id, msg.task_description);
+
+      // Route to target DO
+      const targetId = this.env.AGENT_SESSIONS.idFromName(msg.target_agent_id);
+      const targetStub = this.env.AGENT_SESSIONS.get(targetId);
+
+      const sessionId = `a2a-${callId}`;
+      const requestId = callId;
+
+      const relayRes = await targetStub.fetch(new Request('https://internal/relay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          request_id: requestId,
+          content: msg.task_description,
+          attachments: [],
+        }),
+      }));
+
+      if (!relayRes.ok || !relayRes.body) {
+        await this.updateCallStatus(callRecordId, 'failed');
+        ws.send(JSON.stringify({
+          type: 'call_agent_error',
+          call_id: callId,
+          code: 'agent_offline',
+          message: 'Target agent is not connected',
+        } satisfies CallAgentError));
+        return;
+      }
+
+      // Read SSE stream from target DO and forward as call_agent_chunk/done
+      const reader = relayRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const eventData = line.slice(6);
+            try {
+              const event = JSON.parse(eventData) as { type: string; delta?: string; kind?: string; code?: string; message?: string; attachments?: Attachment[] };
+              if (event.type === 'chunk') {
+                ws.send(JSON.stringify({
+                  type: 'call_agent_chunk',
+                  call_id: callId,
+                  delta: event.delta || '',
+                  ...(event.kind && { kind: event.kind }),
+                } satisfies CallAgentChunk));
+              } else if (event.type === 'done') {
+                await this.updateCallStatus(callRecordId, 'completed');
+                ws.send(JSON.stringify({
+                  type: 'call_agent_done',
+                  call_id: callId,
+                  ...(event.attachments && { attachments: event.attachments }),
+                } satisfies CallAgentDone));
+              } else if (event.type === 'error') {
+                await this.updateCallStatus(callRecordId, 'failed');
+                ws.send(JSON.stringify({
+                  type: 'call_agent_error',
+                  call_id: callId,
+                  code: event.code || 'internal_error',
+                  message: event.message || 'Target agent error',
+                } satisfies CallAgentError));
+              }
+            } catch {
+              // Skip unparseable SSE lines
+            }
+          }
+        }
+      } catch {
+        await this.updateCallStatus(callRecordId, 'failed');
+        ws.send(JSON.stringify({
+          type: 'call_agent_error',
+          call_id: callId,
+          code: 'internal_error',
+          message: 'Stream reading failed',
+        } satisfies CallAgentError));
+      }
+    } catch {
+      ws.send(JSON.stringify({
+        type: 'call_agent_error',
+        call_id: callId,
+        code: 'internal_error',
+        message: 'A2A call failed',
+      } satisfies CallAgentError));
+    }
+  }
+
+  // ========================================================
+  // A2A: Handle incoming call (HTTP — from platform or DO-to-DO)
+  // ========================================================
+  private async handleA2ACall(request: Request): Promise<Response> {
+    if (!this.ws || !this.authenticated) {
+      return json(404, { error: 'agent_offline', message: 'Target agent is not connected' });
+    }
+
+    let body: { caller_agent_id: string; target_agent_id: string; task_description: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+    }
+
+    // Check rate limits for this target agent
+    const allowed = await this.checkTargetRateLimit(body.target_agent_id, body.caller_agent_id);
+    if (!allowed) {
+      return json(429, { error: 'rate_limited', message: 'Target agent rate limit exceeded or A2A calls not allowed' });
+    }
+
+    // Record the call
+    const callRecordId = await this.recordCall(body.caller_agent_id, body.target_agent_id, body.task_description);
+
+    // Forward as a relay to the connected agent
+    const sessionId = `a2a-${crypto.randomUUID()}`;
+    const requestId = crypto.randomUUID();
+
+    if (this.pendingRelays.size >= MAX_PENDING_RELAYS) {
+      await this.updateCallStatus(callRecordId, 'failed');
+      return json(429, { error: 'too_many_requests', message: 'Agent has too many pending requests' });
+    }
+
+    const message: Message = {
+      type: 'message',
+      session_id: sessionId,
+      request_id: requestId,
+      content: body.task_description,
+      attachments: [],
+    };
+
+    try {
+      this.ws.send(JSON.stringify(message));
+    } catch {
+      await this.updateCallStatus(callRecordId, 'failed');
+      return json(502, { error: 'agent_offline', message: 'Failed to send message to agent' });
+    }
+
+    // Create SSE response stream (same pattern as handleRelay)
+    const encoder = new TextEncoder();
+    const callId = callRecordId;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        const wrappedController = {
+          enqueue: (chunk: string) => controller.enqueue(encoder.encode(chunk)),
+          close: () => {
+            this.updateCallStatus(callId, 'completed');
+            controller.close();
+          },
+          error: (e: unknown) => controller.error(e),
+        } as unknown as ReadableStreamDefaultController<string>;
+
+        const timer = this.createRelayTimeout(requestId);
+        this.pendingRelays.set(requestId, { controller: wrappedController, timer });
+      },
+      cancel: () => {
+        const pending = this.pendingRelays.get(requestId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingRelays.delete(requestId);
+        }
+        this.updateCallStatus(callId, 'failed');
+        if (this.ws) {
+          try {
+            this.ws.send(JSON.stringify({ type: 'cancel', session_id: sessionId, request_id: requestId }));
+          } catch {}
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  }
+
+  // ========================================================
+  // A2A helpers: rate limits, call recording
+  // ========================================================
+  private async checkTargetRateLimit(targetAgentId: string, callerAgentId: string): Promise<boolean> {
+    try {
+      // Fetch target agent's rate_limits
+      const res = await fetch(
+        `${this.env.SUPABASE_URL}/rest/v1/rate_limits?agent_id=eq.${encodeURIComponent(targetAgentId)}&select=allow_a2a,max_calls_per_hour`,
+        {
+          headers: {
+            'apikey': this.env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+          },
+        }
+      );
+      if (!res.ok) return true; // Fail-open
+
+      const rows = await res.json() as Array<{ allow_a2a: boolean; max_calls_per_hour: number }>;
+      if (rows.length === 0) return true; // No rate limits configured → allow
+
+      const limits = rows[0];
+      if (!limits.allow_a2a) return false;
+
+      // Check hourly call count
+      if (limits.max_calls_per_hour > 0) {
+        const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
+        const countRes = await fetch(
+          `${this.env.SUPABASE_URL}/rest/v1/agent_calls?target_agent_id=eq.${encodeURIComponent(targetAgentId)}&created_at=gte.${encodeURIComponent(oneHourAgo)}&select=id`,
+          {
+            method: 'HEAD',
+            headers: {
+              'apikey': this.env.SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+              'Prefer': 'count=exact',
+            },
+          }
+        );
+        const countHeader = countRes.headers.get('content-range');
+        if (countHeader) {
+          const match = countHeader.match(/\/(\d+)/);
+          if (match && parseInt(match[1], 10) >= limits.max_calls_per_hour) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    } catch {
+      return true; // Fail-open
+    }
+  }
+
+  private async recordCall(callerAgentId: string, targetAgentId: string, taskDescription: string): Promise<string> {
+    try {
+      const res = await fetch(
+        `${this.env.SUPABASE_URL}/rest/v1/agent_calls`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': this.env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation',
+          },
+          body: JSON.stringify({
+            caller_agent_id: callerAgentId,
+            target_agent_id: targetAgentId,
+            task_description: taskDescription,
+            status: 'pending',
+          }),
+        }
+      );
+      if (res.ok) {
+        const rows = await res.json() as Array<{ id: string }>;
+        return rows[0]?.id || '';
+      }
+    } catch {}
+    return '';
+  }
+
+  private async updateCallStatus(callId: string, status: 'completed' | 'failed'): Promise<void> {
+    if (!callId) return;
+    try {
+      const body: Record<string, unknown> = { status };
+      if (status === 'completed' || status === 'failed') {
+        body.completed_at = new Date().toISOString();
+      }
+      await fetch(
+        `${this.env.SUPABASE_URL}/rest/v1/agent_calls?id=eq.${encodeURIComponent(callId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': this.env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify(body),
+        }
+      );
+    } catch {}
   }
 }
 

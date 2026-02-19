@@ -20,7 +20,6 @@ const ERROR_HINTS: Record<string, string> = {
   not_found: 'Agent not found.',
   agent_offline: 'Agent must be online for first publish. Run `agent-bridge connect` first.',
   email_required: 'Email required. Visit https://agents.hot/settings to add one.',
-  confirm_required: 'This agent has active purchases. Use --confirm to proceed with refunds.',
   github_required: 'GitHub account required. Visit https://agents.hot/settings to link one.',
   validation_error: 'Invalid input. Check your skill.json or command flags.',
   permission_denied: 'You don\'t have permission to modify this skill.',
@@ -50,6 +49,10 @@ export class PlatformClient {
 
   async put<T>(path: string, body: unknown): Promise<T> {
     return this.request<T>('PUT', path, body);
+  }
+
+  async patch<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>('PATCH', path, body);
   }
 
   async del<T>(path: string, body?: unknown): Promise<T> {

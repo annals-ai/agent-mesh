@@ -159,7 +159,7 @@ describe('Bridge Protocol', () => {
   });
 
   describe('BridgeMessage union type', () => {
-    it('should accept all message types', () => {
+    it('should accept all message types including A2A', () => {
       const messages: BridgeMessage[] = [
         { type: 'register', agent_id: 'a', token: 't', bridge_version: '1', agent_type: 'claude', capabilities: [] },
         { type: 'chunk', session_id: 's', request_id: 'r', delta: 'x' },
@@ -169,9 +169,16 @@ describe('Bridge Protocol', () => {
         { type: 'registered', status: 'ok' },
         { type: 'message', session_id: 's', request_id: 'r', content: 'hi', attachments: [] },
         { type: 'cancel', session_id: 's', request_id: 'r' },
+        // A2A messages
+        { type: 'discover_agents' },
+        { type: 'call_agent', target_agent_id: 'a', task_description: 'test' },
+        { type: 'discover_agents_result', agents: [] },
+        { type: 'call_agent_chunk', call_id: 'c', delta: '' },
+        { type: 'call_agent_done', call_id: 'c' },
+        { type: 'call_agent_error', call_id: 'c', code: 'e', message: 'm' },
       ];
 
-      expect(messages).toHaveLength(8);
+      expect(messages).toHaveLength(14);
 
       // Verify type discriminant works
       for (const msg of messages) {

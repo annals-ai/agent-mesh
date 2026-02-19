@@ -48,13 +48,13 @@ describe('PlatformClient', () => {
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('sb_test-token');
-    await client.post('/api/developer/agents', { name: 'test', price: 0 });
+    await client.post('/api/developer/agents', { name: 'test', agent_type: 'openclaw' });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://agents.hot/api/developer/agents',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ name: 'test', price: 0 }),
+        body: JSON.stringify({ name: 'test', agent_type: 'openclaw' }),
       }),
     );
   });
@@ -81,13 +81,13 @@ describe('PlatformClient', () => {
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('sb_test-token');
-    await client.put('/api/developer/agents/abc', { price: 20 });
+    await client.put('/api/developer/agents/abc', { description: 'updated' });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://agents.hot/api/developer/agents/abc',
       expect.objectContaining({
         method: 'PUT',
-        body: JSON.stringify({ price: 20 }),
+        body: JSON.stringify({ description: 'updated' }),
       }),
     );
   });
@@ -235,19 +235,6 @@ describe('PlatformClient error handling', () => {
     await expect(
       client.put('/api/developer/agents/abc', { is_published: true }),
     ).rejects.toThrow(/email/i);
-  });
-
-  it('should map confirm_required error', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: () => Promise.resolve({ error: 'confirm_required', message: 'Has purchases' }),
-    });
-
-    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
-
-    await expect(client.del('/api/developer/agents/abc')).rejects.toThrow(/--confirm/);
   });
 
   it('should handle network errors', async () => {

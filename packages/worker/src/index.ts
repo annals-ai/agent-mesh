@@ -7,6 +7,7 @@
  *   GET  /api/agents/:id/status    → Agent online status (via DO)
  *   POST /api/relay                → Relay message to agent (via DO)
  *   POST /api/cancel               → Cancel session on agent (via DO)
+ *   POST /api/a2a/call             → A2A: call target agent (via DO)
  *
  * Architecture:
  *   Each agent gets a Durable Object (AgentSession) keyed by agent_id.
@@ -167,6 +168,35 @@ export default {
       } while (cursor);
 
       return json(200, { agents });
+    }
+
+    // A2A call — route to target agent's Durable Object
+    if (path === '/api/a2a/call' && request.method === 'POST') {
+      let body: { caller_agent_id?: string; target_agent_id?: string; task_description?: string };
+      try {
+        body = await request.clone().json() as typeof body;
+      } catch {
+        return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+      }
+
+      if (!body.caller_agent_id || !body.target_agent_id || !body.task_description) {
+        return json(400, { error: 'invalid_message', message: 'Missing caller_agent_id, target_agent_id, or task_description' });
+      }
+      if (!isValidAgentId(body.caller_agent_id) || !isValidAgentId(body.target_agent_id)) {
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+      }
+
+      const id = env.AGENT_SESSIONS.idFromName(body.target_agent_id);
+      const stub = env.AGENT_SESSIONS.get(id);
+      try {
+        return await stub.fetch(new Request(`${url.origin}/a2a/call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }));
+      } catch {
+        return json(503, { error: 'agent_unavailable', message: 'Target agent session temporarily unavailable' });
+      }
     }
 
     // Relay — route to Durable Object

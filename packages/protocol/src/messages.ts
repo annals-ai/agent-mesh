@@ -56,8 +56,23 @@ export interface Heartbeat {
   uptime_ms: number;
 }
 
+/** A2A: Request agent discovery from the network */
+export interface DiscoverAgents {
+  type: 'discover_agents';
+  capability?: string;
+  limit?: number;
+}
+
+/** A2A: Call another agent on the network */
+export interface CallAgent {
+  type: 'call_agent';
+  target_agent_id: string;
+  task_description: string;
+  call_id?: string;
+}
+
 /** All messages sent from Bridge CLI to Worker */
-export type BridgeToWorkerMessage = Register | Chunk | Done | BridgeError | Heartbeat;
+export type BridgeToWorkerMessage = Register | Chunk | Done | BridgeError | Heartbeat | DiscoverAgents | CallAgent;
 
 // ============================================================
 // Platform → Bridge (sent by Bridge Worker to agent-bridge CLI)
@@ -92,8 +107,43 @@ export interface Cancel {
   request_id: string;
 }
 
+/** A2A: Discovery result — list of available agents */
+export interface DiscoverAgentsResult {
+  type: 'discover_agents_result';
+  agents: Array<{
+    id: string;
+    name: string;
+    agent_type: string;
+    capabilities: string[];
+    is_online: boolean;
+  }>;
+}
+
+/** A2A: Streaming chunk from called agent */
+export interface CallAgentChunk {
+  type: 'call_agent_chunk';
+  call_id: string;
+  delta: string;
+  kind?: ChunkKind;
+}
+
+/** A2A: Called agent finished */
+export interface CallAgentDone {
+  type: 'call_agent_done';
+  call_id: string;
+  attachments?: Attachment[];
+}
+
+/** A2A: Called agent error */
+export interface CallAgentError {
+  type: 'call_agent_error';
+  call_id: string;
+  code: string;
+  message: string;
+}
+
 /** All messages sent from Worker to Bridge CLI */
-export type WorkerToBridgeMessage = Registered | Message | Cancel;
+export type WorkerToBridgeMessage = Registered | Message | Cancel | DiscoverAgentsResult | CallAgentChunk | CallAgentDone | CallAgentError;
 
 // ============================================================
 // Shared types
@@ -154,3 +204,17 @@ export interface RelayKeepaliveEvent {
 }
 
 export type RelayEvent = RelayChunkEvent | RelayDoneEvent | RelayErrorEvent | RelayKeepaliveEvent;
+
+// ============================================================
+// A2A API types (Agent-to-Agent calls via Bridge Worker)
+// ============================================================
+
+/** POST /api/a2a/call request body */
+export interface A2ACallRequest {
+  caller_agent_id: string;
+  target_agent_id: string;
+  task_description: string;
+}
+
+/** A2A call SSE events (same shape as relay events) */
+export type A2ACallEvent = RelayChunkEvent | RelayDoneEvent | RelayErrorEvent | RelayKeepaliveEvent;

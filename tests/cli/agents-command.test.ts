@@ -26,9 +26,7 @@ const mockAgentList = {
       name: 'code-review-pro',
       description: 'AI code reviewer',
       agent_type: 'openclaw',
-      price: 10,
-      min_units: 1,
-      billing_period: 'hour',
+      capabilities: ['code-review', 'refactoring'],
       is_online: true,
       is_published: true,
       is_active: true,
@@ -39,9 +37,7 @@ const mockAgentList = {
       name: 'sql-helper',
       description: null,
       agent_type: 'claude',
-      price: 0,
-      min_units: 1,
-      billing_period: 'hour',
+      capabilities: [],
       is_online: false,
       is_published: false,
       is_active: true,
@@ -56,9 +52,7 @@ const mockAgentDetail = {
   name: 'code-review-pro',
   description: 'AI code reviewer',
   agent_type: 'openclaw',
-  price: 10,
-  min_units: 1,
-  billing_period: 'hour',
+  capabilities: ['code-review', 'refactoring'],
   is_online: true,
   is_published: true,
   is_active: true,
@@ -257,7 +251,7 @@ describe('agents create', () => {
 
     const result = await client.post<{ success: boolean; agent: { id: string; name: string } }>(
       '/api/developer/agents',
-      { name: 'new-agent', agent_type: 'openclaw', price: 0 },
+      { name: 'new-agent', agent_type: 'openclaw' },
     );
 
     expect(result.success).toBe(true);
@@ -289,9 +283,6 @@ describe('agents create', () => {
       name: 'Full Agent',
       description: 'A complete agent',
       agent_type: 'claude',
-      price: 5,
-      billing_period: 'day',
-      min_units: 2,
     };
     await client.post('/api/developer/agents', body);
 
@@ -316,7 +307,7 @@ describe('agents update', () => {
   it('should send only specified fields', async () => {
     globalThis.fetch = mockFetchSuccess({
       success: true,
-      agent: { ...mockAgentDetail, price: 20 },
+      agent: { ...mockAgentDetail, description: 'updated' },
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -324,15 +315,15 @@ describe('agents update', () => {
 
     const result = await client.put<{ success: boolean; agent: typeof mockAgentDetail }>(
       `/api/developer/agents/${AGENT_UUID}`,
-      { price: 20 },
+      { description: 'updated' },
     );
 
-    expect(result.agent.price).toBe(20);
+    expect(result.agent.description).toBe('updated');
     expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining(AGENT_UUID),
       expect.objectContaining({
         method: 'PUT',
-        body: JSON.stringify({ price: 20 }),
+        body: JSON.stringify({ description: 'updated' }),
       }),
     );
   });
@@ -344,7 +335,7 @@ describe('agents update', () => {
     const client = new PlatformClient('sb_test');
 
     await expect(
-      client.put(`/api/developer/agents/${AGENT_UUID}`, { price: 20 }),
+      client.put(`/api/developer/agents/${AGENT_UUID}`, { description: 'updated' }),
     ).rejects.toThrow(/not found/i);
   });
 });
@@ -461,47 +452,4 @@ describe('agents delete', () => {
     expect(result.success).toBe(true);
   });
 
-  it('should throw confirm_required when active purchases exist', async () => {
-    globalThis.fetch = mockFetchError(409, 'confirm_required', 'Has active purchases');
-
-    const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
-
-    try {
-      await client.del(`/api/developer/agents/${AGENT_UUID}`);
-      expect.unreachable('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(PlatformApiError);
-      const apiErr = err as InstanceType<typeof PlatformApiError>;
-      expect(apiErr.errorCode).toBe('confirm_required');
-      expect(apiErr.message).toMatch(/--confirm/);
-    }
-  });
-
-  it('should delete with confirm body and process refunds', async () => {
-    globalThis.fetch = mockFetchSuccess({
-      success: true,
-      message: 'Agent deleted successfully',
-      refund: { refunded: 2, total_amount: 100 },
-    });
-
-    const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
-
-    const result = await client.del<{ success: boolean; refund: unknown }>(
-      `/api/developer/agents/${AGENT_UUID}`,
-      { confirm: true },
-    );
-    expect(result.success).toBe(true);
-    expect(result.refund).toBeDefined();
-
-    // Verify confirm flag was sent in body
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        method: 'DELETE',
-        body: JSON.stringify({ confirm: true }),
-      }),
-    );
-  });
 });

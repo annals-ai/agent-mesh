@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
 import { log } from '../utils/logger.js';
-import { renderTable, GREEN, RED, GRAY, RESET, BOLD } from '../utils/table.js';
+import { renderTable, GREEN, GRAY, RESET, BOLD } from '../utils/table.js';
 
 // --- Types ---
 
@@ -12,12 +12,11 @@ interface Agent {
   name: string;
   description?: string;
   agent_type: string;
-  price: number;
-  min_units: number;
-  billing_period: string;
   is_online: boolean;
   is_published: boolean;
   is_active: boolean;
+  capabilities?: string[];
+  rate_limits?: Record<string, unknown>;
   first_published_at?: string;
   created_at: string;
   updated_at?: string;
@@ -36,7 +35,6 @@ interface AgentMutationResponse {
 interface AgentDeleteResponse {
   success: boolean;
   message: string;
-  refund?: unknown;
 }
 
 // --- Helpers ---
@@ -46,11 +44,6 @@ function readLine(prompt: string): Promise<string> {
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => { rl.close(); resolve(answer.trim()); });
   });
-}
-
-function formatPrice(agent: { price: number; billing_period: string }): string {
-  if (agent.price === 0) return `${GREEN}free${RESET}`;
-  return `${agent.price}/${agent.billing_period}`;
 }
 
 function formatStatus(online: boolean): string {
@@ -104,14 +97,14 @@ export function registerAgentsCommand(program: Command): void {
             { key: 'type', label: 'TYPE', width: 12 },
             { key: 'status', label: 'STATUS', width: 14 },
             { key: 'published', label: 'PUBLISHED', width: 12 },
-            { key: 'price', label: 'PRICE', width: 14 },
+            { key: 'caps', label: 'CAPABILITIES', width: 14 },
           ],
           data.agents.map((a) => ({
             name: a.name,
             type: a.agent_type,
             status: formatStatus(a.is_online),
             published: formatPublished(a.is_published),
-            price: formatPrice(a),
+            caps: (a.capabilities?.length || 0).toString(),
           })),
         );
         console.log(table);
@@ -126,24 +119,15 @@ export function registerAgentsCommand(program: Command): void {
     .description('Create a new agent')
     .option('--name <name>', 'Agent name')
     .option('--type <type>', 'Agent type (openclaw | claude)', 'openclaw')
-    .option('--price <price>', 'Price per billing period (0 = free)', '0')
-    .option('--billing-period <period>', 'Billing period (hour | day | week | month)', 'hour')
-    .option('--min-units <units>', 'Minimum purchase units', '1')
     .option('--description <desc>', 'Agent description')
     .action(async (opts: {
       name?: string;
       type: string;
-      price: string;
-      billingPeriod: string;
-      minUnits: string;
       description?: string;
     }) => {
       try {
         let { name, description } = opts;
         const agentType = opts.type;
-        const price = parseInt(opts.price, 10);
-        const minUnits = parseInt(opts.minUnits, 10);
-        const billingPeriod = opts.billingPeriod;
 
         // Interactive mode if name is missing and TTY
         if (!name && process.stdin.isTTY) {
@@ -161,19 +145,11 @@ export function registerAgentsCommand(program: Command): void {
           process.exit(1);
         }
 
-        if (isNaN(price) || price < 0) {
-          log.error('Price must be a non-negative integer');
-          process.exit(1);
-        }
-
         const client = createClient();
         const result = await client.post<AgentMutationResponse>('/api/developer/agents', {
           name,
           description: description || undefined,
           agent_type: agentType,
-          price,
-          billing_period: billingPeriod,
-          min_units: minUnits,
         });
 
         const detail = await client.get<Agent>(`/api/developer/agents/${result.agent.id}`);
@@ -209,7 +185,12 @@ export function registerAgentsCommand(program: Command): void {
         console.log(`  ${GRAY}Type${RESET}          ${agent.agent_type}`);
         console.log(`  ${GRAY}Status${RESET}        ${formatStatus(agent.is_online)}`);
         console.log(`  ${GRAY}Published${RESET}     ${formatPublished(agent.is_published)}`);
-        console.log(`  ${GRAY}Price${RESET}         ${formatPrice(agent)}`);
+        if (agent.capabilities?.length) {
+          console.log(`  ${GRAY}Capabilities${RESET}  ${agent.capabilities.join(', ')}`);
+        }
+        if (agent.rate_limits && Object.keys(agent.rate_limits).length > 0) {
+          console.log(`  ${GRAY}Rate Limits${RESET}   ${JSON.stringify(agent.rate_limits)}`);
+        }
         console.log(`  ${GRAY}Created${RESET}       ${agent.created_at}`);
         if (agent.description) {
           console.log('');
@@ -227,29 +208,20 @@ export function registerAgentsCommand(program: Command): void {
     .description('Update an agent')
     .option('--name <name>', 'New name')
     .option('--type <type>', 'Agent type (openclaw | claude)')
-    .option('--price <price>', 'Price per billing period')
-    .option('--billing-period <period>', 'Billing period (hour | day | week | month)')
-    .option('--min-units <units>', 'Minimum purchase units')
     .option('--description <desc>', 'Agent description')
     .action(async (input: string, opts: {
       name?: string;
       type?: string;
-      price?: string;
-      billingPeriod?: string;
-      minUnits?: string;
       description?: string;
     }) => {
       try {
         const updates: Record<string, unknown> = {};
         if (opts.name !== undefined) updates.name = opts.name;
         if (opts.type !== undefined) updates.agent_type = opts.type;
-        if (opts.price !== undefined) updates.price = parseInt(opts.price, 10);
-        if (opts.billingPeriod !== undefined) updates.billing_period = opts.billingPeriod;
-        if (opts.minUnits !== undefined) updates.min_units = parseInt(opts.minUnits, 10);
         if (opts.description !== undefined) updates.description = opts.description;
 
         if (Object.keys(updates).length === 0) {
-          log.error('No fields to update. Use --name, --price, --description, etc.');
+          log.error('No fields to update. Use --name, --type, --description.');
           process.exit(1);
         }
 
@@ -297,44 +269,22 @@ export function registerAgentsCommand(program: Command): void {
   agents
     .command('delete <id-or-name>')
     .description('Delete an agent (soft delete)')
-    .option('--confirm', 'Skip confirmation for agents with active purchases')
-    .action(async (input: string, opts: { confirm?: boolean }) => {
+    .action(async (input: string) => {
       try {
         const client = createClient();
         const { id, name } = await resolveAgentId(input, client);
 
-        // First attempt without confirm
-        if (!opts.confirm) {
-          try {
-            const result = await client.del<AgentDeleteResponse>(`/api/developer/agents/${id}`);
-            log.success(`Agent deleted: ${BOLD}${name}${RESET}`);
+        // Confirm interactively if TTY
+        if (process.stdin.isTTY) {
+          const answer = await readLine(`Delete agent "${name}"? (y/N): `);
+          if (answer.toLowerCase() !== 'y') {
+            log.info('Cancelled.');
             return;
-          } catch (err) {
-            if (err instanceof PlatformApiError && err.errorCode === 'confirm_required') {
-              // Ask for confirmation interactively
-              if (process.stdin.isTTY) {
-                const answer = await readLine(`${RED}This agent has active purchases. Delete and refund? (y/N): ${RESET}`);
-                if (answer.toLowerCase() !== 'y') {
-                  log.info('Cancelled.');
-                  return;
-                }
-                // Fall through to confirmed delete
-              } else {
-                log.error(err.message);
-                process.exit(1);
-              }
-            } else {
-              throw err;
-            }
           }
         }
 
-        // Confirmed delete
-        const result = await client.del<AgentDeleteResponse>(`/api/developer/agents/${id}`, { confirm: true });
+        await client.del<AgentDeleteResponse>(`/api/developer/agents/${id}`);
         log.success(`Agent deleted: ${BOLD}${name}${RESET}`);
-        if (result.refund) {
-          log.info('Active purchases have been refunded.');
-        }
       } catch (err) {
         handleError(err);
       }

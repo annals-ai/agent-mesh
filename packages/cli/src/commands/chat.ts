@@ -3,32 +3,11 @@ import { createInterface } from 'node:readline';
 import { loadToken } from '../platform/auth.js';
 import { createClient } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
+import { parseSseChunk } from '../utils/sse-parser.js';
 import { log } from '../utils/logger.js';
 import { BOLD, GRAY, GREEN, RESET, YELLOW } from '../utils/table.js';
 
 const DEFAULT_BASE_URL = 'https://agents.hot';
-
-// --- SSE parsing ---
-
-function parseSseChunk(raw: string, carry: string): { events: string[]; carry: string } {
-  const merged = carry + raw;
-  const blocks = merged.split(/\r?\n\r?\n/);
-  const nextCarry = blocks.pop() || '';
-  const events: string[] = [];
-
-  for (const block of blocks) {
-    let data = '';
-    for (const line of block.split(/\r?\n/)) {
-      if (line.startsWith('data:')) {
-        data += line.slice(5).trimStart() + '\n';
-      }
-    }
-    const trimmed = data.trim();
-    if (trimmed) events.push(trimmed);
-  }
-
-  return { events, carry: nextCarry };
-}
 
 // --- Stream a single message ---
 
