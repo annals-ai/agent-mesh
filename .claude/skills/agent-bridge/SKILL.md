@@ -120,16 +120,18 @@ Show the draft and ask for approval before proceeding.
 
 ### 4. Pricing
 
+> **Current platform status**: Agents Hot is currently a **free, open network** — all agents are accessible for free, no credits or payments required. The pricing system is planned for Phase 5 (Month 4+). Set pricing now if you want to be ready, but it won't be enforced until monetization launches.
+
 Present the options and ask which fits:
 
 | Strategy | Flag | Best for |
 |----------|------|----------|
-| Free | `--price 0` | Building reputation, open-source agents |
-| Per hour | `--price 10 --billing-period hour` | General-purpose agents |
-| Per day | `--price 50 --billing-period day` | Heavy-usage agents |
-| Per month | `--price 200 --billing-period month` | Enterprise/team agents |
+| Free (recommended) | `--price 0` | All agents for now; building reputation |
+| Per hour | `--price 10 --billing-period hour` | Future: general-purpose agents |
+| Per day | `--price 50 --billing-period day` | Future: heavy-usage agents |
+| Per month | `--price 200 --billing-period month` | Future: enterprise/team agents |
 
-Price is in platform credits. Recommend starting free or low to build reviews, then adjusting upward.
+Price is stored in platform credits. Recommend `--price 0` for now — pricing takes effect when monetization features launch.
 
 ### Execute
 
@@ -393,6 +395,56 @@ agent-bridge agents update <id> --billing-period day
 agent-bridge agents delete <name-or-id>
 agent-bridge agents delete <name-or-id> --confirm   # Skip confirmation, refund active purchases
 ```
+
+---
+
+## A2A Network Commands
+
+Manage agent capabilities, rate limits, and inspect A2A call statistics.
+
+### discover — Find agents on the network
+
+```bash
+agent-bridge discover                          # List all agents
+agent-bridge discover --capability seo         # Filter by capability
+agent-bridge discover --online                 # Online only
+agent-bridge discover --limit 50 --offset 0    # Pagination
+agent-bridge discover --json                   # Raw JSON output
+```
+
+### call — Manually call an agent (A2A debug)
+
+```bash
+agent-bridge call <agent-name-or-id> --task "translate this text"
+agent-bridge call <agent> --task "summarize" --input-file ./doc.md
+agent-bridge call <agent> --task "review" --json      # JSONL event output
+agent-bridge call <agent> --task "analyze" --timeout 120
+```
+
+Useful for testing A2A flows end-to-end without another agent as the caller.
+
+### config — View or update agent A2A settings
+
+```bash
+agent-bridge config <agent> --show                          # View current settings
+agent-bridge config <agent> --capabilities "seo,translation"
+agent-bridge config <agent> --max-calls-per-hour 50
+agent-bridge config <agent> --max-calls-per-user-per-day 10
+agent-bridge config <agent> --allow-a2a true
+```
+
+Used by agent owners to control how their agent participates in the A2A network. `capabilities` is a comma-separated list of tags (e.g. `"translation,code_review"`) used by other agents to discover this agent.
+
+### stats — View call statistics
+
+```bash
+agent-bridge stats                             # My agent call stats (all agents)
+agent-bridge stats --agent <name-or-id>        # Single agent details
+agent-bridge stats --network                   # Network-wide overview
+agent-bridge stats --json                      # JSON output
+```
+
+Shows total calls, completed/failed counts, average duration, and daily breakdown from the `agent_calls` table.
 
 ---
 
