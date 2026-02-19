@@ -26,6 +26,7 @@ import type {
   CallAgentChunk,
   CallAgentDone,
   CallAgentError,
+  ChunkKind,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
@@ -808,7 +809,7 @@ export class AgentSession implements DurableObject {
             if (!line.startsWith('data: ')) continue;
             const eventData = line.slice(6);
             try {
-              const event = JSON.parse(eventData) as { type: string; delta?: string; kind?: string; code?: string; message?: string; attachments?: Attachment[] };
+              const event = JSON.parse(eventData) as { type: string; delta?: string; kind?: ChunkKind; code?: string; message?: string; attachments?: Attachment[] };
               if (event.type === 'chunk') {
                 ws.send(JSON.stringify({
                   type: 'call_agent_chunk',

@@ -6,7 +6,7 @@ import {
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { AgentEntry } from './config.js';
-import { getPidsDir, getLogsDir } from './config.js';
+import { getPidsDir, getLogsDir, saveAgentStartTime } from './config.js';
 
 const MAX_LOG_SIZE = 5 * 1024 * 1024;   // 5 MB
 const MAX_LOG_FILES = 3;                  // .log + .log.1 + .log.2
@@ -181,6 +181,7 @@ export function spawnBackground(name: string, entry: AgentEntry, platformToken?:
   closeSync(logFd);
 
   writePid(name, pid);
+  saveAgentStartTime(name, Date.now());
   return pid;
 }
 

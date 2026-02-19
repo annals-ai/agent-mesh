@@ -12,6 +12,7 @@ export interface AgentEntry {
   projectPath?: string;       // working directory (Claude adapter needs)
   sandbox?: boolean;
   addedAt: string;            // ISO timestamp
+  startedAt?: number;         // Unix ms, set by spawnBackground each time agent starts
 }
 
 export interface BridgeConfig {
@@ -81,6 +82,14 @@ export function removeAgent(name: string): void {
   const config = loadConfig();
   delete config.agents[name];
   saveConfig(config);
+}
+
+export function saveAgentStartTime(name: string, ts: number): void {
+  const config = loadConfig();
+  if (config.agents[name]) {
+    config.agents[name].startedAt = ts;
+    saveConfig(config);
+  }
 }
 
 export function listAgents(): Record<string, AgentEntry> {
