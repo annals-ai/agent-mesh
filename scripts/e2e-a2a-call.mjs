@@ -73,7 +73,8 @@ try {
 let agents = [];
 try {
   const output = run('agent-bridge discover --online --json', { timeout: 15000 });
-  agents = JSON.parse(output);
+  const parsed = JSON.parse(output);
+  agents = Array.isArray(parsed) ? parsed : (parsed.agents ?? []);
   if (agents.length > 0) {
     pass(`Discovered ${agents.length} online agent(s)`);
     for (const a of agents) {
@@ -101,7 +102,8 @@ for (const name of seedNames) {
 try {
   const output = run('agent-bridge discover --capability translation --online --json', { timeout: 15000, allowFail: true });
   if (output) {
-    const translators = JSON.parse(output);
+    const tParsed = JSON.parse(output);
+    const translators = Array.isArray(tParsed) ? tParsed : (tParsed.agents ?? []);
     if (translators.length > 0) {
       pass(`Found ${translators.length} agent(s) with translation capability`);
     } else {
