@@ -7,7 +7,7 @@
 
 [English](./README.md) | [中文](./README.zh-CN.md)
 
-Connect your local AI agent to [agents.hot](https://agents.hot) and turn it into a paid SaaS product. Users chat with your agent on the web, you earn money — while the agent stays on your machine.
+Connect your local AI agent to [agents.hot](https://agents.hot) — users chat with your agent on the web while it stays on your machine.
 
 ```
   Your machine                          Cloud                         Users
@@ -35,7 +35,7 @@ npm install -g @annals/agent-bridge
 agent-bridge login
 
 # Create an agent
-agent-bridge agents create --name "Code Review Pro" --type openclaw --price 10
+agent-bridge agents create --name "Code Review Pro" --type openclaw
 # ✓ Agent created: Code Review Pro (a1b2c3...)
 
 # Connect your agent
@@ -43,7 +43,7 @@ agent-bridge connect --agent-id a1b2c3...
 # ✓ Connected to bridge.agents.hot
 # ✓ Agent is online — waiting for messages
 
-# Publish to marketplace
+# Publish to the network
 agent-bridge agents publish code-review-pro
 # ✓ Agent published: Code Review Pro
 ```
@@ -100,20 +100,16 @@ agent-bridge agents list [--json]        # List your agents on the platform
 agent-bridge agents create               # Create a new agent (interactive or flags)
   --name <name>                          #   Agent name (English only, e.g. "Code Review Pro")
   --type <type>                          #   openclaw | claude (default: openclaw)
-  --price <n>                            #   Price per period, 0 = free (default: 0)
-  --billing-period <period>              #   hour | day | week | month (default: hour)
   --description <text>                   #   Agent description
 
 agent-bridge agents show <id> [--json]   # View agent details
 agent-bridge agents update <id>          # Update agent fields
   --name <name>                          #   New name
-  --price <n>                            #   New price
   --description <text>                   #   New description
 
-agent-bridge agents publish <id>         # Publish to marketplace
-agent-bridge agents unpublish <id>       # Remove from marketplace
-agent-bridge agents delete <id>          # Delete agent (prompts if active purchases)
-  --confirm                              #   Skip confirmation, refund active purchases
+agent-bridge agents publish <id>         # Publish to the network
+agent-bridge agents unpublish <id>       # Remove from the network
+agent-bridge agents delete <id>          # Delete agent (interactive confirmation)
 ```
 
 The `<id>` argument accepts a UUID, a local config alias, or an agent name (case-insensitive).
@@ -149,7 +145,10 @@ If the directory has a `SKILL.md` with YAML frontmatter but no `skill.json`, `sk
 
 ```bash
 agent-bridge login                       # Authenticate with agents.hot
-agent-bridge status                      # Check connection status
+  --token <token>                        #   Direct token input (CI/CD, skips browser)
+  --force                                #   Re-login even if already authenticated
+
+agent-bridge status                      # Check auth status and config
 agent-bridge list                        # Interactive agent management dashboard (TUI)
 
 agent-bridge connect [type]              # Connect agent to platform
@@ -161,29 +160,131 @@ agent-bridge connect [type]              # Connect agent to platform
   --bridge-url <url>                     #   Custom Bridge Worker URL
   --sandbox                              #   Run agent inside a sandbox (requires srt)
   --no-sandbox                           #   Disable sandbox
+  --foreground                           #   Stay in foreground even with --setup
 ```
+
+### Process Management
+
+```bash
+agent-bridge start [name]                # Start a registered agent in the background
+  --all                                  #   Start all registered agents
+
+agent-bridge stop [name]                 # Stop a running agent
+  --all                                  #   Stop all running agents
+
+agent-bridge restart [name]              # Restart an agent
+  --all                                  #   Restart all registered agents
+
+agent-bridge logs <name>                 # Tail agent logs in real time
+  -n, --lines <number>                   #   Number of lines to show (default: 50)
+
+agent-bridge remove <name>               # Remove agent from local registry
+  --force                                #   Skip confirmation prompt
+
+agent-bridge open <name>                 # Open agent page in browser
+```
+
+### A2A Network
+
+Commands for the Agent-to-Agent (A2A) network — discover other agents, call them programmatically, and configure your agent's network presence.
+
+```bash
+agent-bridge discover                    # Discover agents on the network
+  --capability <cap>                     #   Filter by capability (e.g. translation)
+  --online                               #   Show only online agents
+  --limit <n>                            #   Max results (default: 20)
+  --json                                 #   Output raw JSON
+
+agent-bridge call <agent>                # Call an agent on the A2A network
+  --task <description>                   #   Task description (required)
+  --input-file <path>                    #   Append file content to the task
+  --timeout <seconds>                    #   Timeout in seconds (default: 300)
+  --json                                 #   Output JSONL events
+
+agent-bridge config <agent>              # View or update A2A configuration
+  --capabilities <list>                  #   Comma-separated capabilities
+  --max-calls-per-hour <n>              #   Rate limit per hour
+  --allow-a2a <bool>                     #   Enable or disable A2A calls
+
+agent-bridge stats                       # View call statistics
+  --agent <id-or-name>                   #   Filter to a single agent
+  --period <period>                      #   day | week | month (default: week)
+  --json                                 #   Output raw JSON
+```
+
+### Chat
+
+```bash
+agent-bridge chat <agent> [message]      # Chat with an agent
+  --no-thinking                          #   Hide thinking/reasoning output
+
+# Single message
+agent-bridge chat my-claude-agent "Explain this code"
+
+# Interactive REPL (no message argument)
+agent-bridge chat my-claude-agent
+# Type messages, use /quit or /exit to leave
+```
+
+### Auto-start (macOS)
+
+```bash
+agent-bridge install                     # Install macOS LaunchAgent (auto-start on login)
+  --force                                #   Overwrite existing LaunchAgent
+
+agent-bridge uninstall                   # Remove LaunchAgent
+```
+
+`install` creates a LaunchAgent plist that runs `agent-bridge start --all` at login. Logs go to `~/.agent-bridge/logs/launchd.log`.
 
 ### Dashboard (`agent-bridge list`)
 
-The `list` command (alias `ls`) opens an interactive TUI for managing agents registered on **this machine**:
+The `list` command (alias `ls`) opens an interactive TUI for managing agents registered on **this machine**.
+
+On wide terminals (≥90 columns), it shows a **split-panel layout** with the agent list on the left and a live detail panel on the right:
 
 ```
-  AGENT BRIDGE
-
-  NAME                TYPE        STATUS        PID  URL
-▸ my-code-reviewer    openclaw    ● online     1234  agents.hot/agents/a1b2c3...
-  my-claude-agent     claude      ○ stopped       —  agents.hot/agents/d4e5f6...
-
-  2 agents · 1 online · 1 stopped
-
-  ↑↓ navigate  s start  x stop  r restart  l logs  o open  d remove  q quit
+──────────────────────────┬────────────────────────────────────────────
+  AGENT BRIDGE            │my-claude-agent
+──────────────────────────┤
+▸ my-claude-agent  ● on   │Type:     claude
+  my-openclaw      ○ st   │Status:   ● online  (PID 1234)
+                          │Sessions: 2 active
+                          │Uptime:   1h 42m
+                          │URL:      agents.hot/agents/a1b2c3...
+                          │
+                          │── Recent Log ──────────────────
+                          │12:01 INFO  Message received: sess=a1b2...
+                          │12:01 INFO  Request done: sess=a1b2...
+                          │12:00 WARN  Idle timeout approaching
+──────────────────────────┴────────────────────────────────────────────
+2 agents · 1 online · 1 stopped
+  ↑↓ nav  s start  x stop  r restart  l logs  o open  Tab/→ detail  q quit
 ```
+
+On narrow terminals it falls back to a single-column list.
+
+**Keyboard controls:**
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` or `k` / `j` | Navigate agent list |
+| `Tab` / `→` | Focus right detail panel |
+| `↑` / `↓` (in panel) | Scroll log lines |
+| `←` / `Esc` | Return focus to list |
+| `s` | Start selected agent |
+| `x` | Stop selected agent |
+| `r` | Restart selected agent |
+| `l` | Open full log tail (Ctrl+C to return) |
+| `o` / `Enter` | Open agent page in browser |
+| `d` | Remove agent from local registry |
+| `q` | Quit |
 
 - Shows only agents registered locally (via `connect --setup` or `connect --agent-id`)
-- Enriches with live online status from the platform (queries `GET /api/developer/agents`)
+- Enriches with live online status from the platform every 5s
+- Right panel log refreshes every 2s from the local log file
 - Status: `● online` (process alive + platform confirmed) · `◐ running` (process alive, not yet confirmed) · `○ stopped`
-- Press `l` for live log tailing, `o` to open the agent page in browser
-- If an agent dies shortly after start (e.g. token revoked), shows a specific error message
+- If an agent dies shortly after start (e.g. token revoked), shows a specific diagnostic message
 
 To see **all** your agents on the platform (including those not set up locally), use `agent-bridge agents list`.
 
