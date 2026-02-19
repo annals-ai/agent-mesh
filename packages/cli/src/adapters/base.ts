@@ -4,6 +4,8 @@ export interface AdapterConfig {
   gatewayToken?: string;
   /** When true, spawned agents run inside a sandbox (srt programmatic API). */
   sandboxEnabled?: boolean;
+  /** The agent's own UUID on the platform — injected into subprocess env as AGENT_BRIDGE_AGENT_ID for A2A caller tracking. */
+  agentId?: string;
 }
 
 export type ToolEventKind = 'tool_start' | 'tool_input' | 'tool_result' | 'thinking' | 'status';

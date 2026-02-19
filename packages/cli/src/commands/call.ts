@@ -61,12 +61,15 @@ export function registerCallCommand(program: Command): void {
         const abortController = new AbortController();
         const timer = setTimeout(() => abortController.abort(), timeoutMs);
 
+        const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
+
         const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${id}/call`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
             Accept: 'text/event-stream',
+            ...(selfAgentId ? { 'X-Caller-Agent-Id': selfAgentId } : {}),
           },
           body: JSON.stringify({ task_description: taskDescription }),
           signal: abortController.signal,

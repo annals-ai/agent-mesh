@@ -119,6 +119,10 @@ class ClaudeSession implements SessionHandle {
         cwd: cwd || undefined,
         sandboxEnabled: this.config.sandboxEnabled,
         sandboxFilesystem: this.sandboxFilesystem,
+        env: {
+          ...process.env,
+          ...(this.config.agentId ? { AGENT_BRIDGE_AGENT_ID: this.config.agentId } : {}),
+        },
       });
     } catch (err) {
       this.emitError(new Error(`Failed to spawn claude: ${err}`));

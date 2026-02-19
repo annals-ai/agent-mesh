@@ -266,6 +266,7 @@ export function registerConnectCommand(program: Command): void {
         gatewayUrl: opts.gatewayUrl,
         gatewayToken: opts.gatewayToken,
         sandboxEnabled,
+        agentId,
       };
 
       const adapter = createAdapter(agentType, adapterConfig);

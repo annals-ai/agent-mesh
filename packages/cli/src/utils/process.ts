@@ -8,6 +8,7 @@ const SANDBOX_ENV_PASSTHROUGH_KEYS = [
   'ANTHROPIC_MODEL',
   'HAPPY_CLAUDE_PATH',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+  'AGENT_BRIDGE_AGENT_ID',   // 当前 Agent 的 UUID，传给 claude code 子进程（A2A caller 标识）
 ] as const;
 
 function shellQuote(value: string): string {
