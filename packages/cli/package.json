@@ -1,6 +1,6 @@
 {
   "name": "@annals/agent-bridge",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "CLI bridge connecting local AI agents to the Agents.Hot platform",
   "type": "module",
   "bin": {
