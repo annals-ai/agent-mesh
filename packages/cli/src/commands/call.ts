@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { loadToken } from '../platform/auth.js';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
@@ -30,11 +30,13 @@ export function registerCallCommand(program: Command): void {
     .description('Call an agent on the A2A network')
     .requiredOption('--task <description>', 'Task description')
     .option('--input-file <path>', 'Read file and append to task description')
+    .option('--output-file <path>', 'Save response text to file')
     .option('--json', 'Output JSONL events')
     .option('--timeout <seconds>', 'Timeout in seconds', '300')
     .action(async (agentInput: string, opts: {
       task: string;
       inputFile?: string;
+      outputFile?: string;
       json?: boolean;
       timeout?: string;
     }) => {
@@ -119,6 +121,7 @@ export function registerCallCommand(program: Command): void {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let outputBuffer = '';
 
         while (true) {
           const { done, value } = await reader.read();
@@ -137,6 +140,12 @@ export function registerCallCommand(program: Command): void {
               } else {
                 if (event.type === 'chunk' && event.delta) {
                   process.stdout.write(event.delta);
+                  outputBuffer += event.delta as string;
+                } else if (event.type === 'done' && event.attachments?.length) {
+                  console.log('');
+                  for (const att of event.attachments as { name: string; url: string }[]) {
+                    log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
+                  }
                 } else if (event.type === 'error') {
                   process.stderr.write(`\nError: ${event.message}\n`);
                 }
@@ -156,9 +165,16 @@ export function registerCallCommand(program: Command): void {
                 console.log(JSON.stringify(event));
               } else if (event.type === 'chunk' && event.delta) {
                 process.stdout.write(event.delta);
+                outputBuffer += event.delta as string;
               }
             } catch { /* ignore */ }
           }
+        }
+
+        // Write response text to file if requested
+        if (opts.outputFile && outputBuffer) {
+          writeFileSync(opts.outputFile, outputBuffer);
+          if (!opts.json) log.info(`Saved to ${opts.outputFile}`);
         }
 
         if (!opts.json) {

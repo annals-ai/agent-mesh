@@ -6,8 +6,8 @@ import { homedir } from 'node:os';
 import { which } from '../utils/which.js';
 import { createClientWorkspace } from '../utils/client-workspace.js';
 import { getSandboxPreset, type SandboxFilesystemConfig } from '../utils/sandbox.js';
-import { readFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join, relative, basename } from 'node:path';
 import { snapshotWorkspace, diffAndUpload, collectRealFiles, type FileSnapshot } from '../utils/auto-upload.js';
 
 const DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -77,8 +77,7 @@ class ClaudeSession implements SessionHandle {
     this.sandboxFilesystem = sandboxFilesystem;
   }
 
-  send(message: string, _attachments?: { name: string; url: string; type: string }[], uploadCredentials?: UploadCredentials, clientId?: string): void {
-    void _attachments;
+  send(message: string, attachments?: { name: string; url: string; type: string }[], uploadCredentials?: UploadCredentials, clientId?: string): void {
     this.resetIdleTimer();
     this.doneFired = false;
     this.chunksEmitted = false;
@@ -103,11 +102,43 @@ class ClaudeSession implements SessionHandle {
       return;
     }
 
-    // Snapshot workspace before Claude starts working
-    void this.takeSnapshot().then(() => {
-      const args = ['-p', message, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions'];
-      this.launchProcess(args);
-    });
+    const args = ['-p', message, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions'];
+
+    // Download incoming attachments to workspace → snapshot → launch
+    void this.downloadAttachments(attachments)
+      .then(() => this.takeSnapshot())
+      .then(() => { this.launchProcess(args); });
+  }
+
+  /**
+   * Download incoming attachment URLs to the workspace directory so Claude can read them.
+   * Runs before the workspace snapshot so downloaded files are treated as pre-existing inputs.
+   */
+  private async downloadAttachments(attachments?: { name: string; url: string; type: string }[]): Promise<void> {
+    if (!attachments || attachments.length === 0) return;
+
+    const workspaceRoot = this.currentWorkspace || this.config.project;
+    if (!workspaceRoot) return;
+
+    await mkdir(workspaceRoot, { recursive: true });
+
+    for (const att of attachments) {
+      // Sanitize: strip path separators to prevent directory traversal
+      const safeName = basename(att.name).replace(/[^a-zA-Z0-9._-]/g, '_') || 'attachment';
+      const destPath = join(workspaceRoot, safeName);
+      try {
+        const res = await fetch(att.url);
+        if (!res.ok) {
+          log.warn(`Attachment download failed (${res.status}): ${safeName}`);
+          continue;
+        }
+        const buf = Buffer.from(await res.arrayBuffer());
+        await writeFile(destPath, buf);
+        log.info(`Downloaded attachment: ${safeName} (${buf.length} bytes)`);
+      } catch (err) {
+        log.warn(`Attachment download error for ${safeName}: ${err}`);
+      }
+    }
   }
 
   private async launchProcess(args: string[]): Promise<void> {

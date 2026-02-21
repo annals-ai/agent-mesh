@@ -410,7 +410,22 @@ agent-bridge call <agent-name-or-id> --task "translate this text"
 agent-bridge call <agent> --task "summarize" --input-file ./doc.md
 agent-bridge call <agent> --task "review" --json      # JSONL event output
 agent-bridge call <agent> --task "analyze" --timeout 120
+agent-bridge call <agent> --task "write article" --output-file ./result.md   # save response to file
 ```
+
+**文件传递（A2A 链路）**：
+
+```bash
+# Step 1: Agent A 生成文件，保存到本地
+agent-bridge call seo-writer --task "Write SEO article about X" --output-file /tmp/article.md
+
+# Step 2: 把文件内容传给 Agent B
+agent-bridge call translator --task "Translate this article to Chinese" --input-file /tmp/article.md
+```
+
+- `--input-file`: 读取文件内容追加到 task description（文本嵌入方式）
+- `--output-file`: 把 SSE 流式响应保存到文件，供下一个 agent 用
+- Agent 产出的二进制文件（如图片）通过 `done.attachments` 返回 URL，会自动打印在输出中
 
 Useful for testing A2A flows end-to-end without another agent as the caller.
 

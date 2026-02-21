@@ -198,6 +198,124 @@ describe('ClaudeAdapter', () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('should download incoming attachments to workspace before spawning', async () => {
+    const { spawnAgent } = await import('../../packages/cli/src/utils/process.js');
+    vi.mocked(spawnAgent).mockClear();
+    const { ClaudeAdapter } = await import('../../packages/cli/src/adapters/claude.js');
+    const { mkdtemp, rm, readFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'bridge-attach-'));
+    const originalFetch = globalThis.fetch;
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const stdin = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & { kill: () => void };
+    child.kill = vi.fn();
+
+    vi.mocked(spawnAgent).mockResolvedValue({ child: child as never, stdout, stderr, stdin, kill: vi.fn() });
+
+    try {
+      const fileContent = 'Hello from Agent A!';
+      let downloadCalled = false;
+
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+        const urlStr = String(url);
+        if (urlStr === 'https://cdn.agents.hot/files/test/article.md') {
+          downloadCalled = true;
+          const encoded = new TextEncoder().encode(fileContent);
+          return {
+            ok: true,
+            arrayBuffer: async () => encoded.buffer,
+          } as unknown as Response;
+        }
+        // spawnAgent fetch calls would go here — not expected in this test
+        throw new Error(`Unexpected fetch: ${urlStr}`);
+      }) as unknown as typeof fetch;
+
+      const adapter = new ClaudeAdapter({ project: tempDir });
+      const session = adapter.createSession('session-attach', {});
+
+      session.send('Translate this document', [
+        { name: 'article.md', url: 'https://cdn.agents.hot/files/test/article.md', type: 'text/markdown' },
+      ]);
+
+      // Wait for downloadAttachments → takeSnapshot → launchProcess chain
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(downloadCalled).toBe(true);
+      expect(spawnAgent).toHaveBeenCalled();
+
+      // File should exist in workspace
+      const written = await readFile(join(tempDir, 'article.md'), 'utf-8');
+      expect(written).toBe(fileContent);
+
+      adapter.destroySession('session-attach');
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should sanitize attachment filenames to prevent path traversal', async () => {
+    const { spawnAgent } = await import('../../packages/cli/src/utils/process.js');
+    vi.mocked(spawnAgent).mockClear();
+    const { ClaudeAdapter } = await import('../../packages/cli/src/adapters/claude.js');
+    const { mkdtemp, rm, access } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'bridge-traverse-'));
+    const originalFetch = globalThis.fetch;
+    const savedFiles: string[] = [];
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const stdin = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & { kill: () => void };
+    child.kill = vi.fn();
+    vi.mocked(spawnAgent).mockResolvedValue({ child: child as never, stdout, stderr, stdin, kill: vi.fn() });
+
+    try {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        arrayBuffer: async () => new TextEncoder().encode('payload').buffer,
+      })) as unknown as typeof fetch;
+
+      const adapter = new ClaudeAdapter({ project: tempDir });
+      const session = adapter.createSession('session-traverse', {});
+
+      session.send('task', [
+        { name: '../../etc/passwd', url: 'https://cdn.agents.hot/evil', type: 'text/plain' },
+        { name: 'safe-file.txt', url: 'https://cdn.agents.hot/safe', type: 'text/plain' },
+      ]);
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // safe-file.txt should land inside tempDir
+      await access(join(tempDir, 'safe-file.txt'));
+      savedFiles.push('safe-file.txt');
+
+      // ../../etc/passwd traversal should have been sanitized — the file
+      // must NOT appear outside tempDir
+      try {
+        await access('/etc/passwd_written_by_test');
+        throw new Error('Path traversal succeeded — this is a bug');
+      } catch {
+        // expected: file does not exist outside workspace
+      }
+
+      expect(savedFiles).toContain('safe-file.txt');
+
+      adapter.destroySession('session-traverse');
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CodexAdapter', () => {
