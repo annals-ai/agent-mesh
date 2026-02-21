@@ -39,6 +39,18 @@ interface PendingRelay {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface SessionSocketAttachment {
+  promoted: boolean;
+  agentId?: string;
+  agentType?: string;
+  capabilities?: string[];
+  connectedAt?: string;
+  lastHeartbeat?: string;
+  activeSessions?: number;
+  tokenHash?: string;
+  userId?: string;
+}
+
 export class AgentSession implements DurableObject {
   private ws: WebSocket | null = null;
   private authenticated = false;
@@ -49,7 +61,7 @@ export class AgentSession implements DurableObject {
   private activeSessions = 0;
   private agentId = '';
 
-  private cachedTokenHash = '';   // SHA-256 hex of sb_ token (cached after initial validation)
+  private cachedTokenHash = '';   // SHA-256 hex of API key (cached after initial validation)
   private cachedUserId = '';      // token owner's user_id
 
   private pendingRelays = new Map<string, PendingRelay>();
@@ -59,7 +71,11 @@ export class AgentSession implements DurableObject {
   constructor(
     private state: DurableObjectState,
     private env: { SUPABASE_URL: string; SUPABASE_SERVICE_KEY: string; PLATFORM_SECRET: string; BRIDGE_KV: KVNamespace; AGENT_SESSIONS: DurableObjectNamespace }
-  ) {}
+  ) {
+    this.state.blockConcurrencyWhile(async () => {
+      this.restorePrimarySocket();
+    });
+  }
 
   // ========================================================
   // HTTP fetch handler — dispatches WebSocket upgrades and relay
@@ -88,8 +104,9 @@ export class AgentSession implements DurableObject {
 
     // Disconnect agent (triggered by platform on token revocation)
     if (url.pathname === '/disconnect' && request.method === 'POST') {
-      if (this.ws && this.authenticated) {
-        try { this.ws.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked by user'); } catch {}
+      const ws = this.getPrimarySocket();
+      if (ws && this.authenticated) {
+        try { ws.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked by user'); } catch {}
         await this.markOffline();
         return json(200, { success: true, was_online: true });
       }
@@ -103,8 +120,9 @@ export class AgentSession implements DurableObject {
 
     // Status check
     if (url.pathname === '/status' && request.method === 'GET') {
+      const ws = this.getPrimarySocket();
       return json(200, {
-        online: this.ws !== null && this.authenticated,
+        online: ws !== null && this.authenticated,
         agent_type: this.agentType,
         capabilities: this.capabilities,
         connected_at: this.connectedAt,
@@ -124,140 +142,225 @@ export class AgentSession implements DurableObject {
   private handleWebSocket(): Response {
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
+    this.state.acceptWebSocket(server);
+    this.setSocketAttachment(server, { promoted: false });
+    return new Response(null, { status: 101, webSocket: client });
+  }
 
-    server.accept();
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const data = typeof message === 'string' ? message : new TextDecoder().decode(message);
 
-    // Track whether this connection has been promoted to primary.
-    // Do NOT close the existing authenticated connection until the new one passes auth.
-    let promoted = false;
+    let msg: BridgeToWorkerMessage;
+    try {
+      msg = JSON.parse(data) as BridgeToWorkerMessage;
+    } catch {
+      ws.send(JSON.stringify({ type: 'registered', status: 'error', error: 'Invalid JSON' } satisfies Registered));
+      ws.close(1008, 'Invalid JSON');
+      return;
+    }
 
-    server.addEventListener('message', async (event) => {
-      let msg: BridgeToWorkerMessage;
-      try {
-        const data = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
-        msg = JSON.parse(data) as BridgeToWorkerMessage;
-      } catch {
-        server.send(JSON.stringify({ type: 'registered', status: 'error', error: 'Invalid JSON' } satisfies Registered));
-        server.close(1008, 'Invalid JSON');
+    const currentMeta = this.getSocketAttachment(ws);
+    const promoted = currentMeta.promoted === true;
+
+    // First message from this connection must be register
+    if (!promoted) {
+      if (msg.type !== 'register') {
+        ws.send(JSON.stringify({ type: 'registered', status: 'error', error: 'First message must be register' } satisfies Registered));
+        ws.close(1008, 'Expected register');
         return;
       }
 
-      // First message from this connection must be register
-      if (!promoted) {
-        if (msg.type !== 'register') {
-          server.send(JSON.stringify({ type: 'registered', status: 'error', error: 'First message must be register' } satisfies Registered));
-          server.close(1008, 'Expected register');
-          return;
-        }
+      const registerMsg = msg as Register;
 
-        const registerMsg = msg as Register;
+      // Validate protocol version
+      const clientVersion = parseInt(registerMsg.bridge_version, 10);
+      if (isNaN(clientVersion) || clientVersion !== BRIDGE_PROTOCOL_VERSION) {
+        ws.send(JSON.stringify({
+          type: 'registered', status: 'error',
+          error: `Unsupported protocol version ${registerMsg.bridge_version}, expected ${BRIDGE_PROTOCOL_VERSION}`,
+        } satisfies Registered));
+        ws.close(1008, 'Version mismatch');
+        return;
+      }
 
-        // Validate protocol version
-        const clientVersion = parseInt(registerMsg.bridge_version, 10);
-        if (isNaN(clientVersion) || clientVersion !== BRIDGE_PROTOCOL_VERSION) {
-          server.send(JSON.stringify({
-            type: 'registered', status: 'error',
-            error: `Unsupported protocol version ${registerMsg.bridge_version}, expected ${BRIDGE_PROTOCOL_VERSION}`,
-          } satisfies Registered));
-          server.close(1008, 'Version mismatch');
-          return;
-        }
+      const valid = await this.validateToken(registerMsg.token, registerMsg.agent_id);
+      if (!valid) {
+        ws.send(JSON.stringify({ type: 'registered', status: 'error', error: 'Authentication failed' } satisfies Registered));
+        ws.close(1008, 'Auth failed');
+        return; // Old connection stays intact
+      }
 
-        const valid = await this.validateToken(registerMsg.token, registerMsg.agent_id);
-        if (!valid) {
-          server.send(JSON.stringify({ type: 'registered', status: 'error', error: 'Authentication failed' } satisfies Registered));
-          server.close(1008, 'Auth failed');
-          return; // Old connection stays intact
-        }
+      // Auth succeeded — NOW replace old connection
+      // Use WS_CLOSE_REPLACED so the old CLI knows it was replaced and should NOT reconnect
+      const oldPrimary = this.findPromotedSocket(ws);
+      if (oldPrimary) {
+        try { oldPrimary.close(WS_CLOSE_REPLACED, 'Replaced by new connection'); } catch {}
+      }
 
-        // Auth succeeded — NOW replace old connection
-        // Use WS_CLOSE_REPLACED so the old CLI knows it was replaced and should NOT reconnect
-        if (this.ws && this.ws !== server) {
-          try { this.ws.close(WS_CLOSE_REPLACED, 'Replaced by new connection'); } catch {}
-        }
+      this.authenticated = true;
+      this.ws = ws;
+      this.agentId = registerMsg.agent_id;
+      this.agentType = registerMsg.agent_type;
+      this.capabilities = registerMsg.capabilities;
+      this.connectedAt = new Date().toISOString();
+      this.lastHeartbeat = this.connectedAt;
+      this.activeSessions = 0;
 
-        promoted = true;
-        this.authenticated = true;
-        this.ws = server;
-        this.agentId = registerMsg.agent_id;
-        this.agentType = registerMsg.agent_type;
-        this.capabilities = registerMsg.capabilities;
-        this.connectedAt = new Date().toISOString();
-        this.lastHeartbeat = this.connectedAt;
+      this.setSocketAttachment(ws, {
+        promoted: true,
+        agentId: this.agentId,
+        agentType: this.agentType,
+        capabilities: this.capabilities,
+        connectedAt: this.connectedAt,
+        lastHeartbeat: this.lastHeartbeat,
+        activeSessions: this.activeSessions,
+        tokenHash: this.cachedTokenHash,
+        userId: this.cachedUserId,
+      });
 
-        // Persist agentId so alarm() can mark offline after DO restart
-        await this.state.storage.put('agentId', this.agentId);
+      // Persist agentId so alarm() can mark offline after DO restart
+      await this.state.storage.put('agentId', this.agentId);
 
-        // Update KV for global status queries
-        await this.updateKV(registerMsg.agent_id);
+      // Update KV for global status queries
+      await this.updateKV(registerMsg.agent_id);
 
-        // Notify platform: agent is online
-        await this.updatePlatformStatus(registerMsg.agent_id, true);
-        this.lastPlatformSyncAt = Date.now();
+      // Notify platform: agent is online
+      await this.updatePlatformStatus(registerMsg.agent_id, true);
+      this.lastPlatformSyncAt = Date.now();
 
-        server.send(JSON.stringify({ type: 'registered', status: 'ok' } satisfies Registered));
+      ws.send(JSON.stringify({ type: 'registered', status: 'ok' } satisfies Registered));
+      this.scheduleHeartbeatAlarm();
+      return;
+    }
+
+    // Ignore stale promoted sockets that lost primary role.
+    const primary = this.getPrimarySocket();
+    if (primary && primary !== ws) return;
+
+    // Authenticated messages
+    switch (msg.type) {
+      case 'heartbeat':
+        this.lastHeartbeat = new Date().toISOString();
+        this.activeSessions = msg.active_sessions;
+        this.setSocketAttachment(ws, {
+          promoted: true,
+          lastHeartbeat: this.lastHeartbeat,
+          activeSessions: this.activeSessions,
+        });
         this.scheduleHeartbeatAlarm();
-        return;
-      }
-
-      // Authenticated messages
-      switch (msg.type) {
-        case 'heartbeat':
-          this.lastHeartbeat = new Date().toISOString();
-          this.activeSessions = msg.active_sessions;
-          this.scheduleHeartbeatAlarm();
-          this.keepaliveAllRelays();
-          // Periodically sync online status to DB (self-healing if DB drifts)
-          if (this.agentId && Date.now() - this.lastPlatformSyncAt >= AgentSession.PLATFORM_SYNC_INTERVAL_MS) {
-            this.lastPlatformSyncAt = Date.now();
-            this.syncHeartbeat(this.agentId);
-            // sb_ token revalidation (DO cached tokenHash → 1 query on revoked_at)
-            if (this.cachedTokenHash) {
-              const stillValid = await this.revalidateToken();
-              if (!stillValid) {
-                try { server.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked'); } catch {}
-                await this.markOffline();
-                return;
-              }
+        this.keepaliveAllRelays();
+        // Periodically sync online status to DB (self-healing if DB drifts)
+        if (this.agentId && Date.now() - this.lastPlatformSyncAt >= AgentSession.PLATFORM_SYNC_INTERVAL_MS) {
+          this.lastPlatformSyncAt = Date.now();
+          this.syncHeartbeat(this.agentId);
+          // API key revalidation (DO cached tokenHash → 1 query on revoked_at)
+          if (this.cachedTokenHash) {
+            const stillValid = await this.revalidateToken();
+            if (!stillValid) {
+              try { ws.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked'); } catch {}
+              await this.markOffline();
+              return;
             }
           }
-          break;
+        }
+        break;
 
-        case 'chunk':
-        case 'done':
-        case 'error':
-          this.handleAgentMessage(msg);
-          break;
+      case 'chunk':
+      case 'done':
+      case 'error':
+        this.handleAgentMessage(msg);
+        break;
 
-        case 'discover_agents':
-          this.handleDiscoverAgents(msg as DiscoverAgents, server);
-          break;
+      case 'discover_agents':
+        this.handleDiscoverAgents(msg as DiscoverAgents, ws);
+        break;
 
-        case 'call_agent':
-          this.handleCallAgentWs(msg as CallAgent, server);
-          break;
+      case 'call_agent':
+        this.handleCallAgentWs(msg as CallAgent, ws);
+        break;
+    }
+  }
+
+  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    const primary = this.getPrimarySocket();
+    if (!primary || primary !== ws) return;
+    await this.markOffline();
+  }
+
+  async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
+    const primary = this.getPrimarySocket();
+    if (!primary || primary !== ws) return;
+    await this.markOffline();
+  }
+
+  private getSocketAttachment(ws: WebSocket): SessionSocketAttachment {
+    try {
+      const attachment = ws.deserializeAttachment() as SessionSocketAttachment | null;
+      if (attachment && typeof attachment === 'object') {
+        return attachment;
       }
-    });
+    } catch {}
+    return { promoted: false };
+  }
 
-    server.addEventListener('close', async () => {
-      // Only clean up if this is the current primary connection
-      if (this.ws !== server) return;
-      await this.markOffline();
-    });
+  private setSocketAttachment(ws: WebSocket, patch: Partial<SessionSocketAttachment>): void {
+    const next = { ...this.getSocketAttachment(ws), ...patch };
+    try { ws.serializeAttachment(next); } catch {}
+  }
 
-    server.addEventListener('error', async () => {
-      if (this.ws !== server) return;
-      await this.markOffline();
-    });
+  private hydrateFromAttachment(meta: SessionSocketAttachment): void {
+    this.authenticated = meta.promoted === true && !!meta.agentId;
+    this.agentId = meta.agentId || '';
+    this.agentType = meta.agentType || '';
+    this.capabilities = meta.capabilities || [];
+    this.connectedAt = meta.connectedAt || '';
+    this.lastHeartbeat = meta.lastHeartbeat || '';
+    this.activeSessions = meta.activeSessions ?? 0;
+    this.cachedTokenHash = meta.tokenHash || '';
+    this.cachedUserId = meta.userId || '';
+  }
 
-    return new Response(null, { status: 101, webSocket: client });
+  private restorePrimarySocket(): void {
+    const sockets = this.state.getWebSockets();
+    let restored: WebSocket | null = null;
+    for (const socket of sockets) {
+      const meta = this.getSocketAttachment(socket);
+      if (meta.promoted && meta.agentId) {
+        restored = socket;
+        this.hydrateFromAttachment(meta);
+        break;
+      }
+    }
+    this.ws = restored;
+    if (!restored) {
+      this.authenticated = false;
+    }
+  }
+
+  private getPrimarySocket(): WebSocket | null {
+    if (this.ws && this.authenticated) {
+      return this.ws;
+    }
+    this.restorePrimarySocket();
+    return this.ws;
+  }
+
+  private findPromotedSocket(exclude?: WebSocket): WebSocket | null {
+    const sockets = this.state.getWebSockets();
+    for (const socket of sockets) {
+      if (exclude && socket === exclude) continue;
+      const meta = this.getSocketAttachment(socket);
+      if (meta.promoted && meta.agentId) return socket;
+    }
+    return null;
   }
 
   // ========================================================
   // Relay handling
   // ========================================================
   private async handleRelay(request: Request): Promise<Response> {
-    if (!this.ws || !this.authenticated) {
+    const ws = this.getPrimarySocket();
+    if (!ws || !this.authenticated) {
       return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
     }
 
@@ -289,7 +392,7 @@ export class AgentSession implements DurableObject {
     };
 
     try {
-      this.ws.send(JSON.stringify(message));
+      ws.send(JSON.stringify(message));
     } catch {
       return json(502, { error: 'agent_offline', message: 'Failed to send message to agent' });
     }
@@ -317,9 +420,10 @@ export class AgentSession implements DurableObject {
           this.pendingRelays.delete(requestId);
         }
         // Send cancel to agent
-        if (this.ws) {
+        const currentWs = this.getPrimarySocket();
+        if (currentWs) {
           try {
-            this.ws.send(JSON.stringify({ type: 'cancel', session_id: body.session_id, request_id: requestId }));
+            currentWs.send(JSON.stringify({ type: 'cancel', session_id: body.session_id, request_id: requestId }));
           } catch {}
         }
       },
@@ -335,7 +439,8 @@ export class AgentSession implements DurableObject {
   }
 
   private async handleCancel(request: Request): Promise<Response> {
-    if (!this.ws || !this.authenticated) {
+    const ws = this.getPrimarySocket();
+    if (!ws || !this.authenticated) {
       return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
     }
 
@@ -353,7 +458,7 @@ export class AgentSession implements DurableObject {
     const requestId = body.request_id || crypto.randomUUID();
 
     try {
-      this.ws.send(JSON.stringify({
+      ws.send(JSON.stringify({
         type: 'cancel',
         session_id: body.session_id,
         request_id: requestId,
@@ -431,15 +536,15 @@ export class AgentSession implements DurableObject {
   }
 
   // ========================================================
-  // Token validation — 3 paths: sb_ → JWT → bt_ (fallback)
+  // Token validation — 2 paths: API key (ah_/sb_) → JWT fallback
   // ========================================================
   private async validateToken(token: string, agentId: string): Promise<boolean> {
     // Reject empty tokens immediately
     if (!token || token.length === 0) return false;
 
     try {
-      // Path 1: sb_ CLI token → hash + lookup in cli_tokens (hits partial covering index)
-      if (token.startsWith('sb_')) {
+      // Path 1: API key (ah_ or legacy sb_) → hash + lookup in cli_tokens
+      if (token.startsWith('ah_') || token.startsWith('sb_')) {
         return this.validateCliToken(token, agentId);
       }
 
@@ -466,7 +571,7 @@ export class AgentSession implements DurableObject {
     }
   }
 
-  /** Validate sb_ CLI token: hash → lookup cli_tokens → verify agent ownership */
+  /** Validate API key (ah_/sb_): hash → lookup cli_tokens → verify agent ownership */
   private async validateCliToken(token: string, agentId: string): Promise<boolean> {
     const tokenHash = await this.hashToken(token);
 
@@ -505,7 +610,7 @@ export class AgentSession implements DurableObject {
   // Token revalidation (lightweight: 1 query on cached hash)
   // ========================================================
   private async revalidateToken(): Promise<boolean> {
-    if (!this.cachedTokenHash) return true; // No sb_ token → skip
+    if (!this.cachedTokenHash) return true; // No API key → skip (JWT path)
     try {
       const res = await fetch(
         `${this.env.SUPABASE_URL}/rest/v1/cli_tokens?token_hash=eq.${encodeURIComponent(this.cachedTokenHash)}&revoked_at=is.null&select=expires_at`,
@@ -526,6 +631,13 @@ export class AgentSession implements DurableObject {
   // ========================================================
   private async markOffline(): Promise<void> {
     const agentId = this.agentId;
+    const sockets = this.state.getWebSockets();
+    for (const socket of sockets) {
+      const meta = this.getSocketAttachment(socket);
+      if (!meta.promoted) continue;
+      this.setSocketAttachment(socket, { promoted: false });
+    }
+
     this.ws = null;
     this.authenticated = false;
     this.agentId = '';
@@ -626,11 +738,13 @@ export class AgentSession implements DurableObject {
   }
 
   async alarm(): Promise<void> {
+    const ws = this.getPrimarySocket();
+
     // Case 1: Active connection — check heartbeat freshness
-    if (this.ws && this.authenticated) {
+    if (ws && this.authenticated) {
       const elapsed = Date.now() - new Date(this.lastHeartbeat).getTime();
       if (elapsed >= HEARTBEAT_TIMEOUT_MS) {
-        try { this.ws.close(1000, 'Heartbeat timeout'); } catch {}
+        try { ws.close(1000, 'Heartbeat timeout'); } catch {}
         await this.markOffline();
       } else {
         // Heartbeat arrived between alarm schedule and fire — reschedule
@@ -861,7 +975,8 @@ export class AgentSession implements DurableObject {
   // A2A: Handle incoming call (HTTP — from platform or DO-to-DO)
   // ========================================================
   private async handleA2ACall(request: Request): Promise<Response> {
-    if (!this.ws || !this.authenticated) {
+    const ws = this.getPrimarySocket();
+    if (!ws || !this.authenticated) {
       return json(404, { error: 'agent_offline', message: 'Target agent is not connected' });
     }
 
@@ -899,7 +1014,7 @@ export class AgentSession implements DurableObject {
     };
 
     try {
-      this.ws.send(JSON.stringify(message));
+      ws.send(JSON.stringify(message));
     } catch {
       await this.updateCallStatus(callRecordId, 'failed');
       return json(502, { error: 'agent_offline', message: 'Failed to send message to agent' });
@@ -930,9 +1045,10 @@ export class AgentSession implements DurableObject {
           this.pendingRelays.delete(requestId);
         }
         this.updateCallStatus(callId, 'failed');
-        if (this.ws) {
+        const currentWs = this.getPrimarySocket();
+        if (currentWs) {
           try {
-            this.ws.send(JSON.stringify({ type: 'cancel', session_id: sessionId, request_id: requestId }));
+            currentWs.send(JSON.stringify({ type: 'cancel', session_id: sessionId, request_id: requestId }));
           } catch {}
         }
       },

@@ -74,6 +74,13 @@ describe('AgentSession class', () => {
     // Verify it's a class with a fetch method on the prototype
     expect(typeof mod.AgentSession.prototype.fetch).toBe('function');
   });
+
+  it('should implement hibernation websocket handlers', async () => {
+    const mod = await import('../../packages/worker/src/agent-session.js');
+    expect(typeof mod.AgentSession.prototype.webSocketMessage).toBe('function');
+    expect(typeof mod.AgentSession.prototype.webSocketClose).toBe('function');
+    expect(typeof mod.AgentSession.prototype.webSocketError).toBe('function');
+  });
 });
 
 describe('Protocol Version', () => {

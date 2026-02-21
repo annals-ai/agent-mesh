@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock auth module
 vi.mock('../../packages/cli/src/platform/auth.js', () => ({
-  loadToken: vi.fn(() => 'sb_test-token-123'),
+  loadToken: vi.fn(() => 'ah_test-token-123'),
   saveToken: vi.fn(),
   hasToken: vi.fn(() => true),
 }));
@@ -25,7 +25,7 @@ describe('PlatformClient', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     const result = await client.get<{ agents: unknown[] }>('/api/developer/agents');
 
     expect(result).toEqual({ agents: [] });
@@ -34,7 +34,7 @@ describe('PlatformClient', () => {
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
-          Authorization: 'Bearer sb_test-token',
+          Authorization: 'Bearer ah_test-token',
         }),
       }),
     );
@@ -47,7 +47,7 @@ describe('PlatformClient', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.post('/api/developer/agents', { name: 'test', agent_type: 'openclaw' });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -66,7 +66,7 @@ describe('PlatformClient', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.post('/api/test');
 
     const callArgs = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
@@ -80,7 +80,7 @@ describe('PlatformClient', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.put('/api/developer/agents/abc', { description: 'updated' });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -99,7 +99,7 @@ describe('PlatformClient', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.del('/api/developer/agents/abc', { confirm: true });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -118,7 +118,7 @@ describe('PlatformClient', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.del('/api/developer/agents/abc');
 
     const callArgs = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
@@ -132,7 +132,7 @@ describe('PlatformClient', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token', 'http://localhost:3000');
+    const client = new PlatformClient('ah_test-token', 'http://localhost:3000');
     await client.get('/api/test');
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -161,7 +161,7 @@ describe('PlatformClient error handling', () => {
     });
 
     const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_bad-token');
+    const client = new PlatformClient('ah_bad-token');
 
     try {
       await client.get('/api/developer/agents');
@@ -183,7 +183,7 @@ describe('PlatformClient error handling', () => {
     });
 
     const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
 
     try {
       await client.get('/api/developer/agents/xxx');
@@ -202,7 +202,7 @@ describe('PlatformClient error handling', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
 
     await expect(client.get('/api/developer/agents/xxx')).rejects.toThrow(/not found/i);
   });
@@ -215,7 +215,7 @@ describe('PlatformClient error handling', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
 
     await expect(
       client.put('/api/developer/agents/abc', { is_published: true }),
@@ -230,7 +230,7 @@ describe('PlatformClient error handling', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
 
     await expect(
       client.put('/api/developer/agents/abc', { is_published: true }),
@@ -241,7 +241,7 @@ describe('PlatformClient error handling', () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
 
     const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
 
     try {
       await client.get('/test');
@@ -263,7 +263,7 @@ describe('PlatformClient error handling', () => {
     });
 
     const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
 
     try {
       await client.get('/test');
@@ -284,7 +284,7 @@ describe('PlatformClient error handling', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
 
     await expect(client.get('/test')).rejects.toThrow('Custom detail here');
   });
@@ -322,7 +322,7 @@ describe('createClient', () => {
         expect.anything(),
         expect.objectContaining({
           headers: expect.objectContaining({
-            Authorization: 'Bearer sb_test-token-123',
+            Authorization: 'Bearer ah_test-token-123',
           }),
         }),
       );

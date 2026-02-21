@@ -44,7 +44,7 @@ const SENSITIVE_PATHS: string[] = [
   '~/.openclaw',
   // ~/.agent-bridge — fine-grained: block tokens/config, allow agent workspaces
   // NOT blocked: ~/.agent-bridge/agents/ (per-agent project workspaces used as cwd)
-  '~/.agent-bridge/config.json',   // contains sb_ platform token
+  '~/.agent-bridge/config.json',   // contains ah_ platform token
   '~/.agent-bridge/pids',
   '~/.agent-bridge/logs',
   '~/.codex',

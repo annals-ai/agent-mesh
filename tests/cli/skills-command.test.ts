@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 
 // Mock auth module
 vi.mock('../../packages/cli/src/platform/auth.js', () => ({
-  loadToken: vi.fn(() => 'sb_test-token-123'),
+  loadToken: vi.fn(() => 'ah_test-token-123'),
   saveToken: vi.fn(),
   hasToken: vi.fn(() => true),
 }));
@@ -173,7 +173,7 @@ tags: [ai, code]
       });
 
       const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-      const client = new PlatformClient('sb_test-token');
+      const client = new PlatformClient('ah_test-token');
 
       const formData = new FormData();
       formData.append('metadata', JSON.stringify({ name: 'test-skill', version: '1.0.0' }));
@@ -194,7 +194,7 @@ tags: [ai, code]
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
-            Authorization: 'Bearer sb_test-token',
+            Authorization: 'Bearer ah_test-token',
           }),
         }),
       );
@@ -211,7 +211,7 @@ tags: [ai, code]
       });
 
       const { PlatformClient, PlatformApiError } = await import('../../packages/cli/src/platform/api-client.js');
-      const client = new PlatformClient('sb_test-token');
+      const client = new PlatformClient('ah_test-token');
 
       const formData = new FormData();
       formData.append('metadata', JSON.stringify({}));
@@ -250,7 +250,7 @@ tags: [ai, code]
       });
 
       const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-      const client = new PlatformClient('sb_test-token');
+      const client = new PlatformClient('ah_test-token');
       const result = await client.get<typeof skillData>('/api/skills/code-review');
 
       expect(result.name).toBe('code-review');
@@ -286,7 +286,7 @@ tags: [ai, code]
       });
 
       const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-      const client = new PlatformClient('sb_test-token');
+      const client = new PlatformClient('ah_test-token');
       const result = await client.get<typeof response>('/api/user/skills');
 
       expect(result.owned).toHaveLength(2);

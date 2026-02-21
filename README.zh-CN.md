@@ -58,7 +58,7 @@ agent-bridge agents publish code-review-pro
 npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-CLI 从 ticket URL 获取所有配置，自动检测本地 Agent 并连接。如果尚未登录，ticket 中的 `sb_` token 会自动保存——一条命令完成登录和配置。Ticket 一次性使用，15 分钟过期。
+CLI 从 ticket URL 获取所有配置，自动检测本地 Agent 并连接。如果尚未登录，ticket 中的 `ah_` token 会自动保存——一条命令完成登录和配置。Ticket 一次性使用，15 分钟过期。
 
 ### 重连
 
@@ -274,7 +274,7 @@ agent-bridge connect claude --sandbox
 ## 安全性
 
 - **无入站端口** — CLI 发起 outbound WebSocket，Agent 从不在网络上监听
-- **统一 `sb_` token 认证** — CLI token 在 agents.hot 创建，数据库存储 SHA-256 hash，每次 Bridge 连接时验证。在平台吊销 token 后 Agent 立即断连。
+- **统一 `ah_` token 认证** — CLI token 在 agents.hot 创建，数据库存储 SHA-256 hash，每次 Bridge 连接时验证。在平台吊销 token 后 Agent 立即断连。
 - **心跳重验证** — Bridge Worker 定期检查 token 有效性。若已吊销，以 close code `4002`（TOKEN_REVOKED）断开连接。
 - **一次性接入 ticket** — `ct_` ticket 15 分钟过期，只能使用一次
 - **常量时间密钥比较** — PLATFORM_SECRET 使用 `timingSafeEqual` 验证

@@ -64,10 +64,9 @@ agent-bridge/
 关键行为：
 - **认证优先替换**：新 WebSocket 连接必须先完成 register + token 验证，才会替换旧连接。未认证的连接不会踢掉已有连接。
 - **实时状态推送**：DO 在 agent 连接/断开时直接 PATCH `agents` 表（Supabase REST API），无需 health cron 轮询。
-- **统一 sb_ Token 验证**（三路径）：
-  1. `sb_` 前缀 → SHA-256 hash → 查 `cli_tokens` 表（Partial Covering Index）→ 验证 agent 所有权 → DO 内存缓存 tokenHash/userId
+- **统一 API Key 验证**（两路径）：
+  1. `ah_` 前缀 → SHA-256 hash → 查 `cli_tokens` 表（Partial Covering Index）→ 验证 agent 所有权 → DO 内存缓存 tokenHash/userId
   2. JWT（Supabase Auth）→ 浏览器调试场景
-  3. 空 token → 立即拒绝
 - **心跳 Revalidation**：每次平台同步心跳时，用缓存的 tokenHash 查 `cli_tokens.revoked_at`。Token 被吊销 → WS close `4002` (TOKEN_REVOKED)。Fail-open：网络错误不断连，只有确认 "0 rows" 才断连。
 - **主动断连端点**：`POST /disconnect` — 平台吊销 token 时主动断开 Agent。
 - **速率限制**：每个 Agent 最多 10 个并发 pending relay（`MAX_PENDING_RELAYS`）。
@@ -121,9 +120,9 @@ abstract destroySession(id: string): Promise<void>
      ↓
 用户复制命令: npx @annals/agent-bridge connect --setup <ticket-url>
      ↓
-CLI fetch ticket → 获取 { agent_id, token (sb_), agent_type, bridge_url }
+CLI fetch ticket → 获取 { agent_id, token (ah_), agent_type, bridge_url }
      ↓
-自动保存 sb_ token（等于 auto-login，仅在本地未登录时）
+自动保存 ah_ API key（等于 auto-login，仅在本地未登录时）
      ↓
 自动检测 OpenClaw token（~/.openclaw/openclaw.json → gateway.auth.token）
      ↓
@@ -181,11 +180,10 @@ agent-bridge status                          # 查看连接状态
 ### chat 命令
 
 通过平台 API（`/api/agents/[id]/chat`）向 Agent 发消息，解析 SSE 流式响应。
-适用于开发者调试自己的 Agent 或测试已购买的 Agent。
+适用于开发者调试自己的 Agent 或测试任意已发布 Agent。
 
-- **自己的 Agent** → owner bypass，跳过购买校验
-- **已购买的 Agent** → 有效期内正常使用
-- **未购买的 Agent** → 403 拒绝
+- **自己的 Agent** → owner bypass
+- **已发布 Agent** → 任何认证用户可调用（平台当前免费）
 
 支持单条消息模式和交互式 REPL 模式（`/quit` 退出）。
 
@@ -195,11 +193,11 @@ agent-bridge status                          # 查看连接状态
 |-----------------|------|
 | `src/lib/bridge-client.ts` | `sendToBridge()` + `disconnectAgent()` + `getAgentsByToken()` |
 | `src/lib/connect-token.ts` | `generateConnectTicket()` — 一次性接入 ticket |
-| `src/lib/cli-token.ts` | `generateCliToken()` + `hashCliToken()` — sb_ token 生成与哈希 |
+| `src/lib/cli-token.ts` | `generateCliToken()` + `hashCliToken()` — ah_ API key 生成与哈希 |
 | `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay |
 | `src/app/api/developer/agents/route.ts` | 创建 Agent |
 | `src/app/api/developer/agents/[id]/connect-ticket/route.ts` | 生成一次性接入 ticket |
-| `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket — 创建 sb_ token 并返回 |
+| `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket — 创建 ah_ API key 并返回 |
 | `src/app/api/settings/cli-tokens/[id]/route.ts` | 吊销 token 时主动断连关联 Agent |
 | `src/app/api/settings/cli-tokens/[id]/agents/route.ts` | 查询 token 关联的在线 Agent |
 
@@ -207,7 +205,7 @@ agent-bridge status                          # 查看连接状态
 - `agents.agent_type`: `'openclaw' | 'claude' | 'codex' | 'gemini'`
 - `agents.bridge_connected_at`: Bridge 连接时间戳
 - `agents.is_online`: 由 Bridge Worker DO 实时更新（连接时 true，断开时 false）
-- `cli_tokens` 表: sb_ token 的 SHA-256 hash，支持吊销（`revoked_at`），Partial Covering Index
+- `cli_tokens` 表: ah_ API key 的 SHA-256 hash，支持吊销（`revoked_at`），Partial Covering Index
 - `connect_tickets` 表: 一次性 ticket，15 分钟过期
 
 ## 开发

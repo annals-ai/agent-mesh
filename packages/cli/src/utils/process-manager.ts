@@ -156,7 +156,7 @@ export function spawnBackground(name: string, entry: AgentEntry, platformToken?:
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && k !== 'PATH') env[k] = v;
   }
-  // Use legacy bridgeToken if present, otherwise use platform sb_ token
+  // Use legacy bridgeToken if present, otherwise use platform ah_ token
   const tokenForChild = entry.bridgeToken || platformToken;
   if (tokenForChild) env.AGENT_BRIDGE_TOKEN = tokenForChild;
 

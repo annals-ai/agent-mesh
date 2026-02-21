@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock auth module
 vi.mock('../../packages/cli/src/platform/auth.js', () => ({
-  loadToken: vi.fn(() => 'sb_test-token-123'),
+  loadToken: vi.fn(() => 'ah_test-token-123'),
   saveToken: vi.fn(),
   hasToken: vi.fn(() => true),
 }));
@@ -96,7 +96,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Hi',
-      token: 'sb_test-token',
+      token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
     });
 
@@ -120,7 +120,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Think about it',
-      token: 'sb_test-token',
+      token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
       showThinking: true,
     });
@@ -147,7 +147,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Think quietly',
-      token: 'sb_test-token',
+      token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
       showThinking: false,
     });
@@ -172,7 +172,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Read a file',
-      token: 'sb_test-token',
+      token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
     });
 
@@ -195,7 +195,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Create a file',
-      token: 'sb_test-token',
+      token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
     });
 
@@ -214,7 +214,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Crash me',
-      token: 'sb_test-token',
+      token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
     });
 
@@ -231,7 +231,7 @@ describe('streamChat — SSE streaming', () => {
       streamChat({
         agentId: AGENT_UUID,
         message: 'Hello',
-        token: 'sb_test-token',
+        token: 'ah_test-token',
         baseUrl: 'https://agents.hot',
       }),
     ).rejects.toThrow(/offline/i);
@@ -247,7 +247,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Test message',
-      token: 'sb_my-token',
+      token: 'ah_my-token',
       baseUrl: 'http://localhost:3000',
     });
 
@@ -256,7 +256,7 @@ describe('streamChat — SSE streaming', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          Authorization: 'Bearer sb_my-token',
+          Authorization: 'Bearer ah_my-token',
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({ message: 'Test message' }),
@@ -277,7 +277,7 @@ describe('streamChat — SSE streaming', () => {
     await streamChat({
       agentId: AGENT_UUID,
       message: 'Search',
-      token: 'sb_test-token',
+      token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
     });
 
@@ -298,7 +298,7 @@ describe('streamChat — SSE streaming', () => {
       streamChat({
         agentId: AGENT_UUID,
         message: 'Hello',
-        token: 'sb_test-token',
+        token: 'ah_test-token',
         baseUrl: 'https://agents.hot',
       }),
     ).rejects.toThrow(/empty/i);

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../packages/cli/src/platform/auth.js', () => ({
-  loadToken: vi.fn(() => 'sb_test-token-123'),
+  loadToken: vi.fn(() => 'ah_test-token-123'),
   saveToken: vi.fn(),
   hasToken: vi.fn(() => true),
 }));
@@ -40,7 +40,7 @@ describe('stats command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     const result = await client.get<typeof mockStats>('/api/agents/agent-uuid/stats?period=week');
 
     expect(result.total_calls).toBe(150);
@@ -57,7 +57,7 @@ describe('stats command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.get('/api/agents/agent-uuid/stats?period=month');
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -65,7 +65,7 @@ describe('stats command', () => {
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
-          Authorization: 'Bearer sb_test-token',
+          Authorization: 'Bearer ah_test-token',
         }),
       }),
     );
@@ -86,7 +86,7 @@ describe('stats command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     const result = await client.get<typeof emptyStats>('/api/agents/agent-uuid/stats?period=week');
 
     expect(result.total_calls).toBe(0);

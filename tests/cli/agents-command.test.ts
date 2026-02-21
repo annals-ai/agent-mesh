@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock auth
 vi.mock('../../packages/cli/src/platform/auth.js', () => ({
-  loadToken: vi.fn(() => 'sb_test-token-123'),
+  loadToken: vi.fn(() => 'ah_test-token-123'),
   saveToken: vi.fn(),
   hasToken: vi.fn(() => true),
 }));
@@ -103,7 +103,7 @@ describe('resolveAgentId', () => {
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
 
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     const result = await resolveAgentId(AGENT_UUID, client);
     expect(result.id).toBe(AGENT_UUID);
     expect(result.name).toBe(AGENT_UUID);
@@ -128,7 +128,7 @@ describe('resolveAgentId', () => {
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
 
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     const result = await resolveAgentId('my-agent', client);
     expect(result.id).toBe(AGENT_UUID);
     expect(result.name).toBe('my-agent');
@@ -142,7 +142,7 @@ describe('resolveAgentId', () => {
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
 
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     const result = await resolveAgentId('Code-Review-Pro', client);
     expect(result.id).toBe(AGENT_UUID);
     expect(result.name).toBe('code-review-pro');
@@ -154,7 +154,7 @@ describe('resolveAgentId', () => {
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
 
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     await expect(resolveAgentId('nonexistent', client)).rejects.toThrow(/not found/i);
   });
 
@@ -177,7 +177,7 @@ describe('resolveAgentId', () => {
     const { resolveAgentId } = await import('../../packages/cli/src/platform/resolve-agent.js');
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
 
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     // Use a non-UUID string that won't match listAgents keys
     const result = await resolveAgentId('some-partial-id', client);
     expect(result.id).toBe(AGENT_UUID);
@@ -198,7 +198,7 @@ describe('agents list', () => {
     globalThis.fetch = mockFetchSuccess(mockAgentList);
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     const data = await client.get<typeof mockAgentList>('/api/developer/agents');
 
     expect(data.agents).toHaveLength(2);
@@ -212,7 +212,7 @@ describe('agents list', () => {
     globalThis.fetch = mockFetchSuccess({ agents: [], author_login: null });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     const data = await client.get<typeof mockAgentList>('/api/developer/agents');
 
     expect(data.agents).toHaveLength(0);
@@ -222,7 +222,7 @@ describe('agents list', () => {
     globalThis.fetch = mockFetchSuccess(mockAgentList);
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
     const data = await client.get<typeof mockAgentList>('/api/developer/agents');
 
     const json = JSON.stringify(data.agents, null, 2);
@@ -247,7 +247,7 @@ describe('agents create', () => {
     );
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const result = await client.post<{ success: boolean; agent: { id: string; name: string } }>(
       '/api/developer/agents',
@@ -266,7 +266,7 @@ describe('agents create', () => {
     globalThis.fetch = mockFetchError(400, 'invalid_request', 'Name is required');
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     await expect(
       client.post('/api/developer/agents', { price: 0 }),
@@ -277,7 +277,7 @@ describe('agents create', () => {
     globalThis.fetch = mockFetchSuccess({ success: true, agent: { id: 'x', name: 'full' } });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const body = {
       name: 'Full Agent',
@@ -311,7 +311,7 @@ describe('agents update', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const result = await client.put<{ success: boolean; agent: typeof mockAgentDetail }>(
       `/api/developer/agents/${AGENT_UUID}`,
@@ -332,7 +332,7 @@ describe('agents update', () => {
     globalThis.fetch = mockFetchError(404, 'not_found', 'Agent not found');
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     await expect(
       client.put(`/api/developer/agents/${AGENT_UUID}`, { description: 'updated' }),
@@ -352,7 +352,7 @@ describe('agents show', () => {
     globalThis.fetch = mockFetchSuccess(mockAgentDetail);
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const detail = await client.get<typeof mockAgentDetail>(`/api/developer/agents/${AGENT_UUID}`);
     expect(detail.name).toBe('code-review-pro');
@@ -366,7 +366,7 @@ describe('agents show', () => {
     globalThis.fetch = mockFetchSuccess(mockAgentDetail);
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const detail = await client.get<typeof mockAgentDetail>(`/api/developer/agents/${AGENT_UUID}`);
     const json = JSON.stringify(detail, null, 2);
@@ -388,7 +388,7 @@ describe('agents publish / unpublish', () => {
     globalThis.fetch = mockFetchSuccess({ success: true, agent: { ...mockAgentDetail, is_published: true } });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const result = await client.put<{ success: boolean }>(`/api/developer/agents/${AGENT_UUID}`, { is_published: true });
     expect(result.success).toBe(true);
@@ -405,7 +405,7 @@ describe('agents publish / unpublish', () => {
     globalThis.fetch = mockFetchError(400, 'agent_offline', 'Agent must be online for first publish');
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     await expect(
       client.put(`/api/developer/agents/${AGENT_UUID}`, { is_published: true }),
@@ -416,7 +416,7 @@ describe('agents publish / unpublish', () => {
     globalThis.fetch = mockFetchError(400, 'email_required', 'Email required');
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     await expect(
       client.put(`/api/developer/agents/${AGENT_UUID}`, { is_published: true }),
@@ -427,7 +427,7 @@ describe('agents publish / unpublish', () => {
     globalThis.fetch = mockFetchSuccess({ success: true, agent: { ...mockAgentDetail, is_published: false } });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const result = await client.put<{ success: boolean }>(`/api/developer/agents/${AGENT_UUID}`, { is_published: false });
     expect(result.success).toBe(true);
@@ -446,7 +446,7 @@ describe('agents delete', () => {
     globalThis.fetch = mockFetchSuccess({ success: true, message: 'Agent deleted successfully' });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test');
+    const client = new PlatformClient('ah_test');
 
     const result = await client.del<{ success: boolean; message: string }>(`/api/developer/agents/${AGENT_UUID}`);
     expect(result.success).toBe(true);

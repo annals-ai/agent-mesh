@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../packages/cli/src/platform/auth.js', () => ({
-  loadToken: vi.fn(() => 'sb_test-token-123'),
+  loadToken: vi.fn(() => 'ah_test-token-123'),
   saveToken: vi.fn(),
   hasToken: vi.fn(() => true),
 }));
@@ -36,7 +36,7 @@ describe('config command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     const result = await client.get<{
       capabilities: string[];
       rate_limits: { max_calls_per_hour: number; allow_a2a: boolean };
@@ -54,7 +54,7 @@ describe('config command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.patch('/api/agents/agent-uuid/settings', {
       capabilities: ['seo', 'content-writing'],
     });
@@ -75,7 +75,7 @@ describe('config command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     await client.patch('/api/agents/agent-uuid/settings', {
       rate_limits: {
         max_calls_per_hour: 100,

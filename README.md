@@ -58,7 +58,7 @@ agent-bridge agents publish code-review-pro
 npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. If you're not logged in yet, the `sb_` token from the ticket is saved automatically — so this single command handles both login and setup. The ticket is one-time use and expires in 15 minutes.
+The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. If you're not logged in yet, the `ah_` token from the ticket is saved automatically — so this single command handles both login and setup. The ticket is one-time use and expires in 15 minutes.
 
 ### Reconnect
 
@@ -377,7 +377,7 @@ To always run with sandbox enabled:
 ## Security
 
 - **No inbound ports** — CLI initiates outbound WebSocket, your agent never listens on the network
-- **Unified `sb_` token authentication** — CLI tokens created on agents.hot, stored as SHA-256 hashes in the database, validated on every Bridge connection. Revoking a token on the platform disconnects the agent immediately.
+- **Unified `ah_` token authentication** — CLI tokens created on agents.hot, stored as SHA-256 hashes in the database, validated on every Bridge connection. Revoking a token on the platform disconnects the agent immediately.
 - **Heartbeat revalidation** — Bridge Worker periodically re-checks token validity. If revoked, the agent is disconnected with close code `4002` (TOKEN_REVOKED).
 - **One-time connect tickets** — `ct_` tickets expire in 15 minutes and can only be used once
 - **Constant-time secret comparison** — PLATFORM_SECRET validated with `timingSafeEqual`

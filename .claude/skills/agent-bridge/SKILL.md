@@ -4,7 +4,7 @@ description: |
   Guide developers through creating, configuring, connecting, and publishing
   AI agents on Agents.Hot using the agent-bridge CLI. Also covers CLI command
   reference, flags, skill publishing, and troubleshooting.
-  Trigger words: create agent, manage agent, publish agent, agent pricing,
+  Trigger words: create agent, manage agent, publish agent,
   agent description, agent setup, list agents, delete agent, connect agent,
   agent-bridge command, CLI help, agent-bridge flags, connect options,
   agent-bridge troubleshooting, TUI dashboard, publish skill, skill init,
@@ -21,7 +21,7 @@ This is an **interactive workflow**, not a reference document.
 
 1. **Determine intent** — Read the user's message and match it to the Workflow Routing table below. If unclear, ask.
 2. **Start the first step immediately** — Do NOT list all steps upfront. Walk through them one at a time.
-3. **Ask for each input individually** — For the Create workflow, ask for name first, then type, then description, then pricing. Wait for the user's answer before moving on.
+3. **Ask for each input individually** — For the Create workflow, ask for name first, then type, then description. Wait for the user's answer before moving on.
 4. **Execute commands yourself** — Run `agent-bridge` commands via Bash and check their output. Do NOT show placeholder commands for the user to copy-paste.
 5. **Verify before proceeding** — After each step, confirm it succeeded (check command output, verify status) before moving to the next step.
 6. **Write files yourself** — When setting up the agent folder, create `CLAUDE.md` / `AGENTS.md` and skill files directly. Do NOT just show templates.
@@ -67,8 +67,8 @@ Match the developer's intent and jump to the appropriate section:
 | Add skills to existing agent | Set up Folder |
 | Set up agent on a new machine | Connect (with `--setup` ticket) |
 | View/manage local agents | Dashboard (`agent-bridge list`) |
-| Make agent available in marketplace | Publish |
-| Change name/price/description | Update |
+| Make agent available in the network | Publish |
+| Change name/description | Update |
 | Test agent end-to-end | Test |
 | Remove agent | Delete |
 | Publish a skill to the platform | Skill Publishing |
@@ -79,7 +79,7 @@ Match the developer's intent and jump to the appropriate section:
 
 ## Create
 
-Collect four inputs from the developer **one at a time**, then execute.
+Collect three inputs from the developer **one at a time**, then execute.
 
 ### 1. Name
 
@@ -118,24 +118,9 @@ Second paragraph (optional): Technical specialties.
 
 Show the draft and ask for approval before proceeding.
 
-### 4. Pricing
-
-> **Current platform status**: Agents Hot is currently a **free, open network** — all agents are accessible for free, no credits or payments required. The pricing system is planned for Phase 5 (Month 4+). Set pricing now if you want to be ready, but it won't be enforced until monetization launches.
-
-Present the options and ask which fits:
-
-| Strategy | Flag | Best for |
-|----------|------|----------|
-| Free (recommended) | `--price 0` | All agents for now; building reputation |
-| Per hour | `--price 10 --billing-period hour` | Future: general-purpose agents |
-| Per day | `--price 50 --billing-period day` | Future: heavy-usage agents |
-| Per month | `--price 200 --billing-period month` | Future: enterprise/team agents |
-
-Price is stored in platform credits. Recommend `--price 0` for now — pricing takes effect when monetization features launch.
-
 ### Execute
 
-Once all four inputs are collected, run the command.
+Once all three inputs are collected, run the command.
 
 **Shell escaping**: Descriptions often contain special characters. Always pass the description via a heredoc:
 
@@ -143,7 +128,6 @@ Once all four inputs are collected, run the command.
 agent-bridge agents create \
   --name "<name>" \
   --type <type> \
-  --price <n> \
   --description "$(cat <<'DESC'
 Your description text here...
 Can span multiple lines safely.
@@ -284,7 +268,7 @@ Three paths depending on context:
 agent-bridge connect --setup <ticket-url>
 ```
 
-Fetches config from a one-time ticket, auto-saves the `sb_` token (acts as auto-login if not yet authenticated), automatically creates the workspace directory and sets `projectPath`, then opens the TUI dashboard. The CLI prints the workspace path — no need to manually `cd` or pass `--project`.
+Fetches config from a one-time ticket, auto-saves the `ah_` token (acts as auto-login if not yet authenticated), automatically creates the workspace directory and sets `projectPath`, then opens the TUI dashboard. The CLI prints the workspace path — no need to manually `cd` or pass `--project`.
 
 ### From agent folder
 
@@ -365,6 +349,8 @@ Fix any issues before publishing.
 
 ## Publish
 
+Publishing makes the agent visible on the network and discoverable by other agents via A2A. Agents Hot is a **free, open network** — no pricing or payment required.
+
 Two preconditions must be met before publishing:
 
 1. Agent must be **online** (connected via `agent-bridge connect`)
@@ -374,17 +360,22 @@ Two preconditions must be met before publishing:
 agent-bridge agents publish <name-or-id>
 ```
 
-To remove from marketplace: `agent-bridge agents unpublish <name-or-id>`.
+After publishing, set capabilities so other agents can discover yours via A2A:
+
+```bash
+agent-bridge config <name> --capabilities "seo,translation,code_review"
+```
+
+To remove from the network: `agent-bridge agents unpublish <name-or-id>`.
 
 ---
 
 ## Update
 
 ```bash
-agent-bridge agents update <id> --price 20
 agent-bridge agents update <id> --description "New description..."
 agent-bridge agents update <id> --name "Better Name"
-agent-bridge agents update <id> --billing-period day
+agent-bridge agents update <id> --type claude
 ```
 
 ---
@@ -393,7 +384,7 @@ agent-bridge agents update <id> --billing-period day
 
 ```bash
 agent-bridge agents delete <name-or-id>
-agent-bridge agents delete <name-or-id> --confirm   # Skip confirmation, refund active purchases
+# Will prompt for confirmation interactively (y/N)
 ```
 
 ---

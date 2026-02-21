@@ -85,9 +85,9 @@ describe('login command', () => {
 
   describe('--token mode (direct)', () => {
     it('should save token directly when --token is provided', async () => {
-      await runLogin(['--token', 'sb_my-test-token']);
+      await runLogin(['--token', 'ah_my-test-token']);
 
-      expect(saveToken).toHaveBeenCalledWith('sb_my-test-token');
+      expect(saveToken).toHaveBeenCalledWith('ah_my-test-token');
       expect(log.success).toHaveBeenCalledWith(expect.stringContaining('Token saved'));
     });
   });
@@ -95,7 +95,7 @@ describe('login command', () => {
   describe('already logged in', () => {
     it('should show info but continue login when already authenticated', async () => {
       vi.mocked(hasToken).mockReturnValue(true);
-      vi.mocked(loadToken).mockReturnValue('sb_existing');
+      vi.mocked(loadToken).mockReturnValue('ah_existing');
 
       // Mock full device auth flow since login now continues
       globalThis.fetch = vi.fn()
@@ -115,7 +115,7 @@ describe('login command', () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              access_token: 'sb_replacement_token',
+              access_token: 'ah_replacement_token',
               token_type: 'Bearer',
               user: { id: 'u1', email: 'test@test.com', name: 'Test' },
             }),
@@ -124,12 +124,12 @@ describe('login command', () => {
       await runLogin([]);
 
       expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Already logged in'));
-      expect(saveToken).toHaveBeenCalledWith('sb_replacement_token');
+      expect(saveToken).toHaveBeenCalledWith('ah_replacement_token');
     });
 
     it('should re-login with --force', async () => {
       vi.mocked(hasToken).mockReturnValue(true);
-      vi.mocked(loadToken).mockReturnValue('sb_existing');
+      vi.mocked(loadToken).mockReturnValue('ah_existing');
 
       globalThis.fetch = vi.fn()
         .mockResolvedValueOnce({
@@ -148,7 +148,7 @@ describe('login command', () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              access_token: 'sb_new_token',
+              access_token: 'ah_new_token',
               token_type: 'Bearer',
               user: { id: 'u1', email: 'test@test.com', name: 'Test' },
             }),
@@ -156,7 +156,7 @@ describe('login command', () => {
 
       await runLogin(['--force']);
 
-      expect(saveToken).toHaveBeenCalledWith('sb_new_token');
+      expect(saveToken).toHaveBeenCalledWith('ah_new_token');
     });
   });
 
@@ -181,7 +181,7 @@ describe('login command', () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              access_token: 'sb_device_token_xyz',
+              access_token: 'ah_device_token_xyz',
               token_type: 'Bearer',
               user: { id: 'user-1', email: 'dev@example.com', name: 'Dev' },
             }),
@@ -200,7 +200,7 @@ describe('login command', () => {
           body: JSON.stringify({ device_code: 'dc_abc123' }),
         }),
       );
-      expect(saveToken).toHaveBeenCalledWith('sb_device_token_xyz');
+      expect(saveToken).toHaveBeenCalledWith('ah_device_token_xyz');
     });
 
     it('should handle authorization_pending and keep polling', async () => {
@@ -231,7 +231,7 @@ describe('login command', () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              access_token: 'sb_after_pending',
+              access_token: 'ah_after_pending',
               token_type: 'Bearer',
               user: { id: 'u2', email: 'user@test.com', name: 'User' },
             }),
@@ -240,7 +240,7 @@ describe('login command', () => {
       await runLogin([]);
 
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
-      expect(saveToken).toHaveBeenCalledWith('sb_after_pending');
+      expect(saveToken).toHaveBeenCalledWith('ah_after_pending');
     });
 
     it('should handle device code request failure', async () => {
@@ -284,7 +284,7 @@ describe('login command', () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              access_token: 'sb_after_slowdown',
+              access_token: 'ah_after_slowdown',
               token_type: 'Bearer',
               user: { id: 'u3', email: 'slow@test.com', name: 'Slow' },
             }),
@@ -293,7 +293,7 @@ describe('login command', () => {
       await runLogin([]);
 
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
-      expect(saveToken).toHaveBeenCalledWith('sb_after_slowdown');
+      expect(saveToken).toHaveBeenCalledWith('ah_after_slowdown');
     });
   });
 
@@ -319,7 +319,7 @@ describe('login command', () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              access_token: 'sb_nontty_token',
+              access_token: 'ah_nontty_token',
               token_type: 'Bearer',
               user: { id: 'u4', email: 'nontty@test.com', name: 'NonTTY' },
             }),
@@ -331,7 +331,7 @@ describe('login command', () => {
         'https://agents.hot/api/auth/device',
         expect.objectContaining({ method: 'POST' }),
       );
-      expect(saveToken).toHaveBeenCalledWith('sb_nontty_token');
+      expect(saveToken).toHaveBeenCalledWith('ah_nontty_token');
       expect(log.success).toHaveBeenCalledWith(
         expect.stringContaining('Logged in as nontty@test.com'),
       );
@@ -340,9 +340,9 @@ describe('login command', () => {
     it('should allow --token in non-TTY mode', async () => {
       vi.mocked(isatty).mockReturnValue(false);
 
-      await runLogin(['--token', 'sb_ci_token']);
+      await runLogin(['--token', 'ah_ci_token']);
 
-      expect(saveToken).toHaveBeenCalledWith('sb_ci_token');
+      expect(saveToken).toHaveBeenCalledWith('ah_ci_token');
     });
   });
 });

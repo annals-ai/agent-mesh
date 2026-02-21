@@ -41,7 +41,7 @@ describe('Bridge Protocol', () => {
       const msg: Register = {
         type: 'register',
         agent_id: 'agent-123',
-        token: 'sb_test_token',
+        token: 'ah_test_token',
         bridge_version: '0.1.0',
         agent_type: 'openclaw',
         capabilities: ['streaming', 'file_upload'],

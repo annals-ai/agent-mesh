@@ -81,7 +81,7 @@ export function registerConnectCommand(program: Command): void {
 
           const ticketData = await response.json() as {
             agent_id: string;
-            token: string;         // sb_ CLI token (unified auth)
+            token: string;         // ah_ CLI token (unified auth)
             bridge_token?: string; // legacy bt_ fallback
             agent_type: string;
             bridge_url: string;
@@ -115,9 +115,9 @@ export function registerConnectCommand(program: Command): void {
             }
           }
 
-          // Save sb_ token as platform auth token (if not already logged in)
+          // Save API key as platform auth token (if not already logged in)
           const bridgeAuthToken = ticketData.token || ticketData.bridge_token || '';
-          if (bridgeAuthToken.startsWith('sb_') && !loadToken()) {
+          if (bridgeAuthToken.startsWith('ah_') && !loadToken()) {
             saveToken(bridgeAuthToken);
           }
 
@@ -230,7 +230,7 @@ export function registerConnectCommand(program: Command): void {
         opts.project = getAgentWorkspaceDir(agentName);
       }
 
-      // Resolve token: env var > platform token (sb_) > legacy bridgeToken (bt_)
+      // Resolve token: env var > platform token (ah_) > legacy bridgeToken (bt_)
       const token = process.env.AGENT_BRIDGE_TOKEN || loadToken() || config.token || found?.entry.bridgeToken;
       if (!token) {
         log.error('Not authenticated. Run `agent-bridge login` or use `agent-bridge connect --setup <url>`.');

@@ -23,10 +23,9 @@ agent-bridge agents list [--json]        # List all agents on the platform
 agent-bridge agents create [options]     # Create a new agent
 agent-bridge agents show <id> [--json]   # View agent details
 agent-bridge agents update <id>          # Update agent fields
-agent-bridge agents publish <id>         # Publish to marketplace
-agent-bridge agents unpublish <id>       # Remove from marketplace
-agent-bridge agents delete <id>          # Delete agent
-  --confirm                              #   Skip confirmation, refund active purchases
+agent-bridge agents publish <id>         # Publish to the network
+agent-bridge agents unpublish <id>       # Remove from the network
+agent-bridge agents delete <id>          # Delete agent (prompts for confirmation)
 ```
 
 ### Create Flags
@@ -35,8 +34,6 @@ agent-bridge agents delete <id>          # Delete agent
 agent-bridge agents create \
   --name <name>                          # Agent name (required)
   --type <type>                          # openclaw | claude (default: openclaw)
-  --price <n>                            # Price per period, 0 = free (default: 0)
-  --billing-period <period>              # hour | day | week | month (default: hour)
   --description <text>                   # Agent description
 ```
 
@@ -45,10 +42,9 @@ Running without flags starts interactive mode.
 ### Update Flags
 
 ```bash
-agent-bridge agents update <id> --price 20
 agent-bridge agents update <id> --description "New description..."
 agent-bridge agents update <id> --name "Better Name"
-agent-bridge agents update <id> --billing-period day
+agent-bridge agents update <id> --type claude
 ```
 
 ## Skills Management
@@ -238,7 +234,7 @@ agent-bridge chat my-agent
 
 Flags: `--no-thinking` (hide reasoning), `--base-url <url>` (custom platform URL).
 
-Access: own agent = always allowed, purchased = during valid period, unpurchased = 403.
+Access: own agent = always allowed, other agents = free (platform is fully open).
 
 Output: text (streamed), thinking (gray), tool calls (yellow), file attachments, errors (red/stderr).
 
@@ -266,17 +262,6 @@ Second paragraph (optional): Technical specialties.
 - `#tag` lines → search and discovery
 - First paragraph under 280 chars for card preview
 
-## Pricing
-
-| Strategy | Flag | Best for |
-|----------|------|----------|
-| Free | `--price 0` | Building reputation, open-source |
-| Per hour | `--price 10 --billing-period hour` | General-purpose |
-| Per day | `--price 50 --billing-period day` | Heavy-usage |
-| Per month | `--price 200 --billing-period month` | Enterprise/team |
-
-Price is in platform credits.
-
 ## Troubleshooting
 
 | Error | Solution |
@@ -287,7 +272,6 @@ Price is in platform credits.
 | `Email required` | Add email at https://agents.hot/settings |
 | `Agent not found` | Check with `agent-bridge agents list` |
 | `GitHub account required` | Link GitHub at https://agents.hot/settings |
-| `You need to purchase time` | Purchase on the agent's page, or use own agent |
 | `Agent is currently offline` | Run `agent-bridge connect` |
 | `connect: ECONNREFUSED` | OpenClaw gateway not running — start it first |
 | `sandbox-runtime not found` | Run `npm install -g @anthropic-ai/sandbox-runtime` |

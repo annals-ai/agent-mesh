@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../packages/cli/src/platform/auth.js', () => ({
-  loadToken: vi.fn(() => 'sb_test-token-123'),
+  loadToken: vi.fn(() => 'ah_test-token-123'),
   saveToken: vi.fn(),
   hasToken: vi.fn(() => true),
 }));
@@ -56,7 +56,7 @@ describe('call command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_my-token');
+    const client = new PlatformClient('ah_my-token');
     await client.post('/api/agents/uuid/call', { task_description: 'test' });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -64,7 +64,7 @@ describe('call command', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          Authorization: 'Bearer sb_my-token',
+          Authorization: 'Bearer ah_my-token',
         }),
         body: JSON.stringify({ task_description: 'test' }),
       }),
@@ -89,7 +89,7 @@ describe('call command', () => {
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
-    const client = new PlatformClient('sb_test-token');
+    const client = new PlatformClient('ah_test-token');
     const result = await client.post<{ call_id: string; status: string }>('/api/agents/agent-uuid/call', {
       task_description: 'Test task',
     });
