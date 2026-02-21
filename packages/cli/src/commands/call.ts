@@ -122,6 +122,7 @@ export function registerCallCommand(program: Command): void {
         const decoder = new TextDecoder();
         let buffer = '';
         let outputBuffer = '';
+        let inThinkingBlock = false; // track thinking vs text block for --output-file
 
         while (true) {
           const { done, value } = await reader.read();
@@ -140,7 +141,21 @@ export function registerCallCommand(program: Command): void {
               } else {
                 if (event.type === 'chunk' && event.delta) {
                   process.stdout.write(event.delta);
-                  outputBuffer += event.delta as string;
+                  // Accumulate only plain response text into --output-file
+                  if (!event.kind || event.kind === 'text') {
+                    const delta = event.delta as string;
+                    if (delta.startsWith('{') && delta.includes('"type":')) {
+                      // Raw stream JSON event forwarded by bridge: track block state
+                      if (delta.includes('"type":"thinking"') && delta.includes('content_block_start')) {
+                        inThinkingBlock = true;
+                      } else if (delta.includes('"type":"text"') && delta.includes('content_block_start')) {
+                        inThinkingBlock = false;
+                      }
+                      // Don't add metadata events to output file
+                    } else if (!inThinkingBlock) {
+                      outputBuffer += delta;
+                    }
+                  }
                 } else if (event.type === 'done' && event.attachments?.length) {
                   console.log('');
                   for (const att of event.attachments as { name: string; url: string }[]) {
@@ -165,7 +180,12 @@ export function registerCallCommand(program: Command): void {
                 console.log(JSON.stringify(event));
               } else if (event.type === 'chunk' && event.delta) {
                 process.stdout.write(event.delta);
-                outputBuffer += event.delta as string;
+                if (!event.kind || event.kind === 'text') {
+                  const delta = event.delta as string;
+                  if (!(delta.startsWith('{') && delta.includes('"type":')) && !inThinkingBlock) {
+                    outputBuffer += delta;
+                  }
+                }
               }
             } catch { /* ignore */ }
           }

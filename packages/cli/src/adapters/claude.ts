@@ -59,6 +59,9 @@ class ClaudeSession implements SessionHandle {
   private activeToolCallId: string | null = null;
   private activeToolName: string | null = null;
 
+  /** Track current content block type to distinguish thinking vs text deltas */
+  private currentBlockType: 'thinking' | 'text' | null = null;
+
   /** Upload credentials provided by the platform for auto-uploading output files */
   private uploadCredentials: UploadCredentials | null = null;
 
@@ -83,6 +86,7 @@ class ClaudeSession implements SessionHandle {
     this.chunksEmitted = false;
     this.activeToolCallId = null;
     this.activeToolName = null;
+    this.currentBlockType = null;
 
     // Store upload credentials for auto-upload after completion
     if (uploadCredentials) {
@@ -322,13 +326,28 @@ class ClaudeSession implements SessionHandle {
     if (event.type === 'stream_event' && event.event) {
       const inner = event.event;
 
-      // Text delta — real-time token streaming
+      // Track current block type (thinking vs text) from content_block_start
+      if (inner.type === 'content_block_start') {
+        const blockType = inner.content_block?.type as string | undefined;
+        if (blockType === 'thinking') {
+          this.currentBlockType = 'thinking';
+        } else if (blockType === 'text') {
+          this.currentBlockType = 'text';
+        }
+        // tool_use handled separately below
+      }
+
+      // Text delta — route to thinking or actual output based on current block
       if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta' && inner.delta.text) {
-        this.emitChunk(inner.delta.text);
+        if (this.currentBlockType === 'thinking') {
+          this.emitToolEvent({ kind: 'thinking', tool_name: '', tool_call_id: '', delta: inner.delta.text });
+        } else {
+          this.emitChunk(inner.delta.text);
+        }
         return;
       }
 
-      // Thinking delta — extended thinking content
+      // Thinking delta — extended thinking API (thinking_delta type)
       if (inner.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta' && inner.delta.thinking) {
         this.emitToolEvent({
           kind: 'thinking',
