@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, readlinkSync, lstatSync }
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const TEST_BASE = join(tmpdir(), 'agent-bridge-client-ws-test');
+const TEST_BASE = join(tmpdir(), 'agent-mesh-client-ws-test');
 const TEST_PROJECT = join(TEST_BASE, 'test-project');
 
 describe('client-workspace', () => {

@@ -23,17 +23,17 @@ export function registerStartCommand(program: Command): void {
         targets = Object.keys(agents);
       } else if (name) {
         if (!agents[name]) {
-          log.error(`Agent "${name}" not found. Run 'agent-bridge list' to see registered agents.`);
+          log.error(`Agent "${name}" not found. Run 'agent-mesh list' to see registered agents.`);
           process.exit(1);
         }
         targets = [name];
       } else {
-        log.error('Specify an agent name or use --all. Run \'agent-bridge list\' to see agents.');
+        log.error('Specify an agent name or use --all. Run \'agent-mesh list\' to see agents.');
         process.exit(1);
       }
 
       if (targets.length === 0) {
-        console.log(`\n  No agents registered. Use ${BOLD}agent-bridge connect --setup <url>${RESET} to add one.\n`);
+        console.log(`\n  No agents registered. Use ${BOLD}agent-mesh connect --setup <url>${RESET} to add one.\n`);
         return;
       }
 

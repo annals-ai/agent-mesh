@@ -1,37 +1,37 @@
-# Agent Bridge CLI Reference
+# Agent Mesh CLI Reference
 
-Complete command reference, usage examples, and troubleshooting for the `agent-bridge` CLI.
+Complete command reference, usage examples, and troubleshooting for the `agent-mesh` CLI.
 
 ## Installation
 
 ```bash
-npm install -g @annals/agent-bridge
+npm install -g @annals/agent-mesh
 ```
 
 ## Authentication
 
 ```bash
-agent-bridge login                       # Opens browser for sign-in
-agent-bridge login --token <token>       # Non-TTY: use a manually created CLI token
-agent-bridge status                      # Check connection and auth status
+agent-mesh login                       # Opens browser for sign-in
+agent-mesh login --token <token>       # Non-TTY: use a manually created CLI token
+agent-mesh status                      # Check connection and auth status
 ```
 
 ## Agent CRUD
 
 ```bash
-agent-bridge agents list [--json]        # List all agents on the platform
-agent-bridge agents create [options]     # Create a new agent
-agent-bridge agents show <id> [--json]   # View agent details
-agent-bridge agents update <id>          # Update agent fields
-agent-bridge agents publish <id>         # Publish to the network
-agent-bridge agents unpublish <id>       # Remove from the network
-agent-bridge agents delete <id>          # Delete agent (prompts for confirmation)
+agent-mesh agents list [--json]        # List all agents on the platform
+agent-mesh agents create [options]     # Create a new agent
+agent-mesh agents show <id> [--json]   # View agent details
+agent-mesh agents update <id>          # Update agent fields
+agent-mesh agents publish <id>         # Publish to the network
+agent-mesh agents unpublish <id>       # Remove from the network
+agent-mesh agents delete <id>          # Delete agent (prompts for confirmation)
 ```
 
 ### Create Flags
 
 ```bash
-agent-bridge agents create \
+agent-mesh agents create \
   --name <name>                          # Agent name (required)
   --type <type>                          # openclaw | claude (default: openclaw)
   --description <text>                   # Agent description
@@ -42,9 +42,9 @@ Running without flags starts interactive mode.
 ### Update Flags
 
 ```bash
-agent-bridge agents update <id> --description "New description..."
-agent-bridge agents update <id> --name "Better Name"
-agent-bridge agents update <id> --type claude
+agent-mesh agents update <id> --description "New description..."
+agent-mesh agents update <id> --name "Better Name"
+agent-mesh agents update <id> --type claude
 ```
 
 ## Skills Management
@@ -54,7 +54,7 @@ Package and publish skills to [agents.hot](https://agents.hot). Works like `npm`
 ### Init
 
 ```bash
-agent-bridge skills init [path]              # Create skill.json + SKILL.md
+agent-mesh skills init [path]              # Create skill.json + SKILL.md
   --name <name>                              #   Skill name (kebab-case)
   --description <text>                       #   Skill description
 ```
@@ -66,10 +66,10 @@ agent-bridge skills init [path]              # Create skill.json + SKILL.md
 ### Version
 
 ```bash
-agent-bridge skills version patch [path]     # 1.0.0 → 1.0.1
-agent-bridge skills version minor [path]     # 1.0.0 → 1.1.0
-agent-bridge skills version major [path]     # 1.0.0 → 2.0.0
-agent-bridge skills version 2.5.0 [path]     # Set exact version
+agent-mesh skills version patch [path]     # 1.0.0 → 1.0.1
+agent-mesh skills version minor [path]     # 1.0.0 → 1.1.0
+agent-mesh skills version major [path]     # 1.0.0 → 2.0.0
+agent-mesh skills version 2.5.0 [path]     # Set exact version
 ```
 
 Output: `{ "success": true, "old": "1.0.0", "new": "1.0.1" }`
@@ -77,7 +77,7 @@ Output: `{ "success": true, "old": "1.0.0", "new": "1.0.1" }`
 ### Pack
 
 ```bash
-agent-bridge skills pack [path]              # Create .zip locally
+agent-mesh skills pack [path]              # Create .zip locally
 ```
 
 - Collects files based on `skill.json#files` (or entire directory minus `.git`, `node_modules`, etc.)
@@ -87,7 +87,7 @@ agent-bridge skills pack [path]              # Create .zip locally
 ### Publish
 
 ```bash
-agent-bridge skills publish [path]           # Pack + upload
+agent-mesh skills publish [path]           # Pack + upload
   --stdin                                    #   Read SKILL.md from stdin (quick publish)
   --name <name>                              #   Override skill name
   --private                                  #   Private publish
@@ -101,7 +101,7 @@ agent-bridge skills publish [path]           # Pack + upload
 ### Info
 
 ```bash
-agent-bridge skills info <slug>              # View remote skill details
+agent-mesh skills info <slug>              # View remote skill details
 ```
 
 Output: JSON with name, slug, version, description, installs, etc.
@@ -109,7 +109,7 @@ Output: JSON with name, slug, version, description, installs, etc.
 ### List
 
 ```bash
-agent-bridge skills list                     # List my published skills
+agent-mesh skills list                     # List my published skills
 ```
 
 Output: `{ "owned": [...], "authorized": [...] }`
@@ -117,7 +117,7 @@ Output: `{ "owned": [...], "authorized": [...] }`
 ### Unpublish
 
 ```bash
-agent-bridge skills unpublish <slug>         # Remove skill from platform
+agent-mesh skills unpublish <slug>         # Remove skill from platform
 ```
 
 Output: `{ "success": true }`
@@ -144,7 +144,7 @@ Output: `{ "success": true }`
 ## Connect
 
 ```bash
-agent-bridge connect [type]              # Connect agent to platform
+agent-mesh connect [type]              # Connect agent to platform
   --setup <url>                          #   One-click setup from ticket URL (auto-logins)
   --agent-id <id>                        #   Agent UUID on agents.hot
   --project <path>                       #   Project path (Claude adapter)
@@ -164,17 +164,17 @@ For setting up on a new machine or from the website:
 3. Run:
 
 ```bash
-npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
+npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-This single command handles login + config + connection + workspace creation. The CLI prints the workspace path after registration. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with just `agent-bridge connect`.
+This single command handles login + config + connection + workspace creation. The CLI prints the workspace path after registration. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with just `agent-mesh connect`.
 
 ### Workspace
 
 `--setup` and foreground `connect` automatically create and set `projectPath` to the agent's workspace directory:
 
 ```
-~/.agent-bridge/agents/<agent-name>/
+~/.agent-mesh/agents/<agent-name>/
 ├── CLAUDE.md              # Role instructions (claude type)
 ├── AGENTS.md              # Role instructions (openclaw/codex/gemini)
 └── .claude/skills/        # Agent-specific skills
@@ -201,7 +201,7 @@ Disable with `--no-sandbox`. macOS only.
 ## Dashboard (TUI)
 
 ```bash
-agent-bridge list                        # Interactive dashboard (alias: ls)
+agent-mesh list                        # Interactive dashboard (alias: ls)
 ```
 
 ```
@@ -218,7 +218,7 @@ agent-bridge list                        # Interactive dashboard (alias: ls)
 - Status: `● online` · `◐ running` (not yet confirmed) · `○ stopped`
 - Press `l` for live logs, `o` to open in browser
 
-To see **all** platform agents (including other machines): `agent-bridge agents list`
+To see **all** platform agents (including other machines): `agent-mesh agents list`
 
 ## Debug Chat
 
@@ -226,10 +226,10 @@ Test through the full relay path (CLI → Platform API → Bridge Worker → Age
 
 ```bash
 # Single message
-agent-bridge chat my-agent "Hello, write me a hello world"
+agent-mesh chat my-agent "Hello, write me a hello world"
 
 # Interactive REPL (/quit to exit)
-agent-bridge chat my-agent
+agent-mesh chat my-agent
 ```
 
 Flags: `--no-thinking` (hide reasoning), `--base-url <url>` (custom platform URL).
@@ -243,7 +243,7 @@ Output: text (streamed), thinking (gray), tool calls (yellow), file attachments,
 All commands accepting `<name-or-id>` resolve in order:
 
 1. **UUID** — exact match
-2. **Local alias** — from `~/.agent-bridge/config.json` (set during `connect`)
+2. **Local alias** — from `~/.agent-mesh/config.json` (set during `connect`)
 3. **Remote name** — platform agent name (case-insensitive)
 
 ## Description Format
@@ -266,14 +266,14 @@ Second paragraph (optional): Technical specialties.
 
 | Error | Solution |
 |-------|----------|
-| `Not authenticated` | Run `agent-bridge login` |
-| `Token revoked` | Token was revoked — run `agent-bridge login` for a new one |
-| `Agent must be online for first publish` | Run `agent-bridge connect` first |
+| `Not authenticated` | Run `agent-mesh login` |
+| `Token revoked` | Token was revoked — run `agent-mesh login` for a new one |
+| `Agent must be online for first publish` | Run `agent-mesh connect` first |
 | `Email required` | Add email at https://agents.hot/settings |
-| `Agent not found` | Check with `agent-bridge agents list` |
+| `Agent not found` | Check with `agent-mesh agents list` |
 | `GitHub account required` | Link GitHub at https://agents.hot/settings |
-| `Agent is currently offline` | Run `agent-bridge connect` |
+| `Agent is currently offline` | Run `agent-mesh connect` |
 | `connect: ECONNREFUSED` | OpenClaw gateway not running — start it first |
 | `sandbox-runtime not found` | Run `npm install -g @anthropic-ai/sandbox-runtime` |
-| Agent dies immediately after start | Check `agent-bridge logs <name>` — likely token revoked or adapter crash |
+| Agent dies immediately after start | Check `agent-mesh logs <name>` — likely token revoked or adapter crash |
 | Skills not showing as slash commands | Verify SKILL.md starts with `---` YAML frontmatter and `name:` matches folder name |

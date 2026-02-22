@@ -27,10 +27,10 @@ Platform user message
 
 ```bash
 # Basic usage
-agent-bridge connect claude --agent-id <your-agent-id>
+agent-mesh connect claude --agent-id <your-agent-id>
 
 # With a specific project directory
-agent-bridge connect claude \
+agent-mesh connect claude \
   --agent-id <your-agent-id> \
   --project /path/to/your/project
 ```

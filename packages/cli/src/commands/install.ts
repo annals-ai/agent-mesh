@@ -6,14 +6,14 @@ import { execSync } from 'node:child_process';
 import { log } from '../utils/logger.js';
 import { RESET, BOLD, GREEN, YELLOW, GRAY } from '../utils/table.js';
 
-const LABEL = 'com.agents-hot.agent-bridge';
+const LABEL = 'com.agents-hot.agent-mesh';
 const PLIST_DIR = join(homedir(), 'Library', 'LaunchAgents');
 const PLIST_PATH = join(PLIST_DIR, `${LABEL}.plist`);
-const LOG_PATH = join(homedir(), '.agent-bridge', 'logs', 'launchd.log');
+const LOG_PATH = join(homedir(), '.agent-mesh', 'logs', 'launchd.log');
 
 function detectPaths(): { node: string; script: string } {
   // process.execPath = node binary
-  // process.argv[1] = agent-bridge entry script
+  // process.argv[1] = agent-mesh entry script
   return {
     node: process.execPath,
     script: process.argv[1],
@@ -120,6 +120,6 @@ export function registerInstallCommand(program: Command): void {
       console.log(`    Node:  ${GRAY}${node}${RESET}`);
       console.log(`    CLI:   ${GRAY}${script}${RESET}`);
       console.log(`\n  All registered agents will auto-start on login.`);
-      console.log(`  Use ${BOLD}agent-bridge uninstall${RESET} to remove.\n`);
+      console.log(`  Use ${BOLD}agent-mesh uninstall${RESET} to remove.\n`);
     });
 }

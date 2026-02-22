@@ -1,6 +1,6 @@
 # Contributing an Adapter
 
-This guide explains how to create a new agent adapter for Agent Bridge.
+This guide explains how to create a new agent adapter for Agent Mesh.
 
 ## Overview
 

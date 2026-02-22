@@ -46,7 +46,7 @@ if (!PROJECT_PATH) {
 // ── Constants ─────────────────────────────────────────
 
 const HOME = homedir();
-const SESSIONS_BASE = join(tmpdir(), 'agent-bridge-sessions');
+const SESSIONS_BASE = join(tmpdir(), 'agent-mesh-sessions');
 const SESSION_ID = `e2e-claude-sandbox-${Date.now()}`;
 const SESSION_DIR = join(SESSIONS_BASE, SESSION_ID);
 

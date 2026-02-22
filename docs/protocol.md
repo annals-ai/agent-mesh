@@ -1,11 +1,11 @@
 # Bridge Protocol v1 Specification
 
-The Bridge Protocol defines how the agent-bridge CLI communicates with the Bridge Worker (Cloudflare Worker). It uses JSON messages over WebSocket for the bidirectional agent connection, and an HTTP Relay API for the platform to send messages and receive SSE responses.
+The Bridge Protocol defines how the agent-mesh CLI communicates with the Bridge Worker (Cloudflare Worker). It uses JSON messages over WebSocket for the bidirectional agent connection, and an HTTP Relay API for the platform to send messages and receive SSE responses.
 
 ## Overview
 
 ```
-  agent-bridge CLI           Bridge Worker             agents.hot Platform
+  agent-mesh CLI           Bridge Worker             agents.hot Platform
   ===============           =============             ==================
 
   --- WebSocket (wss://bridge.agents.hot/ws) ---

@@ -69,7 +69,7 @@ describe('getSandboxPreset', () => {
       '~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud',
       '~/.openclaw', '~/.claude/projects',
       '~/.claude/history.jsonl',
-      '~/.agent-bridge/config.json', '~/.docker', '~/.npmrc', '~/.gitconfig',
+      '~/.agent-mesh/config.json', '~/.docker', '~/.npmrc', '~/.gitconfig',
       '~/.netrc', '~/Library/Keychains',
     ];
     for (const p of criticalPaths) {
@@ -77,13 +77,13 @@ describe('getSandboxPreset', () => {
     }
   });
 
-  it('should NOT block ~/.agent-bridge/agents (agent workspaces)', () => {
+  it('should NOT block ~/.agent-mesh/agents (agent workspaces)', () => {
     const preset = sandboxModule.getSandboxPreset('claude');
     // Agent workspaces are project dirs, not secrets — must be readable
-    expect(preset.denyRead).not.toContain('~/.agent-bridge');
-    expect(preset.denyRead).not.toContain('~/.agent-bridge/agents');
+    expect(preset.denyRead).not.toContain('~/.agent-mesh');
+    expect(preset.denyRead).not.toContain('~/.agent-mesh/agents');
     // But config.json (tokens) must be blocked
-    expect(preset.denyRead).toContain('~/.agent-bridge/config.json');
+    expect(preset.denyRead).toContain('~/.agent-mesh/config.json');
   });
 
   it('should NOT block ~/.claude/skills (needed for functionality)', () => {

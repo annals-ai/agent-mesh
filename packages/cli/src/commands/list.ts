@@ -104,7 +104,7 @@ function getFailReason(name: string): string | null {
     const lines = content.split('\n').slice(-20);
     const text = lines.join('\n');
     if (/token.*revoked|revoked.*token/i.test(text)) {
-      return 'Token revoked — run `agent-bridge login` to get a new token';
+      return 'Token revoked — run `agent-mesh login` to get a new token';
     }
     if (/auth_failed|Not authenticated/i.test(text)) {
       return 'Authentication failed — check your token';
@@ -190,7 +190,7 @@ function renderSingleScreen(rows: AgentRow[], sel: number, msg: string): string 
   ln();
 
   if (rows.length === 0) {
-    ln(`  No agents registered. Use ${BOLD}agent-bridge connect --setup <url>${RESET} to add one.`);
+    ln(`  No agents registered. Use ${BOLD}agent-mesh connect --setup <url>${RESET} to add one.`);
     ln();
     ln(`  ${DIM}q quit${RESET}`);
     return out.join('\n');

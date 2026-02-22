@@ -43,7 +43,7 @@ export function registerCallCommand(program: Command): void {
       try {
         const token = loadToken();
         if (!token) {
-          log.error('Not authenticated. Run `agent-bridge login` first.');
+          log.error('Not authenticated. Run `agent-mesh login` first.');
           process.exit(1);
         }
 

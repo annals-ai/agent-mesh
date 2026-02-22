@@ -185,7 +185,7 @@ export function registerConnectCommand(program: Command): void {
         return undefined;
       })();
       if (!agentType) {
-        log.error('Agent type is required. Use: agent-bridge connect <type> or agent-bridge connect --setup <url>');
+        log.error('Agent type is required. Use: agent-mesh connect <type> or agent-mesh connect --setup <url>');
         process.exit(1);
       }
 
@@ -233,7 +233,7 @@ export function registerConnectCommand(program: Command): void {
       // Resolve token: env var > platform token (ah_) > legacy bridgeToken (bt_)
       const token = process.env.AGENT_BRIDGE_TOKEN || loadToken() || config.token || found?.entry.bridgeToken;
       if (!token) {
-        log.error('Not authenticated. Run `agent-bridge login` or use `agent-bridge connect --setup <url>`.');
+        log.error('Not authenticated. Run `agent-mesh login` or use `agent-mesh connect --setup <url>`.');
         process.exit(1);
       }
 

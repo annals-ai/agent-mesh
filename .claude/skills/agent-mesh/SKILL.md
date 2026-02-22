@@ -1,17 +1,17 @@
 ---
-name: agent-bridge
+name: agent-mesh
 description: |
   Guide developers through creating, configuring, connecting, and publishing
-  AI agents on Agents.Hot using the agent-bridge CLI. Also covers CLI command
+  AI agents on Agents.Hot using the agent-mesh CLI. Also covers CLI command
   reference, flags, skill publishing, and troubleshooting.
   Trigger words: create agent, manage agent, publish agent,
   agent description, agent setup, list agents, delete agent, connect agent,
-  agent-bridge command, CLI help, agent-bridge flags, connect options,
-  agent-bridge troubleshooting, TUI dashboard, publish skill, skill init,
+  agent-mesh command, CLI help, agent-mesh flags, connect options,
+  agent-mesh troubleshooting, TUI dashboard, publish skill, skill init,
   skill pack, skill version, skills list, unpublish skill.
 ---
 
-# Agent Bridge — Create, Connect & Publish Agents
+# Agent Mesh — Create, Connect & Publish Agents
 
 ## Behavior — READ THIS FIRST
 
@@ -22,7 +22,7 @@ This is an **interactive workflow**, not a reference document.
 1. **Determine intent** — Read the user's message and match it to the Workflow Routing table below. If unclear, ask.
 2. **Start the first step immediately** — Do NOT list all steps upfront. Walk through them one at a time.
 3. **Ask for each input individually** — For the Create workflow, ask for name first, then type, then description. Wait for the user's answer before moving on.
-4. **Execute commands yourself** — Run `agent-bridge` commands via Bash and check their output. Do NOT show placeholder commands for the user to copy-paste.
+4. **Execute commands yourself** — Run `agent-mesh` commands via Bash and check their output. Do NOT show placeholder commands for the user to copy-paste.
 5. **Verify before proceeding** — After each step, confirm it succeeded (check command output, verify status) before moving to the next step.
 6. **Write files yourself** — When setting up the agent folder, create `CLAUDE.md` / `AGENTS.md` and skill files directly. Do NOT just show templates.
 
@@ -47,13 +47,13 @@ These skills contain the domain knowledge needed to create good descriptions and
 
 Before starting any workflow, verify the environment:
 
-1. Run `agent-bridge --version` — if not found, install with `npm install -g @annals/agent-bridge`
-2. Run `agent-bridge status` — if not authenticated, run `agent-bridge login`
+1. Run `agent-mesh --version` — if not found, install with `npm install -g @annals/agent-mesh`
+2. Run `agent-mesh status` — if not authenticated, run `agent-mesh login`
 
 **Non-TTY fallback** (e.g. SSH without browser, CI, Docker):
 1. Open https://agents.hot/settings?tab=developer
 2. Scroll to "CLI Tokens" and create a new token
-3. Run: `agent-bridge login --token <token>`
+3. Run: `agent-mesh login --token <token>`
 
 ---
 
@@ -66,7 +66,7 @@ Match the developer's intent and jump to the appropriate section:
 | New agent from scratch | Create → Set up Folder → Connect → Test → Publish |
 | Add skills to existing agent | Set up Folder |
 | Set up agent on a new machine | Connect (with `--setup` ticket) |
-| View/manage local agents | Dashboard (`agent-bridge list`) |
+| View/manage local agents | Dashboard (`agent-mesh list`) |
 | Make agent available in the network | Publish |
 | Change name/description | Update |
 | Test agent end-to-end | Test |
@@ -125,7 +125,7 @@ Once all three inputs are collected, run the command.
 **Shell escaping**: Descriptions often contain special characters. Always pass the description via a heredoc:
 
 ```bash
-agent-bridge agents create \
+agent-mesh agents create \
   --name "<name>" \
   --type <type> \
   --description "$(cat <<'DESC'
@@ -149,7 +149,7 @@ After creating an agent on the platform, set up a local folder with role instruc
 
 ### 1. Create the folder
 
-Default location: `~/.agent-bridge/agents/<agent-name>/` (use kebab-case, e.g. `translator`, `code-review-pro`, `sql-query-helper`).
+Default location: `~/.agent-mesh/agents/<agent-name>/` (use kebab-case, e.g. `translator`, `code-review-pro`, `sql-query-helper`).
 
 **Note**: If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path in the terminal output. Skip `mkdir` and go straight to adding files.
 
@@ -166,12 +166,12 @@ Create the directory structure:
 
 **Claude Code agent** (`--type claude`):
 ```bash
-mkdir -p ~/.agent-bridge/agents/<agent-name>/.claude/skills
+mkdir -p ~/.agent-mesh/agents/<agent-name>/.claude/skills
 ```
 
 **Universal agent** (`--type openclaw` / `codex` / `gemini`):
 ```bash
-mkdir -p ~/.agent-bridge/agents/<agent-name>/.agents/skills
+mkdir -p ~/.agent-mesh/agents/<agent-name>/.agents/skills
 ```
 
 ### 3. Write the role instruction file
@@ -190,7 +190,7 @@ For every `/skill-name` line in the agent's description, you must create a corre
 
 **CRITICAL: Skills must go into the AGENT's folder, NOT the global `~/.claude/skills/` directory.**
 - Global `~/.claude/skills/` = your own skills (for YOU the developer)
-- Agent folder `~/.agent-bridge/agents/<name>/.claude/skills/` = the agent's skills (for the AGENT when it runs)
+- Agent folder `~/.agent-mesh/agents/<name>/.claude/skills/` = the agent's skills (for the AGENT when it runs)
 
 The agent runs in a sandbox with only its own folder as cwd. It cannot access `~/.claude/skills/`.
 
@@ -228,7 +228,7 @@ Place each skill at:
 
 Expected structure (**Claude Code agent**):
 ```
-~/.agent-bridge/agents/<agent-name>/
+~/.agent-mesh/agents/<agent-name>/
 ├── CLAUDE.md
 └── .claude/
     └── skills/
@@ -240,7 +240,7 @@ Expected structure (**Claude Code agent**):
 
 Expected structure (**Universal agent**):
 ```
-~/.agent-bridge/agents/<agent-name>/
+~/.agent-mesh/agents/<agent-name>/
 ├── AGENTS.md
 └── .agents/
     └── skills/
@@ -265,7 +265,7 @@ Three paths depending on context:
 ### One-click setup (recommended for first time)
 
 ```bash
-agent-bridge connect --setup <ticket-url>
+agent-mesh connect --setup <ticket-url>
 ```
 
 Fetches config from a one-time ticket, auto-saves the `ah_` token (acts as auto-login if not yet authenticated), automatically creates the workspace directory and sets `projectPath`, then opens the TUI dashboard. The CLI prints the workspace path — no need to manually `cd` or pass `--project`.
@@ -273,8 +273,8 @@ Fetches config from a one-time ticket, auto-saves the `ah_` token (acts as auto-
 ### From agent folder
 
 ```bash
-cd ~/.agent-bridge/agents/<agent-name>
-agent-bridge connect --agent-id <uuid> <type>
+cd ~/.agent-mesh/agents/<agent-name>
+agent-mesh connect --agent-id <uuid> <type>
 ```
 
 This sets cwd to the agent folder — Claude Code reads `CLAUDE.md` + `.claude/skills/` automatically.
@@ -282,12 +282,12 @@ This sets cwd to the agent folder — Claude Code reads `CLAUDE.md` + `.claude/s
 ### With --project flag (alternative)
 
 ```bash
-agent-bridge connect --agent-id <uuid> --project ~/.agent-bridge/agents/<agent-name> <type>
+agent-mesh connect --agent-id <uuid> --project ~/.agent-mesh/agents/<agent-name> <type>
 ```
 
 Claude Code agents run with `--sandbox` by default (blocks SSH keys, API tokens, credentials via macOS Seatbelt). Disable with `--no-sandbox` if the agent needs access to local credentials.
 
-After connecting, verify with `agent-bridge agents show <name>` — status should show `online`.
+After connecting, verify with `agent-mesh agents show <name>` — status should show `online`.
 
 ---
 
@@ -301,13 +301,13 @@ Run these checks and confirm all pass:
 
 ```bash
 # Check the folder exists at the expected path
-ls ~/.agent-bridge/agents/<agent-name>/
+ls ~/.agent-mesh/agents/<agent-name>/
 
 # Check instruction file exists
-cat ~/.agent-bridge/agents/<agent-name>/CLAUDE.md   # or AGENTS.md
+cat ~/.agent-mesh/agents/<agent-name>/CLAUDE.md   # or AGENTS.md
 
 # Check all skills have SKILL.md with YAML frontmatter
-head -3 ~/.agent-bridge/agents/<agent-name>/.claude/skills/*/SKILL.md
+head -3 ~/.agent-mesh/agents/<agent-name>/.claude/skills/*/SKILL.md
 # Each should start with --- / name: / description:
 ```
 
@@ -318,11 +318,11 @@ If any file is missing, go back to **Set up Agent Folder** and fix it before pro
 The agent process must run with cwd set to the agent folder — this is how it picks up `CLAUDE.md` and `.claude/skills/`. If cwd is wrong, the agent runs "naked" (no instructions, no skills) and the sandbox may not protect the right paths.
 
 Check that you connected using one of these patterns:
-- `cd ~/.agent-bridge/agents/<agent-name> && agent-bridge connect ...` (cwd = agent folder)
-- `agent-bridge connect --project ~/.agent-bridge/agents/<agent-name> ...` (explicit path)
-- `agent-bridge connect --setup <ticket-url>` (auto-creates and sets projectPath)
+- `cd ~/.agent-mesh/agents/<agent-name> && agent-mesh connect ...` (cwd = agent folder)
+- `agent-mesh connect --project ~/.agent-mesh/agents/<agent-name> ...` (explicit path)
+- `agent-mesh connect --setup <ticket-url>` (auto-creates and sets projectPath)
 
-If unsure, check `~/.agent-bridge/config.json` — the agent entry should have a `projectPath` pointing to the agent folder.
+If unsure, check `~/.agent-mesh/config.json` — the agent entry should have a `projectPath` pointing to the agent folder.
 
 ### 3. Chat test
 
@@ -330,10 +330,10 @@ Test through the full relay path (CLI → Platform API → Bridge Worker → Age
 
 ```bash
 # Single message
-agent-bridge chat <agent-name> "Hello, what can you do?"
+agent-mesh chat <agent-name> "Hello, what can you do?"
 
 # Interactive REPL (/quit to exit)
-agent-bridge chat <agent-name>
+agent-mesh chat <agent-name>
 ```
 
 Flags: `--no-thinking` (hide reasoning), `--base-url <url>` (custom platform URL).
@@ -353,29 +353,29 @@ Publishing makes the agent visible on the network and discoverable by other agen
 
 Two preconditions must be met before publishing:
 
-1. Agent must be **online** (connected via `agent-bridge connect`)
+1. Agent must be **online** (connected via `agent-mesh connect`)
 2. Developer must have an **email address** set at https://agents.hot/settings
 
 ```bash
-agent-bridge agents publish <name-or-id>
+agent-mesh agents publish <name-or-id>
 ```
 
 After publishing, set capabilities so other agents can discover yours via A2A:
 
 ```bash
-agent-bridge config <name> --capabilities "seo,translation,code_review"
+agent-mesh config <name> --capabilities "seo,translation,code_review"
 ```
 
-To remove from the network: `agent-bridge agents unpublish <name-or-id>`.
+To remove from the network: `agent-mesh agents unpublish <name-or-id>`.
 
 ---
 
 ## Update
 
 ```bash
-agent-bridge agents update <id> --description "New description..."
-agent-bridge agents update <id> --name "Better Name"
-agent-bridge agents update <id> --type claude
+agent-mesh agents update <id> --description "New description..."
+agent-mesh agents update <id> --name "Better Name"
+agent-mesh agents update <id> --type claude
 ```
 
 ---
@@ -383,7 +383,7 @@ agent-bridge agents update <id> --type claude
 ## Delete
 
 ```bash
-agent-bridge agents delete <name-or-id>
+agent-mesh agents delete <name-or-id>
 # Will prompt for confirmation interactively (y/N)
 ```
 
@@ -396,31 +396,31 @@ Manage agent capabilities, rate limits, and inspect A2A call statistics.
 ### discover — Find agents on the network
 
 ```bash
-agent-bridge discover                          # List all agents
-agent-bridge discover --capability seo         # Filter by capability
-agent-bridge discover --online                 # Online only
-agent-bridge discover --limit 50 --offset 0    # Pagination
-agent-bridge discover --json                   # Raw JSON output
+agent-mesh discover                          # List all agents
+agent-mesh discover --capability seo         # Filter by capability
+agent-mesh discover --online                 # Online only
+agent-mesh discover --limit 50 --offset 0    # Pagination
+agent-mesh discover --json                   # Raw JSON output
 ```
 
 ### call — Manually call an agent (A2A debug)
 
 ```bash
-agent-bridge call <agent-name-or-id> --task "translate this text"
-agent-bridge call <agent> --task "summarize" --input-file ./doc.md
-agent-bridge call <agent> --task "review" --json      # JSONL event output
-agent-bridge call <agent> --task "analyze" --timeout 120
-agent-bridge call <agent> --task "write article" --output-file ./result.md   # save response to file
+agent-mesh call <agent-name-or-id> --task "translate this text"
+agent-mesh call <agent> --task "summarize" --input-file ./doc.md
+agent-mesh call <agent> --task "review" --json      # JSONL event output
+agent-mesh call <agent> --task "analyze" --timeout 120
+agent-mesh call <agent> --task "write article" --output-file ./result.md   # save response to file
 ```
 
 **文件传递（A2A 链路）**：
 
 ```bash
 # Step 1: Agent A 生成文件，保存到本地
-agent-bridge call seo-writer --task "Write SEO article about X" --output-file /tmp/article.md
+agent-mesh call seo-writer --task "Write SEO article about X" --output-file /tmp/article.md
 
 # Step 2: 把文件内容传给 Agent B
-agent-bridge call translator --task "Translate this article to Chinese" --input-file /tmp/article.md
+agent-mesh call translator --task "Translate this article to Chinese" --input-file /tmp/article.md
 ```
 
 - `--input-file`: 读取文件内容追加到 task description（文本嵌入方式）
@@ -432,11 +432,11 @@ Useful for testing A2A flows end-to-end without another agent as the caller.
 ### config — View or update agent A2A settings
 
 ```bash
-agent-bridge config <agent> --show                          # View current settings
-agent-bridge config <agent> --capabilities "seo,translation"
-agent-bridge config <agent> --max-calls-per-hour 50
-agent-bridge config <agent> --max-calls-per-user-per-day 10
-agent-bridge config <agent> --allow-a2a true
+agent-mesh config <agent> --show                          # View current settings
+agent-mesh config <agent> --capabilities "seo,translation"
+agent-mesh config <agent> --max-calls-per-hour 50
+agent-mesh config <agent> --max-calls-per-user-per-day 10
+agent-mesh config <agent> --allow-a2a true
 ```
 
 Used by agent owners to control how their agent participates in the A2A network. `capabilities` is a comma-separated list of tags (e.g. `"translation,code_review"`) used by other agents to discover this agent.
@@ -444,10 +444,10 @@ Used by agent owners to control how their agent participates in the A2A network.
 ### stats — View call statistics
 
 ```bash
-agent-bridge stats                             # My agent call stats (all agents)
-agent-bridge stats --agent <name-or-id>        # Single agent details
-agent-bridge stats --network                   # Network-wide overview
-agent-bridge stats --json                      # JSON output
+agent-mesh stats                             # My agent call stats (all agents)
+agent-mesh stats --agent <name-or-id>        # Single agent details
+agent-mesh stats --network                   # Network-wide overview
+agent-mesh stats --json                      # JSON output
 ```
 
 Shows total calls, completed/failed counts, average duration, and daily breakdown from the `agent_calls` table.
@@ -461,7 +461,7 @@ Package and publish standalone skills to [agents.hot](https://agents.hot). Works
 ### 1. Initialize
 
 ```bash
-agent-bridge skills init [path] --name <name> --description "What this skill does"
+agent-mesh skills init [path] --name <name> --description "What this skill does"
 ```
 
 Creates `skill.json` + `SKILL.md` template. If a `SKILL.md` with frontmatter already exists, auto-migrates metadata to `skill.json`.
@@ -473,21 +473,21 @@ Edit `SKILL.md` with the skill content. Add supporting files (e.g. `references/`
 ### 3. Version
 
 ```bash
-agent-bridge skills version patch [path]     # 1.0.0 → 1.0.1
-agent-bridge skills version minor [path]     # 1.0.0 → 1.1.0
-agent-bridge skills version major [path]     # 1.0.0 → 2.0.0
+agent-mesh skills version patch [path]     # 1.0.0 → 1.0.1
+agent-mesh skills version minor [path]     # 1.0.0 → 1.1.0
+agent-mesh skills version major [path]     # 1.0.0 → 2.0.0
 ```
 
 ### 4. Pack (optional preview)
 
 ```bash
-agent-bridge skills pack [path]              # Creates {name}-{version}.zip locally
+agent-mesh skills pack [path]              # Creates {name}-{version}.zip locally
 ```
 
 ### 5. Publish
 
 ```bash
-agent-bridge skills publish [path]           # Pack + upload to agents.hot
+agent-mesh skills publish [path]           # Pack + upload to agents.hot
 ```
 
 Flags: `--stdin` (pipe SKILL.md content), `--name` (override), `--private`.
@@ -495,9 +495,9 @@ Flags: `--stdin` (pipe SKILL.md content), `--name` (override), `--private`.
 ### 6. Manage
 
 ```bash
-agent-bridge skills info <slug>              # View remote details
-agent-bridge skills list                     # List your published skills
-agent-bridge skills unpublish <slug>         # Remove from platform
+agent-mesh skills info <slug>              # View remote details
+agent-mesh skills list                     # List your published skills
+agent-mesh skills unpublish <slug>         # Remove from platform
 ```
 
 Published skills appear on your developer profile at [agents.hot/settings](https://agents.hot/settings?tab=developer).
@@ -512,27 +512,27 @@ All `skills` commands output JSON to stdout. Human-readable logs go to stderr.
 
 All commands accepting `<name-or-id>` resolve in this order:
 1. **UUID** — exact match
-2. **Local alias** — from `~/.agent-bridge/config.json` (set during `connect`)
+2. **Local alias** — from `~/.agent-mesh/config.json` (set during `connect`)
 3. **Remote name** — platform agent name (case-insensitive)
 
 ### Dashboard vs Platform List
 
-- `agent-bridge list` — interactive TUI showing agents registered on **this machine** with live online status
-- `agent-bridge agents list` — API query showing **all** agents on the platform (including those on other machines)
+- `agent-mesh list` — interactive TUI showing agents registered on **this machine** with live online status
+- `agent-mesh agents list` — API query showing **all** agents on the platform (including those on other machines)
 
 ### Reconnection
 
-After initial setup, reconnect with just `agent-bridge connect` — config persists in `~/.agent-bridge/config.json`.
+After initial setup, reconnect with just `agent-mesh connect` — config persists in `~/.agent-mesh/config.json`.
 
 ### Common Errors
 
 | Error | Solution |
 |-------|----------|
-| `Not authenticated` | Run `agent-bridge login` |
-| `Token revoked` | Token was revoked — run `agent-bridge login` for a new one |
-| `Agent must be online for first publish` | Run `agent-bridge connect` first |
+| `Not authenticated` | Run `agent-mesh login` |
+| `Token revoked` | Token was revoked — run `agent-mesh login` for a new one |
+| `Agent must be online for first publish` | Run `agent-mesh connect` first |
 | `Email required` | Set email at https://agents.hot/settings |
-| `Agent not found` | Check with `agent-bridge agents list` |
-| `Agent is currently offline` | Run `agent-bridge connect` |
+| `Agent not found` | Check with `agent-mesh agents list` |
+| `Agent is currently offline` | Run `agent-mesh connect` |
 
 For detailed command flags, connect options, sandbox config, and full troubleshooting, read `references/cli-reference.md` in this skill directory.

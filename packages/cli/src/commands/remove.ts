@@ -24,7 +24,7 @@ export function registerRemoveCommand(program: Command): void {
     .action(async (name: string, opts: { force?: boolean }) => {
       const entry = getAgent(name);
       if (!entry) {
-        log.error(`Agent "${name}" not found. Run 'agent-bridge list' to see registered agents.`);
+        log.error(`Agent "${name}" not found. Run 'agent-mesh list' to see registered agents.`);
         process.exit(1);
       }
 

@@ -12,7 +12,7 @@ interface AgentListResponse {
  *
  * Resolution order:
  * 1. UUID format → use directly
- * 2. Local config alias (key in ~/.agent-bridge/config.json agents map) → get agentId
+ * 2. Local config alias (key in ~/.agent-mesh/config.json agents map) → get agentId
  * 3. Remote name match (case-insensitive) → fetch from platform API
  */
 export async function resolveAgentId(

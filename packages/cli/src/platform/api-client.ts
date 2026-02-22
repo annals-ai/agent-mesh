@@ -15,10 +15,10 @@ export class PlatformApiError extends Error {
 
 /** User-friendly error messages for known error codes */
 const ERROR_HINTS: Record<string, string> = {
-  unauthorized: 'Not authenticated. Run `agent-bridge login` first.',
+  unauthorized: 'Not authenticated. Run `agent-mesh login` first.',
   forbidden: 'You don\'t own this agent.',
   not_found: 'Agent not found.',
-  agent_offline: 'Agent must be online for first publish. Run `agent-bridge connect` first.',
+  agent_offline: 'Agent must be online for first publish. Run `agent-mesh connect` first.',
   email_required: 'Email required. Visit https://agents.hot/settings to add one.',
   github_required: 'GitHub account required. Visit https://agents.hot/settings to link one.',
   validation_error: 'Invalid input. Check your skill.json or command flags.',

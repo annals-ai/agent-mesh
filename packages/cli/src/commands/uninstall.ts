@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process';
 import { log } from '../utils/logger.js';
 import { RESET, BOLD, GREEN, YELLOW, GRAY } from '../utils/table.js';
 
-const LABEL = 'com.agents-hot.agent-bridge';
+const LABEL = 'com.agents-hot.agent-mesh';
 const PLIST_PATH = join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
 
 export function registerUninstallCommand(program: Command): void {
@@ -45,6 +45,6 @@ export function registerUninstallCommand(program: Command): void {
 
       console.log(`\n  ${GREEN}✓${RESET} LaunchAgent removed`);
       console.log(`    Agents will no longer auto-start on login.`);
-      console.log(`    Use ${BOLD}agent-bridge install${RESET} to re-install.\n`);
+      console.log(`    Use ${BOLD}agent-mesh install${RESET} to re-install.\n`);
     });
 }

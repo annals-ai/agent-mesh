@@ -1,10 +1,10 @@
 # Contributing a Channel Adapter
 
-This guide explains how to create a new IM channel adapter for Agent Bridge.
+This guide explains how to create a new IM channel adapter for Agent Mesh.
 
 ## Overview
 
-A channel adapter connects an instant messaging platform (Telegram, Discord, Slack, etc.) to the Agent Bridge system. It receives messages from users on the IM platform and forwards them to agents via the Bridge Worker Relay API.
+A channel adapter connects an instant messaging platform (Telegram, Discord, Slack, etc.) to the Agent Mesh system. It receives messages from users on the IM platform and forwards them to agents via the Bridge Worker Relay API.
 
 ## Step 1: Implement ChannelAdapter
 

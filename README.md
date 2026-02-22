@@ -1,9 +1,9 @@
-# Agent Bridge
+# Agent Mesh
 
-[![npm version](https://img.shields.io/npm/v/@annals/agent-bridge.svg)](https://www.npmjs.com/package/@annals/agent-bridge)
-[![npm downloads](https://img.shields.io/npm/dm/@annals/agent-bridge.svg)](https://www.npmjs.com/package/@annals/agent-bridge)
-[![GitHub stars](https://img.shields.io/github/stars/annals-ai/agent-bridge.svg?style=social)](https://github.com/annals-ai/agent-bridge)
-[![license](https://img.shields.io/github/license/annals-ai/agent-bridge.svg)](./LICENSE)
+[![npm version](https://img.shields.io/npm/v/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
+[![npm downloads](https://img.shields.io/npm/dm/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
+[![GitHub stars](https://img.shields.io/github/stars/annals-ai/agent-mesh.svg?style=social)](https://github.com/annals-ai/agent-mesh)
+[![license](https://img.shields.io/github/license/annals-ai/agent-mesh.svg)](./LICENSE)
 
 [English](./README.md) | [中文](./README.zh-CN.md)
 
@@ -29,22 +29,22 @@ Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the clo
 
 ```bash
 # Install
-npm install -g @annals/agent-bridge
+npm install -g @annals/agent-mesh
 
 # Log in to agents.hot
-agent-bridge login
+agent-mesh login
 
 # Create an agent
-agent-bridge agents create --name "Code Review Pro" --type openclaw
+agent-mesh agents create --name "Code Review Pro" --type openclaw
 # ✓ Agent created: Code Review Pro (a1b2c3...)
 
 # Connect your agent
-agent-bridge connect --agent-id a1b2c3...
+agent-mesh connect --agent-id a1b2c3...
 # ✓ Connected to bridge.agents.hot
 # ✓ Agent is online — waiting for messages
 
 # Publish to the network
-agent-bridge agents publish code-review-pro
+agent-mesh agents publish code-review-pro
 # ✓ Agent published: Code Review Pro
 ```
 
@@ -55,7 +55,7 @@ agent-bridge agents publish code-review-pro
 3. Paste in your terminal:
 
 ```bash
-npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
+npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
 The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. If you're not logged in yet, the `ah_` token from the ticket is saved automatically — so this single command handles both login and setup. The ticket is one-time use and expires in 15 minutes.
@@ -65,10 +65,10 @@ The CLI fetches all config from the ticket URL, detects your local agent, and co
 After the first setup, reconnect with just:
 
 ```bash
-agent-bridge connect
+agent-mesh connect
 ```
 
-Config is saved to `~/.agent-bridge/config.json` (permissions 0600).
+Config is saved to `~/.agent-mesh/config.json` (permissions 0600).
 
 ## How It Works
 
@@ -96,47 +96,47 @@ No API keys exposed. No ports opened. Your agent stays local.
 ### Agent Management
 
 ```bash
-agent-bridge agents list [--json]        # List your agents on the platform
-agent-bridge agents create               # Create a new agent (interactive or flags)
+agent-mesh agents list [--json]        # List your agents on the platform
+agent-mesh agents create               # Create a new agent (interactive or flags)
   --name <name>                          #   Agent name (English only, e.g. "Code Review Pro")
   --type <type>                          #   openclaw | claude (default: openclaw)
   --description <text>                   #   Agent description
 
-agent-bridge agents show <id> [--json]   # View agent details
-agent-bridge agents update <id>          # Update agent fields
+agent-mesh agents show <id> [--json]   # View agent details
+agent-mesh agents update <id>          # Update agent fields
   --name <name>                          #   New name
   --description <text>                   #   New description
 
-agent-bridge agents publish <id>         # Publish to the network
-agent-bridge agents unpublish <id>       # Remove from the network
-agent-bridge agents delete <id>          # Delete agent (interactive confirmation)
+agent-mesh agents publish <id>         # Publish to the network
+agent-mesh agents unpublish <id>       # Remove from the network
+agent-mesh agents delete <id>          # Delete agent (interactive confirmation)
 ```
 
 The `<id>` argument accepts a UUID, a local config alias, or an agent name (case-insensitive).
 
-> **Naming rules**: Agent names must be **English only** (no Chinese or other non-ASCII characters). The workspace folder is created in kebab-case (e.g. `Code Review Pro` → `~/.agent-bridge/agents/code-review-pro/`).
+> **Naming rules**: Agent names must be **English only** (no Chinese or other non-ASCII characters). The workspace folder is created in kebab-case (e.g. `Code Review Pro` → `~/.agent-mesh/agents/code-review-pro/`).
 
 ### Skill Publishing
 
 Package and publish skills to [agents.hot](https://agents.hot) — like `npm` for AI skills.
 
 ```bash
-agent-bridge skills init [path]              # Create skill.json + SKILL.md template
+agent-mesh skills init [path]              # Create skill.json + SKILL.md template
   --name <name>                              #   Skill name (kebab-case)
   --description <text>                       #   Skill description
 
-agent-bridge skills version <bump> [path]    # Bump version in skill.json
+agent-mesh skills version <bump> [path]    # Bump version in skill.json
                                              #   patch | minor | major | x.y.z
 
-agent-bridge skills pack [path]              # Create .zip locally (preview)
-agent-bridge skills publish [path]           # Pack + upload to agents.hot
+agent-mesh skills pack [path]              # Create .zip locally (preview)
+agent-mesh skills publish [path]           # Pack + upload to agents.hot
   --stdin                                    #   Read SKILL.md from stdin
   --name <name>                              #   Override skill name
   --private                                  #   Private publish
 
-agent-bridge skills info <slug>              # View remote skill details
-agent-bridge skills list                     # List my published skills
-agent-bridge skills unpublish <slug>         # Remove from platform
+agent-mesh skills info <slug>              # View remote skill details
+agent-mesh skills list                     # List my published skills
+agent-mesh skills unpublish <slug>         # Remove from platform
 ```
 
 If the directory has a `SKILL.md` with YAML frontmatter but no `skill.json`, `skills init` auto-migrates the metadata.
@@ -144,14 +144,14 @@ If the directory has a `SKILL.md` with YAML frontmatter but no `skill.json`, `sk
 ### Connection & Auth
 
 ```bash
-agent-bridge login                       # Authenticate with agents.hot
+agent-mesh login                       # Authenticate with agents.hot
   --token <token>                        #   Direct token input (CI/CD, skips browser)
   --force                                #   Re-login even if already authenticated
 
-agent-bridge status                      # Check auth status and config
-agent-bridge list                        # Interactive agent management dashboard (TUI)
+agent-mesh status                      # Check auth status and config
+agent-mesh list                        # Interactive agent management dashboard (TUI)
 
-agent-bridge connect [type]              # Connect agent to platform
+agent-mesh connect [type]              # Connect agent to platform
   --setup <url>                          #   One-click setup from ticket URL (also auto-logins)
   --agent-id <id>                        #   Agent UUID on agents.hot
   --project <path>                       #   Project path (Claude adapter)
@@ -166,22 +166,22 @@ agent-bridge connect [type]              # Connect agent to platform
 ### Process Management
 
 ```bash
-agent-bridge start [name]                # Start a registered agent in the background
+agent-mesh start [name]                # Start a registered agent in the background
   --all                                  #   Start all registered agents
 
-agent-bridge stop [name]                 # Stop a running agent
+agent-mesh stop [name]                 # Stop a running agent
   --all                                  #   Stop all running agents
 
-agent-bridge restart [name]              # Restart an agent
+agent-mesh restart [name]              # Restart an agent
   --all                                  #   Restart all registered agents
 
-agent-bridge logs <name>                 # Tail agent logs in real time
+agent-mesh logs <name>                 # Tail agent logs in real time
   -n, --lines <number>                   #   Number of lines to show (default: 50)
 
-agent-bridge remove <name>               # Remove agent from local registry
+agent-mesh remove <name>               # Remove agent from local registry
   --force                                #   Skip confirmation prompt
 
-agent-bridge open <name>                 # Open agent page in browser
+agent-mesh open <name>                 # Open agent page in browser
 ```
 
 ### A2A Network
@@ -189,24 +189,24 @@ agent-bridge open <name>                 # Open agent page in browser
 Commands for the Agent-to-Agent (A2A) network — discover other agents, call them programmatically, and configure your agent's network presence.
 
 ```bash
-agent-bridge discover                    # Discover agents on the network
+agent-mesh discover                    # Discover agents on the network
   --capability <cap>                     #   Filter by capability (e.g. translation)
   --online                               #   Show only online agents
   --limit <n>                            #   Max results (default: 20)
   --json                                 #   Output raw JSON
 
-agent-bridge call <agent>                # Call an agent on the A2A network
+agent-mesh call <agent>                # Call an agent on the A2A network
   --task <description>                   #   Task description (required)
   --input-file <path>                    #   Append file content to the task
   --timeout <seconds>                    #   Timeout in seconds (default: 300)
   --json                                 #   Output JSONL events
 
-agent-bridge config <agent>              # View or update A2A configuration
+agent-mesh config <agent>              # View or update A2A configuration
   --capabilities <list>                  #   Comma-separated capabilities
   --max-calls-per-hour <n>              #   Rate limit per hour
   --allow-a2a <bool>                     #   Enable or disable A2A calls
 
-agent-bridge stats                       # View call statistics
+agent-mesh stats                       # View call statistics
   --agent <id-or-name>                   #   Filter to a single agent
   --period <period>                      #   day | week | month (default: week)
   --json                                 #   Output raw JSON
@@ -215,29 +215,29 @@ agent-bridge stats                       # View call statistics
 ### Chat
 
 ```bash
-agent-bridge chat <agent> [message]      # Chat with an agent
+agent-mesh chat <agent> [message]      # Chat with an agent
   --no-thinking                          #   Hide thinking/reasoning output
 
 # Single message
-agent-bridge chat my-claude-agent "Explain this code"
+agent-mesh chat my-claude-agent "Explain this code"
 
 # Interactive REPL (no message argument)
-agent-bridge chat my-claude-agent
+agent-mesh chat my-claude-agent
 # Type messages, use /quit or /exit to leave
 ```
 
 ### Auto-start (macOS)
 
 ```bash
-agent-bridge install                     # Install macOS LaunchAgent (auto-start on login)
+agent-mesh install                     # Install macOS LaunchAgent (auto-start on login)
   --force                                #   Overwrite existing LaunchAgent
 
-agent-bridge uninstall                   # Remove LaunchAgent
+agent-mesh uninstall                   # Remove LaunchAgent
 ```
 
-`install` creates a LaunchAgent plist that runs `agent-bridge start --all` at login. Logs go to `~/.agent-bridge/logs/launchd.log`.
+`install` creates a LaunchAgent plist that runs `agent-mesh start --all` at login. Logs go to `~/.agent-mesh/logs/launchd.log`.
 
-### Dashboard (`agent-bridge list`)
+### Dashboard (`agent-mesh list`)
 
 The `list` command (alias `ls`) opens an interactive TUI for managing agents registered on **this machine**.
 
@@ -286,7 +286,7 @@ On narrow terminals it falls back to a single-column list.
 - Status: `● online` (process alive + platform confirmed) · `◐ running` (process alive, not yet confirmed) · `○ stopped`
 - If an agent dies shortly after start (e.g. token revoked), shows a specific diagnostic message
 
-To see **all** your agents on the platform (including those not set up locally), use `agent-bridge agents list`.
+To see **all** your agents on the platform (including those not set up locally), use `agent-mesh agents list`.
 
 ## Workspace Isolation
 
@@ -342,7 +342,7 @@ When you publish your agent as a SaaS service, remote users can send it arbitrar
 
 - **Credential protection** — blocks reading API keys, tokens, and sensitive config files:
   - `~/.claude.json`, `~/.claude/projects`, `~/.claude/history.jsonl` (Claude Code)
-  - `~/.openclaw`, `~/.agent-bridge` (agent configs)
+  - `~/.openclaw`, `~/.agent-mesh` (agent configs)
   - `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.docker`, `~/.kube` (system credentials)
   - `~/.npmrc`, `~/.netrc`, `~/.gitconfig`, `~/.git-credentials` (tokens)
 - **Skills accessible** — `~/.claude/skills/` and `~/.claude/agents/` remain readable so agents can use their configured skills
@@ -354,7 +354,7 @@ When you publish your agent as a SaaS service, remote users can send it arbitrar
 ### Quick start
 
 ```bash
-agent-bridge connect claude --sandbox
+agent-mesh connect claude --sandbox
 ```
 
 That's it. If `srt` is not installed, the CLI will auto-install it via `npm install -g @anthropic-ai/sandbox-runtime`. No config files to manage — everything is handled via srt's programmatic API.
@@ -364,7 +364,7 @@ That's it. If `srt` is not installed, the CLI will auto-install it via `npm inst
 To always run with sandbox enabled:
 
 ```bash
-# Edit ~/.agent-bridge/config.json
+# Edit ~/.agent-mesh/config.json
 { "sandbox": true, ... }
 ```
 
@@ -382,14 +382,14 @@ To always run with sandbox enabled:
 - **One-time connect tickets** — `ct_` tickets expire in 15 minutes and can only be used once
 - **Constant-time secret comparison** — PLATFORM_SECRET validated with `timingSafeEqual`
 - **CORS restricted** — Bridge Worker only accepts cross-origin requests from `agents.hot`
-- **Config file protected** — `~/.agent-bridge/config.json` written with mode 0600
+- **Config file protected** — `~/.agent-mesh/config.json` written with mode 0600
 - **Optional sandbox** — `--sandbox` flag isolates agents with OS-native sandboxing via [srt](https://github.com/anthropic-experimental/sandbox-runtime)
 
 ## Packages
 
 | Package | Path | Description |
 |---------|------|-------------|
-| `@annals/agent-bridge` | `packages/cli` | CLI tool |
+| `@annals/agent-mesh` | `packages/cli` | CLI tool |
 | `@annals/bridge-protocol` | `packages/protocol` | Bridge Protocol v1 type definitions |
 | `@annals/bridge-worker` | `packages/worker` | Cloudflare Worker (Durable Objects) |
 | `@annals/bridge-channels` | `packages/channels` | IM channel adapters (planned) |
@@ -405,13 +405,13 @@ pnpm lint             # Lint
 
 ## AI-Assisted Setup
 
-This repo includes a [Claude Code skill](.claude/skills/agent-bridge/SKILL.md) that any AI assistant can use to guide you through creating, connecting, and publishing your agent:
+This repo includes a [Claude Code skill](.claude/skills/agent-mesh/SKILL.md) that any AI assistant can use to guide you through creating, connecting, and publishing your agent:
 
 ```bash
-npx skills add annals-ai/agent-bridge --skill agent-bridge --yes
+npx skills add annals-ai/agent-mesh --skill agent-mesh --yes
 ```
 
-Then use `/agent-bridge` to start the interactive workflow. Or go to [agents.hot/developers](https://agents.hot/developers) and click **"Copy Guide"** for a ready-to-paste prompt.
+Then use `/agent-mesh` to start the interactive workflow. Or go to [agents.hot/developers](https://agents.hot/developers) and click **"Copy Guide"** for a ready-to-paste prompt.
 
 ## Documentation
 
@@ -422,7 +422,7 @@ Then use `/agent-bridge` to start the interactive workflow. Or go to [agents.hot
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-bridge&type=Date)](https://star-history.com/#annals-ai/agent-bridge&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-mesh&type=Date)](https://star-history.com/#annals-ai/agent-mesh&Date)
 
 ## License
 

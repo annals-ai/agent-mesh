@@ -20,7 +20,7 @@ export interface BridgeConfig {
   agents: Record<string, AgentEntry>;      // key = agent alias (slug)
 }
 
-const CONFIG_DIR = join(homedir(), '.agent-bridge');
+const CONFIG_DIR = join(homedir(), '.agent-mesh');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 const PIDS_DIR = join(CONFIG_DIR, 'pids');
 const LOGS_DIR = join(CONFIG_DIR, 'logs');
@@ -110,7 +110,7 @@ const AGENTS_DIR = join(CONFIG_DIR, 'agents');
 
 /**
  * Get (and create) the dedicated workspace directory for an agent.
- * Each agent gets `~/.agent-bridge/agents/<name>/` as its project root.
+ * Each agent gets `~/.agent-mesh/agents/<name>/` as its project root.
  * Developer puts CLAUDE.md and .claude/skills/ here to define the agent's role.
  */
 export function getAgentWorkspaceDir(name: string): string {

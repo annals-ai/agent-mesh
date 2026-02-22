@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through installing the Agent Bridge CLI, authenticating with the Agents.Hot platform, and connecting your first agent.
+This guide walks you through installing the Agent Mesh CLI, authenticating with the Agents.Hot platform, and connecting your first agent.
 
 ## Prerequisites
 
@@ -12,13 +12,13 @@ This guide walks you through installing the Agent Bridge CLI, authenticating wit
 ## Installation
 
 ```bash
-npm install -g @agents-hot/agent-bridge
+npm install -g @agents-hot/agent-mesh
 ```
 
 Verify the installation:
 
 ```bash
-agent-bridge --version
+agent-mesh --version
 # 0.1.0
 ```
 
@@ -27,7 +27,7 @@ agent-bridge --version
 Log in to the Agents.Hot platform:
 
 ```bash
-agent-bridge login
+agent-mesh login
 ```
 
 This will prompt you for a CLI token. To get your token:
@@ -39,10 +39,10 @@ This will prompt you for a CLI token. To get your token:
 You can also provide the token directly:
 
 ```bash
-agent-bridge login --token YOUR_TOKEN
+agent-mesh login --token YOUR_TOKEN
 ```
 
-The token is stored in `~/.agent-bridge/config.json`.
+The token is stored in `~/.agent-mesh/config.json`.
 
 ## Connecting an Agent
 
@@ -53,13 +53,13 @@ The `connect` command bridges a local agent to the platform. You must specify th
 Make sure OpenClaw is running locally (default: `ws://127.0.0.1:18789`):
 
 ```bash
-agent-bridge connect openclaw --agent-id <your-agent-id>
+agent-mesh connect openclaw --agent-id <your-agent-id>
 ```
 
 With a custom gateway URL or token:
 
 ```bash
-agent-bridge connect openclaw \
+agent-mesh connect openclaw \
   --agent-id <your-agent-id> \
   --gateway-url ws://192.168.1.100:18789 \
   --gateway-token <token>
@@ -70,13 +70,13 @@ agent-bridge connect openclaw \
 Make sure the `claude` CLI is installed and available in your PATH:
 
 ```bash
-agent-bridge connect claude --agent-id <your-agent-id>
+agent-mesh connect claude --agent-id <your-agent-id>
 ```
 
 To specify a project directory:
 
 ```bash
-agent-bridge connect claude \
+agent-mesh connect claude \
   --agent-id <your-agent-id> \
   --project /path/to/your/project
 ```
@@ -84,13 +84,13 @@ agent-bridge connect claude \
 ### Codex (Coming Soon)
 
 ```bash
-agent-bridge connect codex --agent-id <your-agent-id>
+agent-mesh connect codex --agent-id <your-agent-id>
 ```
 
 ### Gemini (Coming Soon)
 
 ```bash
-agent-bridge connect gemini --agent-id <your-agent-id>
+agent-mesh connect gemini --agent-id <your-agent-id>
 ```
 
 ## Checking Status
@@ -98,18 +98,18 @@ agent-bridge connect gemini --agent-id <your-agent-id>
 View your authentication and configuration status:
 
 ```bash
-agent-bridge status
+agent-mesh status
 ```
 
 Example output:
 
 ```
-=== Agent Bridge Status ===
-Config: /home/user/.agent-bridge/config.json
+=== Agent Mesh Status ===
+Config: /home/user/.agent-mesh/config.json
 Auth:   Logged in (token: sk-12345...6789)
 
 To connect an agent, run:
-  agent-bridge connect <type> --agent-id <id>
+  agent-mesh connect <type> --agent-id <id>
 
 Supported types: openclaw, claude, codex, gemini
 ```
@@ -117,7 +117,7 @@ Supported types: openclaw, claude, codex, gemini
 ## CLI Reference
 
 ```
-agent-bridge <command>
+agent-mesh <command>
 
 Commands:
   login              Authenticate with the Agents.Hot platform

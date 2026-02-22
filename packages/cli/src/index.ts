@@ -24,7 +24,7 @@ const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
 
 program
-  .name('agent-bridge')
+  .name('agent-mesh')
   .description('Connect local AI agents to the Agents.Hot platform')
   .version(version)
   .option('-v', 'output the version number')

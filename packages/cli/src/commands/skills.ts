@@ -488,7 +488,7 @@ export function registerSkillsCommand(program: Command): void {
 
         if (opts.human) {
           if (data.owned.length === 0 && data.authorized.length === 0) {
-            slog.info('No skills found. Create one with: agent-bridge skills init');
+            slog.info('No skills found. Create one with: agent-mesh skills init');
             return;
           }
 
@@ -567,7 +567,7 @@ export function registerSkillsCommand(program: Command): void {
         const skillJsonPath = join(dir, 'skill.json');
 
         if (!(await pathExists(skillJsonPath))) {
-          outputError('not_found', 'No skill.json found. Run `agent-bridge skills init` first.');
+          outputError('not_found', 'No skill.json found. Run `agent-mesh skills init` first.');
         }
 
         const raw = await readFile(skillJsonPath, 'utf-8');

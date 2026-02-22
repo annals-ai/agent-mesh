@@ -18,7 +18,7 @@ const SENSITIVE_PATHS = [
   '~/.claude.json',
   '~/.claude/projects', '~/.claude/history.jsonl', '~/.claude/settings.json',
   '~/.claude/sessions', '~/.claude/ide',
-  '~/.openclaw', '~/.agent-bridge', '~/.codex',
+  '~/.openclaw', '~/.agent-mesh', '~/.codex',
   '~/.npmrc', '~/.yarnrc', '~/.config/pip',
   '~/.gitconfig', '~/.netrc', '~/.git-credentials',
   '~/.docker',
@@ -72,7 +72,7 @@ if (await check('~/.config/gcloud/', `ls ${HOME}/.config/gcloud/ 2>&1 || echo BL
 console.log('\n--- API Key & Config Files ---');
 if (await check('~/.openclaw/openclaw.json', `cat ${HOME}/.openclaw/openclaw.json 2>&1 || echo BLOCKED`)) leaks++;
 if (await check('~/.claude.json (API key)', `cat ${HOME}/.claude.json 2>&1 || echo BLOCKED`)) leaks++;
-if (await check('~/.agent-bridge/config.json', `cat ${HOME}/.agent-bridge/config.json 2>&1 || echo BLOCKED`)) leaks++;
+if (await check('~/.agent-mesh/config.json', `cat ${HOME}/.agent-mesh/config.json 2>&1 || echo BLOCKED`)) leaks++;
 
 // Claude Code sensitive sub-paths (fine-grained — directory is accessible but these are blocked)
 console.log('\n--- Claude Code Sensitive Data ---');

@@ -23,7 +23,7 @@ Platform user message
 ## Planned Usage
 
 ```bash
-agent-bridge connect codex --agent-id <your-agent-id>
+agent-mesh connect codex --agent-id <your-agent-id>
 ```
 
 ## Implementation Notes

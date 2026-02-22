@@ -1,4 +1,4 @@
-# Agent Bridge — Development Guide
+# Agent Mesh — Development Guide
 
 Agents.Hot 平台的统一 Agent 连接层。让 OpenClaw / Claude Code / Codex / Gemini 通过 Bridge Protocol 接入 SaaS 平台。
 
@@ -7,10 +7,10 @@ Agents.Hot 平台的统一 Agent 连接层。让 OpenClaw / Claude Code / Codex 
 pnpm monorepo，4 个包：
 
 ```
-agent-bridge/
+agent-mesh/
 ├── packages/
 │   ├── protocol/       # @agents-hot/bridge-protocol — 消息类型与错误码
-│   ├── cli/            # @agents-hot/agent-bridge — CLI 工具
+│   ├── cli/            # @agents-hot/agent-mesh — CLI 工具
 │   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
 │   └── channels/       # @agents-hot/bridge-channels — IM 渠道 (stub)
 ├── tests/              # vitest 测试
@@ -118,7 +118,7 @@ abstract destroySession(id: string): Promise<void>
 ```
 网站创建 Agent → 点击"接入" → 生成 ct_ ticket（15 分钟过期）
      ↓
-用户复制命令: npx @annals/agent-bridge connect --setup <ticket-url>
+用户复制命令: npx @annals/agent-mesh connect --setup <ticket-url>
      ↓
 CLI fetch ticket → 获取 { agent_id, token (ah_), agent_type, bridge_url }
      ↓
@@ -129,15 +129,15 @@ CLI fetch ticket → 获取 { agent_id, token (ah_), agent_type, bridge_url }
 注册 Agent 到本地 config → 后台 spawn 连接 → 打开 TUI 管理面板
 ```
 
-之后重连只需 `agent-bridge connect`（从本地 config 读取），或用 `agent-bridge list` 管理。
+之后重连只需 `agent-mesh connect`（从本地 config 读取），或用 `agent-mesh list` 管理。
 
 ## CLI 命令
 
 ```bash
-agent-bridge login                           # 登录平台（Device Auth Flow）
-agent-bridge list                            # 交互式 TUI 管理面板（本机 Agent）
+agent-mesh login                           # 登录平台（Device Auth Flow）
+agent-mesh list                            # 交互式 TUI 管理面板（本机 Agent）
 
-agent-bridge connect [type]                  # 连接 Agent
+agent-mesh connect [type]                  # 连接 Agent
   --setup <url>          # 一键接入 ticket URL
   --agent-id <id>        # Agent UUID
   --project <path>       # Claude 适配器项目路径
@@ -145,37 +145,37 @@ agent-bridge connect [type]                  # 连接 Agent
   --gateway-token <token># OpenClaw Gateway token
   --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
 
-agent-bridge chat <agent> [message]          # 通过平台对话调试 Agent
+agent-mesh chat <agent> [message]          # 通过平台对话调试 Agent
   --no-thinking          # 隐藏思考过程
   --base-url <url>       # 平台地址 (默认 https://agents.hot)
 
-agent-bridge agents list [--json]            # 列出我的 Agent
-agent-bridge agents create [options]         # 创建 Agent
-agent-bridge agents show <id> [--json]       # 查看 Agent 详情
-agent-bridge agents update <id> [options]    # 更新 Agent
-agent-bridge agents publish <id>             # 发布到市场
-agent-bridge agents unpublish <id>           # 从市场下架
-agent-bridge agents delete <id> [--confirm]  # 删除 Agent
+agent-mesh agents list [--json]            # 列出我的 Agent
+agent-mesh agents create [options]         # 创建 Agent
+agent-mesh agents show <id> [--json]       # 查看 Agent 详情
+agent-mesh agents update <id> [options]    # 更新 Agent
+agent-mesh agents publish <id>             # 发布到市场
+agent-mesh agents unpublish <id>           # 从市场下架
+agent-mesh agents delete <id> [--confirm]  # 删除 Agent
 
-agent-bridge skills init [path]              # 初始化 skill.json + SKILL.md
+agent-mesh skills init [path]              # 初始化 skill.json + SKILL.md
   --name <name>          # Skill 名称
   --description <text>   # Skill 描述
-agent-bridge skills pack [path]              # 打包为 .zip（本地预览）
-agent-bridge skills publish [path]           # 打包 + 上传到 agents.hot
+agent-mesh skills pack [path]              # 打包为 .zip（本地预览）
+agent-mesh skills publish [path]           # 打包 + 上传到 agents.hot
   --stdin                # 从 stdin 读取 SKILL.md
   --name <name>          # 覆盖 skill.json 名称
   --private              # 私有发布
-agent-bridge skills info <slug>              # 查看远程 skill 详情
-agent-bridge skills list                     # 列出我发布的 skills
-agent-bridge skills unpublish <slug>         # 取消发布 skill
-agent-bridge skills version <bump> [path]    # 版本管理 (patch|minor|major|x.y.z)
+agent-mesh skills info <slug>              # 查看远程 skill 详情
+agent-mesh skills list                     # 列出我发布的 skills
+agent-mesh skills unpublish <slug>         # 取消发布 skill
+agent-mesh skills version <bump> [path]    # 版本管理 (patch|minor|major|x.y.z)
 
-agent-bridge status                          # 查看连接状态
+agent-mesh status                          # 查看连接状态
 ```
 
 `type` 可选。省略时从保存的 config 读取 `defaultAgentType`。
 
-**命名规范**：Agent 名称必须为英文（不支持中文或其他非 ASCII 字符）。Workspace 文件夹使用 kebab-case（例如 `Code Review Pro` → `~/.agent-bridge/agents/code-review-pro/`）。
+**命名规范**：Agent 名称必须为英文（不支持中文或其他非 ASCII 字符）。Workspace 文件夹使用 kebab-case（例如 `Code Review Pro` → `~/.agent-mesh/agents/code-review-pro/`）。
 
 ### chat 命令
 

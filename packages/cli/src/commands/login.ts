@@ -104,7 +104,7 @@ async function pollForToken(
     throw new Error(data.error_description || data.error);
   }
 
-  throw new Error('Device code expired. Run `agent-bridge login` again.');
+  throw new Error('Device code expired. Run `agent-mesh login` again.');
 }
 
 export function registerLoginCommand(program: Command): void {
@@ -134,7 +134,7 @@ export function registerLoginCommand(program: Command): void {
 
       // --- Device Auth Flow ---
       const interactive = isTTY();
-      log.banner('Agent Bridge Login');
+      log.banner('Agent Mesh Login');
 
       // 1. Request device code
       let deviceData: DeviceCodeResponse;
@@ -159,7 +159,7 @@ export function registerLoginCommand(program: Command): void {
       } catch (err) {
         log.error(`Failed to request device code: ${(err as Error).message}`);
         console.log('\nFallback: visit https://agents.hot/settings?tab=developer');
-        console.log('Create a CLI token and run: agent-bridge login --token <token>');
+        console.log('Create a CLI token and run: agent-mesh login --token <token>');
         process.exit(1);
       }
 

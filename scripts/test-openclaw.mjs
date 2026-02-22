@@ -40,7 +40,7 @@ ws.on('open', () => {
       maxProtocol: 3,
       client: {
         id: 'gateway-client',
-        displayName: 'Agent Bridge E2E Test',
+        displayName: 'Agent Mesh E2E Test',
         version: '1.0.0',
         platform: 'web',
         mode: 'backend',

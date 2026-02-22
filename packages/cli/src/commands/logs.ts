@@ -14,7 +14,7 @@ export function registerLogsCommand(program: Command): void {
     .action((name: string, opts: { lines: string }) => {
       const entry = getAgent(name);
       if (!entry) {
-        log.error(`Agent "${name}" not found. Run 'agent-bridge list' to see registered agents.`);
+        log.error(`Agent "${name}" not found. Run 'agent-mesh list' to see registered agents.`);
         process.exit(1);
       }
 

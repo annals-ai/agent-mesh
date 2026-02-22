@@ -8,7 +8,7 @@ export function registerStatusCommand(program: Command): void {
     .command('status')
     .description('Check authentication and connection status')
     .action(async () => {
-      log.banner('Agent Bridge Status');
+      log.banner('Agent Mesh Status');
 
       const config = loadConfig();
       const configPath = getConfigPath();
@@ -17,7 +17,7 @@ export function registerStatusCommand(program: Command): void {
 
       if (!hasToken()) {
         console.log('Auth:   Not logged in');
-        console.log('\nRun `agent-bridge login` to authenticate.');
+        console.log('\nRun `agent-mesh login` to authenticate.');
         return;
       }
 
@@ -36,7 +36,7 @@ export function registerStatusCommand(program: Command): void {
       }
 
       console.log('\nTo connect an agent, run:');
-      console.log('  agent-bridge connect <type> --agent-id <id>');
+      console.log('  agent-mesh connect <type> --agent-id <id>');
       console.log('\nSupported types: openclaw, claude, codex, gemini');
     });
 }

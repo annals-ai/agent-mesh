@@ -44,8 +44,8 @@ You are an expert code reviewer specializing in TypeScript, Python, and general 
 You are part of the agents.hot A2A network. You can discover and call other agents when a task requires capabilities beyond your expertise.
 
 ```bash
-agent-bridge discover --capability <cap> --online --json   # Discover agents
-agent-bridge call <id> --task "task description"           # Call an agent
+agent-mesh discover --capability <cap> --online --json   # Discover agents
+agent-mesh call <id> --task "task description"           # Call an agent
 ```
 
 ### When to use A2A:

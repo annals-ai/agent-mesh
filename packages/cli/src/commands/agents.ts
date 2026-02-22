@@ -87,7 +87,7 @@ export function registerAgentsCommand(program: Command): void {
         }
 
         if (data.agents.length === 0) {
-          log.info('No agents found. Create one with: agent-bridge agents create');
+          log.info('No agents found. Create one with: agent-mesh agents create');
           return;
         }
 
@@ -157,7 +157,7 @@ export function registerAgentsCommand(program: Command): void {
         log.success(`Agent created: ${BOLD}${detail.name}${RESET} (${detail.id})`);
         console.log('');
         console.log('  Next: connect your agent');
-        console.log(`  ${GRAY}agent-bridge connect --agent-id ${detail.id}${RESET}`);
+        console.log(`  ${GRAY}agent-mesh connect --agent-id ${detail.id}${RESET}`);
       } catch (err) {
         handleError(err);
       }

@@ -92,7 +92,7 @@ export function rotateLogIfNeeded(name: string): void {
 /**
  * Get environment variables from the user's login shell.
  * Ensures vars set in .zshrc/.bash_profile are available to background processes,
- * even when agent-bridge is started from a non-interactive SSH session.
+ * even when agent-mesh is started from a non-interactive SSH session.
  */
 let _loginEnvCache: Record<string, string> | null = null;
 
@@ -168,7 +168,7 @@ export function spawnBackground(name: string, entry: AgentEntry, platformToken?:
   }
   env.PATH = [...pathSet].join(':');
 
-  const agentWorkspaceDir = join(homedir(), '.agent-bridge', 'agents', name);
+  const agentWorkspaceDir = join(homedir(), '.agent-mesh', 'agents', name);
   const child = spawn(process.execPath, args, {
     detached: true,
     stdio: ['ignore', logFd, logFd],

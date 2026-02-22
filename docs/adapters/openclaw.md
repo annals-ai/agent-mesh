@@ -28,15 +28,15 @@ Platform user message
 
 ```bash
 # Default (connects to ws://127.0.0.1:18789)
-agent-bridge connect openclaw --agent-id <your-agent-id>
+agent-mesh connect openclaw --agent-id <your-agent-id>
 
 # Custom gateway URL
-agent-bridge connect openclaw \
+agent-mesh connect openclaw \
   --agent-id <your-agent-id> \
   --gateway-url ws://192.168.1.100:18789
 
 # With gateway authentication token
-agent-bridge connect openclaw \
+agent-mesh connect openclaw \
   --agent-id <your-agent-id> \
   --gateway-token <your-gateway-token>
 ```
@@ -63,8 +63,8 @@ The adapter uses the following subset of the OpenClaw Protocol v3:
     "minProtocol": 3,
     "maxProtocol": 3,
     "client": {
-      "id": "agent-bridge",
-      "displayName": "Agent Bridge CLI",
+      "id": "agent-mesh",
+      "displayName": "Agent Mesh CLI",
       "version": "0.1.0",
       "platform": "node",
       "mode": "backend"

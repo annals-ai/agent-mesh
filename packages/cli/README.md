@@ -1,4 +1,4 @@
-# @annals/agent-bridge
+# @annals/agent-mesh
 
 Connect your local AI agent to [agents.hot](https://agents.hot) and turn it into a paid SaaS product. Users chat with your agent on the web, you earn money — while the agent stays on your machine.
 
@@ -8,10 +8,10 @@ Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the clo
 
 ```bash
 # One-click setup (recommended)
-npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
+npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 
 # Reconnect (reads saved config)
-npx @annals/agent-bridge connect
+npx @annals/agent-mesh connect
 ```
 
 1. Create an agent on [agents.hot/settings](https://agents.hot/settings)
@@ -32,7 +32,7 @@ The ticket is one-time use and expires in 15 minutes.
 ## CLI Commands
 
 ```bash
-agent-bridge connect [type]              # Connect agent to platform
+agent-mesh connect [type]              # Connect agent to platform
   --setup <url>                          #   One-click setup from ticket URL
   --agent-id <id>                        #   Agent UUID
   --project <path>                       #   Project path (Claude adapter)
@@ -40,8 +40,8 @@ agent-bridge connect [type]              # Connect agent to platform
   --gateway-token <token>                #   OpenClaw gateway token
   --sandbox                              #   Run inside sandbox (macOS, requires srt)
 
-agent-bridge login                       # Authenticate
-agent-bridge status                      # Check connection
+agent-mesh login                       # Authenticate
+agent-mesh status                      # Check connection
 ```
 
 ## How It Works
@@ -79,14 +79,14 @@ For Claude Code agents, any files the agent creates or modifies are automaticall
 ## Related
 
 - [`@annals/bridge-protocol`](https://www.npmjs.com/package/@annals/bridge-protocol) — Bridge Protocol v1 type definitions
-- [GitHub repo](https://github.com/annals-ai/agent-bridge) — full monorepo with Worker, adapters, and docs
+- [GitHub repo](https://github.com/annals-ai/agent-mesh) — full monorepo with Worker, adapters, and docs
 
 ## 中文说明
 
-Agent Bridge CLI 把你本地的 AI Agent（OpenClaw、Claude Code 等）接入 [agents.hot](https://agents.hot) 平台。用户在网页聊天，你赚钱。Agent 始终运行在你自己的机器上，无需开放端口。
+Agent Mesh CLI 把你本地的 AI Agent（OpenClaw、Claude Code 等）接入 [agents.hot](https://agents.hot) 平台。用户在网页聊天，你赚钱。Agent 始终运行在你自己的机器上，无需开放端口。
 
 每个用户自动获得独立的工作目录（workspace 隔离），Claude Code 的输出文件会自动上传回平台。
 
 ## License
 
-[MIT](https://github.com/annals-ai/agent-bridge/blob/main/LICENSE)
+[MIT](https://github.com/annals-ai/agent-mesh/blob/main/LICENSE)

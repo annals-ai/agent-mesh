@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * E2E test for `agent-bridge skills` commands.
+ * E2E test for `agent-mesh skills` commands.
  *
  * Usage:
  *   node scripts/e2e-skills.mjs
  *
  * Prerequisites:
  *   - pnpm build (CLI must be compiled)
- *   - agent-bridge login (or ~/.agent-bridge/config.json with valid token)
+ *   - agent-mesh login (or ~/.agent-mesh/config.json with valid token)
  *
  * Tests:
  *   1. skills init         — create skill.json + SKILL.md
@@ -136,7 +136,7 @@ let publishedSlug = null;
 
 // --- Setup ---
 
-console.log(`\n${BOLD}Agent Bridge Skills — E2E Tests${RESET}\n`);
+console.log(`\n${BOLD}Agent Mesh Skills — E2E Tests${RESET}\n`);
 
 // Verify CLI exists
 assert(existsSync(CLI), `CLI not found at ${CLI}. Run: pnpm build`);

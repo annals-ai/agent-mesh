@@ -24,8 +24,8 @@ const PROJECT_PATH = process.argv.includes('--project')
   ? process.argv[process.argv.indexOf('--project') + 1]
   : null;
 
-const SANDBOX_DIR = join(homedir(), '.agent-bridge', 'sandbox');
-const SESSIONS_BASE = join(tmpdir(), 'agent-bridge-sessions');
+const SANDBOX_DIR = join(homedir(), '.agent-mesh', 'sandbox');
+const SESSIONS_BASE = join(tmpdir(), 'agent-mesh-sessions');
 
 let passed = 0;
 let failed = 0;
@@ -247,7 +247,7 @@ await test('per-session sandbox config scopes allowWrite to workspace', () => {
   const sessionsDir = join(SANDBOX_DIR, 'sessions');
   mkdirSync(sessionsDir, { recursive: true });
 
-  const workspacePath = '/tmp/agent-bridge-sessions/test-session-123';
+  const workspacePath = '/tmp/agent-mesh-sessions/test-session-123';
   const sessionConfig = {
     ...generatePreset('claude'),
     filesystem: {
@@ -275,8 +275,8 @@ await test('per-session sandbox configs are independent', () => {
   const sessionsDir = join(SANDBOX_DIR, 'sessions');
   mkdirSync(sessionsDir, { recursive: true });
 
-  const ws1 = '/tmp/agent-bridge-sessions/session-a';
-  const ws2 = '/tmp/agent-bridge-sessions/session-b';
+  const ws1 = '/tmp/agent-mesh-sessions/session-a';
+  const ws2 = '/tmp/agent-mesh-sessions/session-b';
 
   const config1 = { ...generatePreset('claude'), filesystem: { ...generatePreset('claude').filesystem, allowWrite: [ws1, '/tmp'] } };
   const config2 = { ...generatePreset('claude'), filesystem: { ...generatePreset('claude').filesystem, allowWrite: [ws2, '/tmp'] } };

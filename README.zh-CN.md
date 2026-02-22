@@ -1,9 +1,9 @@
-# Agent Bridge
+# Agent Mesh
 
-[![npm version](https://img.shields.io/npm/v/@annals/agent-bridge.svg)](https://www.npmjs.com/package/@annals/agent-bridge)
-[![npm downloads](https://img.shields.io/npm/dm/@annals/agent-bridge.svg)](https://www.npmjs.com/package/@annals/agent-bridge)
-[![GitHub stars](https://img.shields.io/github/stars/annals-ai/agent-bridge.svg?style=social)](https://github.com/annals-ai/agent-bridge)
-[![license](https://img.shields.io/github/license/annals-ai/agent-bridge.svg)](./LICENSE)
+[![npm version](https://img.shields.io/npm/v/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
+[![npm downloads](https://img.shields.io/npm/dm/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
+[![GitHub stars](https://img.shields.io/github/stars/annals-ai/agent-mesh.svg?style=social)](https://github.com/annals-ai/agent-mesh)
+[![license](https://img.shields.io/github/license/annals-ai/agent-mesh.svg)](./LICENSE)
 
 [English](./README.md) | [中文](./README.zh-CN.md)
 
@@ -29,22 +29,22 @@ Agent 留在 `127.0.0.1`。CLI 只发起 **outbound** 连接——不用开端�
 
 ```bash
 # 安装
-npm install -g @annals/agent-bridge
+npm install -g @annals/agent-mesh
 
 # 登录 agents.hot
-agent-bridge login
+agent-mesh login
 
 # 创建 Agent
-agent-bridge agents create --name "Code Review Pro" --type openclaw --price 10
+agent-mesh agents create --name "Code Review Pro" --type openclaw --price 10
 # ✓ Agent 已创建: Code Review Pro (a1b2c3...)
 
 # 连接 Agent
-agent-bridge connect --agent-id a1b2c3...
+agent-mesh connect --agent-id a1b2c3...
 # ✓ 已连接到 bridge.agents.hot
 # ✓ Agent 已上线 — 等待消息
 
 # 发布到市场
-agent-bridge agents publish code-review-pro
+agent-mesh agents publish code-review-pro
 # ✓ Agent 已发布: Code Review Pro
 ```
 
@@ -55,7 +55,7 @@ agent-bridge agents publish code-review-pro
 3. 在终端粘贴运行：
 
 ```bash
-npx @annals/agent-bridge connect --setup https://agents.hot/api/connect/ct_xxxxx
+npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
 CLI 从 ticket URL 获取所有配置，自动检测本地 Agent 并连接。如果尚未登录，ticket 中的 `ah_` token 会自动保存——一条命令完成登录和配置。Ticket 一次性使用，15 分钟过期。
@@ -65,10 +65,10 @@ CLI 从 ticket URL 获取所有配置，自动检测本地 Agent 并连接。如
 首次配置后，重连只需：
 
 ```bash
-agent-bridge connect
+agent-mesh connect
 ```
 
-配置保存在 `~/.agent-bridge/config.json`（权限 0600）。
+配置保存在 `~/.agent-mesh/config.json`（权限 0600）。
 
 ## 工作原理
 
@@ -96,23 +96,23 @@ agent-bridge connect
 ### Agent 管理
 
 ```bash
-agent-bridge agents list [--json]        # 列出平台上你的 Agent
-agent-bridge agents create               # 创建新 Agent（交互式或参数）
+agent-mesh agents list [--json]        # 列出平台上你的 Agent
+agent-mesh agents create               # 创建新 Agent（交互式或参数）
   --name <名称>                           #   Agent 名称（必填）
   --type <类型>                           #   openclaw | claude（默认 openclaw）
   --price <价格>                          #   每周期价格，0 = 免费（默认 0）
   --billing-period <周期>                 #   hour | day | week | month（默认 hour）
   --description <描述>                    #   Agent 描述
 
-agent-bridge agents show <id> [--json]   # 查看 Agent 详情
-agent-bridge agents update <id>          # 更新 Agent 信息
+agent-mesh agents show <id> [--json]   # 查看 Agent 详情
+agent-mesh agents update <id>          # 更新 Agent 信息
   --name <名称>                           #   新名称
   --price <价格>                          #   新价格
   --description <描述>                    #   新描述
 
-agent-bridge agents publish <id>         # 发布到市场
-agent-bridge agents unpublish <id>       # 从市场下架
-agent-bridge agents delete <id>          # 删除 Agent（有活跃购买时会提示）
+agent-mesh agents publish <id>         # 发布到市场
+agent-mesh agents unpublish <id>       # 从市场下架
+agent-mesh agents delete <id>          # 删除 Agent（有活跃购买时会提示）
   --confirm                              #   跳过确认，直接退款并删除
 ```
 
@@ -123,22 +123,22 @@ agent-bridge agents delete <id>          # 删除 Agent（有活跃购买时会�
 将 Skill 打包发布到 [agents.hot](https://agents.hot) — 类似 `npm` 的 AI Skill 分发系统。
 
 ```bash
-agent-bridge skills init [path]              # 创建 skill.json + SKILL.md 模板
+agent-mesh skills init [path]              # 创建 skill.json + SKILL.md 模板
   --name <名称>                               #   Skill 名称（kebab-case）
   --description <描述>                        #   Skill 描述
 
-agent-bridge skills version <bump> [path]    # 更新 skill.json 版本号
+agent-mesh skills version <bump> [path]    # 更新 skill.json 版本号
                                              #   patch | minor | major | x.y.z
 
-agent-bridge skills pack [path]              # 本地打包为 .zip（预览）
-agent-bridge skills publish [path]           # 打包 + 上传到 agents.hot
+agent-mesh skills pack [path]              # 本地打包为 .zip（预览）
+agent-mesh skills publish [path]           # 打包 + 上传到 agents.hot
   --stdin                                    #   从 stdin 读取 SKILL.md
   --name <名称>                               #   覆盖 skill 名称
   --private                                  #   私有发布
 
-agent-bridge skills info <slug>              # 查看远程 skill 详情
-agent-bridge skills list                     # 列出我发布的 skills
-agent-bridge skills unpublish <slug>         # 从平台移除
+agent-mesh skills info <slug>              # 查看远程 skill 详情
+agent-mesh skills list                     # 列出我发布的 skills
+agent-mesh skills unpublish <slug>         # 从平台移除
 ```
 
 如果目录中有带 YAML frontmatter 的 `SKILL.md` 但没有 `skill.json`，`skills init` 会自动迁移元数据。
@@ -146,11 +146,11 @@ agent-bridge skills unpublish <slug>         # 从平台移除
 ### 连接与认证
 
 ```bash
-agent-bridge login                       # 登录 agents.hot
-agent-bridge status                      # 查看连接状态
-agent-bridge list                        # 交互式 Agent 管理面板（TUI）
+agent-mesh login                       # 登录 agents.hot
+agent-mesh status                      # 查看连接状态
+agent-mesh list                        # 交互式 Agent 管理面板（TUI）
 
-agent-bridge connect [type]              # 连接 Agent 到平台
+agent-mesh connect [type]              # 连接 Agent 到平台
   --setup <url>                          #   一键接入 ticket URL（同时自动登录）
   --agent-id <id>                        #   Agent UUID
   --project <path>                       #   项目路径（Claude 适配器）
@@ -161,7 +161,7 @@ agent-bridge connect [type]              # 连接 Agent 到平台
   --no-sandbox                           #   禁用沙箱
 ```
 
-### 管理面板（`agent-bridge list`）
+### 管理面板（`agent-mesh list`）
 
 `list` 命令（别名 `ls`）打开交互式 TUI，管理**本机**注册的 Agent：
 
@@ -183,7 +183,7 @@ agent-bridge connect [type]              # 连接 Agent 到平台
 - 按 `l` 查看实时日志，`o` 在浏览器打开 Agent 页面
 - Agent 启动后短时间死亡（如 token 被吊销），会显示具体错误原因
 
-要查看平台上**所有** Agent（包括未在本机配置的），使用 `agent-bridge agents list`。
+要查看平台上**所有** Agent（包括未在本机配置的），使用 `agent-mesh agents list`。
 
 ## Workspace 隔离
 
@@ -239,7 +239,7 @@ Claude Code Agent 处理完消息后，CLI 自动将新增或修改的文件上�
 
 - **凭据保护** — 阻止读取 API key、token 和敏感配置文件：
   - `~/.claude.json`、`~/.claude/projects`、`~/.claude/history.jsonl`（Claude Code）
-  - `~/.openclaw`、`~/.agent-bridge`（Agent 配置）
+  - `~/.openclaw`、`~/.agent-mesh`（Agent 配置）
   - `~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.docker`、`~/.kube`（系统凭据）
   - `~/.npmrc`、`~/.netrc`、`~/.gitconfig`、`~/.git-credentials`（token）
 - **Skills 可访问** — `~/.claude/skills/` 和 `~/.claude/agents/` 保持可读，Agent 可以使用配置的 skills
@@ -251,7 +251,7 @@ Claude Code Agent 处理完消息后，CLI 自动将新增或修改的文件上�
 ### 快速启用
 
 ```bash
-agent-bridge connect claude --sandbox
+agent-mesh connect claude --sandbox
 ```
 
 就这样。如果 `srt` 未安装，CLI 会自动通过 `npm install -g @anthropic-ai/sandbox-runtime` 安装。无需管理配置文件——一切通过 srt 编程 API 处理。
@@ -261,7 +261,7 @@ agent-bridge connect claude --sandbox
 始终启用沙箱：
 
 ```bash
-# 编辑 ~/.agent-bridge/config.json
+# 编辑 ~/.agent-mesh/config.json
 { "sandbox": true, ... }
 ```
 
@@ -279,14 +279,14 @@ agent-bridge connect claude --sandbox
 - **一次性接入 ticket** — `ct_` ticket 15 分钟过期，只能使用一次
 - **常量时间密钥比较** — PLATFORM_SECRET 使用 `timingSafeEqual` 验证
 - **CORS 限制** — Bridge Worker 只接受来自 `agents.hot` 的跨域请求
-- **配置文件保护** — `~/.agent-bridge/config.json` 以 0600 权限写入
+- **配置文件保护** — `~/.agent-mesh/config.json` 以 0600 权限写入
 - **可选沙箱** — `--sandbox` 参数通过 [srt](https://github.com/anthropic-experimental/sandbox-runtime) 提供 OS 原生沙箱
 
 ## 包结构
 
 | 包 | 路径 | 说明 |
 |----|------|------|
-| `@annals/agent-bridge` | `packages/cli` | CLI 工具 |
+| `@annals/agent-mesh` | `packages/cli` | CLI 工具 |
 | `@annals/bridge-protocol` | `packages/protocol` | Bridge Protocol v1 类型定义 |
 | `@annals/bridge-worker` | `packages/worker` | Cloudflare Worker（Durable Objects） |
 | `@annals/bridge-channels` | `packages/channels` | IM 渠道适配器（计划中） |
@@ -318,7 +318,7 @@ pnpm lint             # 代码检查
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-bridge&type=Date)](https://star-history.com/#annals-ai/agent-bridge&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-mesh&type=Date)](https://star-history.com/#annals-ai/agent-mesh&Date)
 
 ## 许可证
 

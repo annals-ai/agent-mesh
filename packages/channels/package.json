@@ -1,7 +1,7 @@
 {
   "name": "@annals/bridge-channels",
   "version": "0.1.0",
-  "description": "IM channel adapters for agent-bridge outbound",
+  "description": "IM channel adapters for agent-mesh outbound",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

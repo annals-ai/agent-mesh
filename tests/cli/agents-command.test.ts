@@ -12,7 +12,7 @@ vi.mock('../../packages/cli/src/utils/config.js', () => ({
   loadConfig: vi.fn(() => ({ agents: {} })),
   listAgents: vi.fn(() => ({})),
   findAgentByAgentId: vi.fn(() => undefined),
-  getConfigPath: vi.fn(() => '/tmp/.agent-bridge/config.json'),
+  getConfigPath: vi.fn(() => '/tmp/.agent-mesh/config.json'),
 }));
 
 // --- Test data ---

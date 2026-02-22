@@ -9,7 +9,7 @@ vi.mock('../../packages/cli/src/platform/auth.js', () => ({
 
 // Mock config
 vi.mock('../../packages/cli/src/utils/config.js', () => ({
-  getConfigPath: vi.fn(() => '/home/user/.agent-bridge/config.json'),
+  getConfigPath: vi.fn(() => '/home/user/.agent-mesh/config.json'),
 }));
 
 // Mock logger
@@ -80,7 +80,7 @@ describe('login command', () => {
     const program = new Command();
     program.exitOverride();
     registerLoginCommand(program);
-    await program.parseAsync(['node', 'agent-bridge', 'login', ...args]);
+    await program.parseAsync(['node', 'agent-mesh', 'login', ...args]);
   }
 
   describe('--token mode (direct)', () => {

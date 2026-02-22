@@ -13,7 +13,7 @@
  *
  * Prerequisites:
  *   - Seed agents deployed and online
- *   - agent-bridge CLI installed and logged in
+ *   - agent-mesh CLI installed and logged in
  */
 
 import { execSync } from 'node:child_process';
@@ -62,17 +62,17 @@ console.log(`${BOLD}=========================================${RESET}\n`);
 
 // --- Test 1: CLI available ---
 try {
-  run('agent-bridge --version');
-  pass('agent-bridge CLI is available');
+  run('agent-mesh --version');
+  pass('agent-mesh CLI is available');
 } catch {
-  fail('agent-bridge CLI not found');
+  fail('agent-mesh CLI not found');
   process.exit(1);
 }
 
 // --- Test 2: Discover online agents ---
 let agents = [];
 try {
-  const output = run('agent-bridge discover --online --json', { timeout: 15000 });
+  const output = run('agent-mesh discover --online --json', { timeout: 15000 });
   const parsed = JSON.parse(output);
   agents = Array.isArray(parsed) ? parsed : (parsed.agents ?? []);
   if (agents.length > 0) {
@@ -100,7 +100,7 @@ for (const name of seedNames) {
 
 // --- Test 4: Capability discovery ---
 try {
-  const output = run('agent-bridge discover --capability translation --online --json', { timeout: 15000, allowFail: true });
+  const output = run('agent-mesh discover --capability translation --online --json', { timeout: 15000, allowFail: true });
   if (output) {
     const tParsed = JSON.parse(output);
     const translators = Array.isArray(tParsed) ? tParsed : (tParsed.agents ?? []);
@@ -123,7 +123,7 @@ if (agents.length > 0) {
 
   try {
     const output = run(
-      `agent-bridge call ${target.id} --task "Respond with exactly: A2A_TEST_OK" --json`,
+      `agent-mesh call ${target.id} --task "Respond with exactly: A2A_TEST_OK" --json`,
       { timeout: 60000 }
     );
 
