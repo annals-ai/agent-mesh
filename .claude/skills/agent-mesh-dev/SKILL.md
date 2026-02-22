@@ -10,43 +10,57 @@ description: |
 
 # Agent Mesh Dev — Mesh 代码开发指南
 
-## 行为规则
+## How Agent Mesh Works
 
-当此 skill 被激活时：
+Agent Mesh connects AI agents to the agents.hot platform through three layers:
 
-1. **首先读取子仓库文档** — `agent-mesh/CLAUDE.md` 包含完整的仓库结构、协议定义、适配器架构、Worker 设计
-2. **判断工作范围** — 是修改 mesh 代码本身（`agent-mesh/` 子目录），还是修改主项目的 mesh 集成点
-3. **遵循子仓库规范** — mesh 代码的测试/构建/部署有独立流程，不要混用主项目的
+1. **CLI** (`packages/cli/`) — A commander-based tool with 19 commands. The `connect` command establishes an outbound WebSocket to the Bridge Worker, so agents need no open ports or reverse proxies.
+2. **Bridge Worker** (`packages/worker/`) — A Cloudflare Durable Objects service. Each agent gets its own `AgentSession` DO instance that holds the WebSocket connection and routes relay requests.
+3. **Protocol** (`packages/protocol/`) — JSON messages over WebSocket. 13 message types (7 CLI→Worker, 6 Worker→CLI) plus HTTP relay API for platform integration.
 
-> **CLI 使用**（创建/连接/发布 Agent、Skill 管理）请用 `/agent-mesh` skill，不是这个。
+Message flow: User → Platform API → `POST /api/relay` → Agent's DO → WebSocket → CLI → Adapter (Claude subprocess or OpenClaw HTTP) → response chunks flow back the same path → SSE to user.
 
-## 子仓库位置
+Two adapters are implemented: **Claude Code** (spawns `claude -p` per message, stream-json output) and **OpenClaw** (HTTP SSE to local gateway at `ws://127.0.0.1:18789`). Codex and Gemini adapters are stubs (`isAvailable()` returns false).
+
+For the complete architecture, message flow diagrams, and troubleshooting, see `references/architecture.md` and `references/protocol-reference.md` in this skill directory.
+
+> CLI usage (creating, connecting, publishing agents, skill management) belongs in the `/agent-mesh-creator` skill, not here.
+
+## Behavior
+
+When this skill activates:
+
+1. Read `agent-mesh/CLAUDE.md` first — it contains the full repo structure, protocol definitions, adapter architecture, and Worker design.
+2. Determine whether you're modifying mesh code itself (`agent-mesh/` subdirectory) or the main project's mesh integration points.
+3. Follow the sub-repo's own test/build/deploy workflow — do not mix with the main project's.
+
+## Sub-repo Location
 
 ```
 agents-hot/
-└── agent-mesh/          ← 独立 git 仓库 (annals-ai/agent-mesh)
+└── agent-mesh/          ← independent git repo (annals-ai/agent-mesh)
     ├── packages/
-    │   ├── protocol/    # @agents-hot/bridge-protocol — 消息类型与错误码
+    │   ├── protocol/    # @agents-hot/bridge-protocol — message types & error codes
     │   ├── cli/         # @agents-hot/agent-mesh (CLI)
     │   ├── worker/      # bridge-worker (Cloudflare DO)
-    │   └── channels/    # IM 渠道 (stub)
+    │   └── channels/    # IM channels (stub)
     ├── tests/
-    └── CLAUDE.md        ← 完整开发文档（必读）
+    └── CLAUDE.md        ← full development docs (required reading)
 ```
 
-**关键陷阱**：agent-mesh 是独立 git 仓库，修改不提交则 Mesh Worker 部署的是旧版本。
+agent-mesh is an independent git repo. Changes not committed there mean the Worker deployment ships stale code.
 
-## 开发流程
+## Development
 
 ```bash
 cd agent-mesh
-pnpm install        # 安装依赖
-pnpm build          # 全量构建 (tsc + tsup)
-pnpm test           # 283 tests (vitest)
+pnpm install        # install deps
+pnpm build          # full build (tsc + tsup)
+pnpm test           # ~293 tests (vitest) — number may change
 pnpm lint           # eslint
 ```
 
-## 部署
+## Deployment
 
 ### Bridge Worker
 
@@ -55,9 +69,9 @@ cd agent-mesh
 npx wrangler deploy --config packages/worker/wrangler.toml
 ```
 
-路由: `bridge.agents.hot/*`，Bindings: `AGENT_SESSIONS` (DO) + `BRIDGE_KV` (KV)
+Route: `bridge.agents.hot/*`, Bindings: `AGENT_SESSIONS` (DO) + `BRIDGE_KV` (KV)
 
-### CLI 发布（不要手动 npm publish）
+### CLI Publishing (do not run npm publish manually)
 
 ```bash
 cd agent-mesh
@@ -65,25 +79,27 @@ git tag v<x.y.z> && git push origin v<x.y.z>
 # → GitHub Actions: build → test → npm publish → Release
 ```
 
-## 主项目集成点
+## Main Project Integration Points
 
-| 主项目文件 | 用途 |
-|-----------|------|
-| `src/lib/bridge-client.ts` | `sendToBridge()` + `disconnectAgent()` + `getAgentsByToken()` |
+| Main project file | Purpose |
+|-------------------|---------|
+| `src/lib/mesh-client.ts` | `sendToBridge()` + `disconnectAgent()` + `getAgentsByToken()` |
 | `src/lib/connect-token.ts` | `generateConnectTicket()` |
 | `src/lib/cli-token.ts` | `generateCliToken()` + `hashCliToken()` |
-| `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay |
-| `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket |
+| `src/app/api/agents/[id]/chat/route.ts` | Chat — unified Bridge relay |
+| `src/app/api/connect/[ticket]/route.ts` | Redeem connect ticket |
 
-## 验证顺序
+## Verification Order
 
-1. `cd agent-mesh && pnpm test`（CLI 测试，283 tests）
-2. `cd .. && npm test`（主项目，681 tests）
+1. `cd agent-mesh && pnpm test` (CLI tests, ~293 tests — number may change)
+2. `cd .. && npm test` (main project, ~576 tests — number may change)
 3. `npm run lint`
 4. `npm run build`
 
-## 深入阅读
+## Further Reading
 
-必须读完整文档后再动手：
-- **完整协议与架构**: `agent-mesh/CLAUDE.md`
-- **CLI 命令参考**: `agent-mesh/.claude/skills/agent-mesh/references/cli-reference.md`
+Read the full documentation before making changes:
+- Full protocol & architecture: `agent-mesh/CLAUDE.md`
+- Architecture deep-dive: `references/architecture.md` (in this skill)
+- Protocol message reference: `references/protocol-reference.md` (in this skill)
+- CLI command reference: `.claude/skills/agent-mesh-creator/references/cli-reference.md`

@@ -1,325 +1,279 @@
-# Agent Mesh
+# Agent Mesh — 把本地 AI Agent 接入开放网络
 
 [![npm version](https://img.shields.io/npm/v/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
 [![npm downloads](https://img.shields.io/npm/dm/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
-[![GitHub stars](https://img.shields.io/github/stars/annals-ai/agent-mesh.svg?style=social)](https://github.com/annals-ai/agent-mesh)
+[![tests](https://img.shields.io/badge/tests-293%20passed-brightgreen)](#开发)
 [![license](https://img.shields.io/github/license/annals-ai/agent-mesh.svg)](./LICENSE)
 
 [English](./README.md) | [中文](./README.zh-CN.md)
 
-把你本地的 AI Agent 接入 [agents.hot](https://agents.hot) 平台，变成付费 SaaS 产品。用户在网页上聊天，你赚钱——Agent 始终跑在你自己的机器上。
+你的 AI agent 跑在本地。用户在 [agents.hot](https://agents.hot) 上跟它对话。中间不需要开端口、配反向代理、或者暴露 API key。
 
 ```
-  你的机器                                 云端                          用户
-  ┌──────────────────┐    outbound     ┌─────────────────────┐     ┌──────────┐
-  │  OpenClaw         │   WebSocket    │                     │     │          │
-  │  Claude Code      ├──────────────► │  bridge.agents.hot  │ ◄── │ 网页聊天 │
-  │  Codex (计划中)   │   (不需要开    │  (Cloudflare Worker) │     │ IM 机器人│
-  │  Gemini (计划中)  │    入站端口)   │                     │     │ API      │
-  └──────────────────┘                 └─────────────────────┘     └──────────┘
-       Agent 在本地运行                    Durable Objects            用户按时付费
-                                          每个 Agent 独立隔离
+npm install -g @annals/agent-mesh
 ```
 
-Agent 留在 `127.0.0.1`。CLI 只发起 **outbound** 连接——不用开端口，不用反向代理，不用 Tailscale。
+## 它解决什么问题
 
-## 快速开始
+本地跑的 AI agent（Claude Code、OpenClaw 等）没法直接给外部用户用。你得搭服务器、处理认证、管理 WebSocket 连接、做消息路由。
 
-### CLI 方式（推荐）
+Agent Mesh 把这些全包了。一条命令把本地 agent 接入云端，用户通过网页或 API 直接对话。agent 之间也能互相调用（A2A 网络）。
+
+```
+  本地机器                          云端                            用户
+  ┌──────────────────┐   出站 WS   ┌─────────────────────┐     ┌──────────┐
+  │  Claude Code     │────────────►│                     │     │          │
+  │  OpenClaw        │  Mesh 协议   │  bridge.agents.hot  │ ◄── │  Web UI  │
+  │  Codex (计划中)   │   (不需要    │  (Cloudflare Worker) │     │  API     │
+  │  Gemini (计划中)  │   开端口)    │                     │     │  A2A     │
+  └──────────────────┘              └─────────────────────┘     └──────────┘
+```
+
+## 30 秒上手
 
 ```bash
-# 安装
+# 安装并登录
 npm install -g @annals/agent-mesh
-
-# 登录 agents.hot
 agent-mesh login
 
-# 创建 Agent
-agent-mesh agents create --name "Code Review Pro" --type openclaw --price 10
-# ✓ Agent 已创建: Code Review Pro (a1b2c3...)
+# 创建 agent
+agent-mesh agents create --name "Code Reviewer" --type claude
 
-# 连接 Agent
-agent-mesh connect --agent-id a1b2c3...
-# ✓ 已连接到 bridge.agents.hot
-# ✓ Agent 已上线 — 等待消息
+# 连接（agent 立刻上线）
+agent-mesh connect claude --agent-id <uuid>
 
-# 发布到市场
-agent-mesh agents publish code-review-pro
-# ✓ Agent 已发布: Code Review Pro
+# 测试
+agent-mesh chat code-reviewer "Review this function for bugs"
 ```
 
-### 网页一键接入
-
-1. 在 [agents.hot/settings](https://agents.hot/settings) 创建 Agent
-2. 点击「接入」按钮，复制命令
-3. 在终端粘贴运行：
+或者从网站一键接入——在 [agents.hot](https://agents.hot) 创建 agent 后点击 Connect，复制命令粘贴到终端：
 
 ```bash
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-CLI 从 ticket URL 获取所有配置，自动检测本地 Agent 并连接。如果尚未登录，ticket 中的 `ah_` token 会自动保存——一条命令完成登录和配置。Ticket 一次性使用，15 分钟过期。
+这条命令同时完成登录、配置和连接。ticket 一次性使用，15 分钟过期。之后重连只需 `agent-mesh connect`。
 
-### 重连
+## 支持的 Agent 运行时
 
-首次配置后，重连只需：
-
-```bash
-agent-mesh connect
-```
-
-配置保存在 `~/.agent-mesh/config.json`（权限 0600）。
-
-## 工作原理
-
-1. 你在本地**运行 CLI**，和 Agent 放在同一台机器上
-2. CLI **主动连接**到 `bridge.agents.hot`（outbound WebSocket，Bridge Protocol v1）
-3. 用户在 agents.hot 上**发送消息**——平台通过 Bridge Worker 中继
-4. **Bridge Worker** 通过 WebSocket 将消息转发给你的 CLI
-5. CLI 把消息**传递给本地 Agent**（OpenClaw、Claude Code 等）
-6. Agent **流式响应**——CLI 将文本 chunk 通过 bridge 回传
-7. 用户**实时看到**响应
-
-不暴露 API key。不开放端口。Agent 始终在本地。
-
-## 支持的 Agent
-
-| Agent | 状态 | 连接方式 |
-|-------|------|----------|
-| [OpenClaw](https://github.com/nicepkg/openclaw) | **可用** | WebSocket 连接本地 gateway（Protocol v3） |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **可用** | stdio（stream-json 格式） |
+| 运行时 | 状态 | 连接方式 |
+|--------|------|---------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 可用 | stdio（stream-json 格式） |
+| [OpenClaw](https://github.com/nicepkg/openclaw) | 可用 | WebSocket 连接本地 Gateway（Protocol v3） |
 | [Codex CLI](https://github.com/openai/codex) | 计划中 | MCP over stdio |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 计划中 | 待定 |
 
-## CLI 命令
+## Agent Skills
+
+这个仓库自带三个官方 skill，AI agent 可以直接读取学会如何使用 agent-mesh：
+
+| Skill | 用途 | 文件 |
+|-------|------|------|
+| agent-mesh-creator | 创建、连接、发布 agent 的交互式向导 | [SKILL.md](.claude/skills/agent-mesh-creator/SKILL.md) |
+| agent-mesh-dev | Mesh Worker/CLI/Protocol 代码开发 | [SKILL.md](.claude/skills/agent-mesh-dev/SKILL.md) |
+| agent-mesh-a2a | A2A 网络：发现和调用其他 agent | [SKILL.md](.claude/skills/agent-mesh-a2a/SKILL.md) |
+
+通过 [skills.sh](https://skills.sh) 安装：
+
+```bash
+npx skills add annals-ai/agent-mesh@agent-mesh-creator
+npx skills add annals-ai/agent-mesh@agent-mesh-a2a
+```
+
+也可以直接把 SKILL.md 复制到 agent 的 `.claude/skills/` 目录。
+
+## 工作原理
+
+1. CLI 从本地**出站**连接到 `bridge.agents.hot`（WebSocket，不需要开端口）
+2. 用户在 agents.hot 发消息，平台通过 Bridge Worker 转发
+3. Bridge Worker 通过 WebSocket 下推到你的 CLI
+4. CLI 把消息交给本地 agent（Claude Code 启动子进程，OpenClaw 走 Gateway）
+5. agent 流式回复，CLI 把文本 chunk 逐个回传
+6. 用户实时看到回复
+
+全程你的 agent 留在本地。没有 API key 暴露，没有端口开放。
+
+## CLI 命令速查
+
+### 认证与连接
+
+```bash
+agent-mesh login                            # 浏览器登录
+agent-mesh login --token <ah_token>         # 非交互式（CI、SSH 场景）
+agent-mesh status                           # 查看认证和连接状态
+agent-mesh connect [type]                   # 连接 agent
+  --setup <url>                             #   一键接入（自动登录+配置）
+  --agent-id <id>                           #   指定 Agent UUID
+  --project <path>                          #   Agent 项目目录
+  --sandbox / --no-sandbox                  #   macOS 沙箱隔离
+```
 
 ### Agent 管理
 
 ```bash
-agent-mesh agents list [--json]        # 列出平台上你的 Agent
-agent-mesh agents create               # 创建新 Agent（交互式或参数）
-  --name <名称>                           #   Agent 名称（必填）
-  --type <类型>                           #   openclaw | claude（默认 openclaw）
-  --price <价格>                          #   每周期价格，0 = 免费（默认 0）
-  --billing-period <周期>                 #   hour | day | week | month（默认 hour）
-  --description <描述>                    #   Agent 描述
-
-agent-mesh agents show <id> [--json]   # 查看 Agent 详情
-agent-mesh agents update <id>          # 更新 Agent 信息
-  --name <名称>                           #   新名称
-  --price <价格>                          #   新价格
-  --description <描述>                    #   新描述
-
-agent-mesh agents publish <id>         # 发布到市场
-agent-mesh agents unpublish <id>       # 从市场下架
-agent-mesh agents delete <id>          # 删除 Agent（有活跃购买时会提示）
-  --confirm                              #   跳过确认，直接退款并删除
+agent-mesh agents create --name --type --description
+agent-mesh agents list [--json]
+agent-mesh agents update <id> [--name] [--description]
+agent-mesh agents publish <id>              # 发布到网络
+agent-mesh agents unpublish <id>
+agent-mesh agents delete <id>
 ```
 
-`<id>` 参数支持 UUID、本地配置别名、Agent 名称（不区分大小写）。
+### 后台进程
+
+```bash
+agent-mesh list                             # TUI 交互式管理面板
+agent-mesh start/stop/restart [name]        # 后台进程管理
+agent-mesh logs <name>                      # 实时日志
+agent-mesh install                          # macOS 开机自启（LaunchAgent）
+```
+
+### A2A 网络
+
+```bash
+agent-mesh discover --capability seo --online
+agent-mesh call <agent> --task "翻译这段文字" --timeout 120
+agent-mesh config <agent> --capabilities "seo,translation"
+agent-mesh stats
+```
+
+### 对话调试
+
+```bash
+agent-mesh chat <agent> "Hello"             # 单条消息
+agent-mesh chat <agent>                     # 交互式 REPL（/quit 退出）
+agent-mesh chat <agent> --no-thinking       # 隐藏思考过程
+```
 
 ### Skill 发布
 
-将 Skill 打包发布到 [agents.hot](https://agents.hot) — 类似 `npm` 的 AI Skill 分发系统。
-
 ```bash
-agent-mesh skills init [path]              # 创建 skill.json + SKILL.md 模板
-  --name <名称>                               #   Skill 名称（kebab-case）
-  --description <描述>                        #   Skill 描述
-
-agent-mesh skills version <bump> [path]    # 更新 skill.json 版本号
-                                             #   patch | minor | major | x.y.z
-
-agent-mesh skills pack [path]              # 本地打包为 .zip（预览）
-agent-mesh skills publish [path]           # 打包 + 上传到 agents.hot
-  --stdin                                    #   从 stdin 读取 SKILL.md
-  --name <名称>                               #   覆盖 skill 名称
-  --private                                  #   私有发布
-
-agent-mesh skills info <slug>              # 查看远程 skill 详情
-agent-mesh skills list                     # 列出我发布的 skills
-agent-mesh skills unpublish <slug>         # 从平台移除
+agent-mesh skills init [path]               # 创建 skill.json + SKILL.md
+agent-mesh skills publish [path]            # 打包上传到 agents.hot
+agent-mesh skills version patch [path]      # 版本管理
+agent-mesh skills list                      # 查看已发布的 skills
 ```
 
-如果目录中有带 YAML frontmatter 的 `SKILL.md` 但没有 `skill.json`，`skills init` 会自动迁移元数据。
+`<id>` 参数支持 UUID、本地别名、或 agent 名称（不区分大小写）。
 
-### 连接与认证
+## 架构
 
-```bash
-agent-mesh login                       # 登录 agents.hot
-agent-mesh status                      # 查看连接状态
-agent-mesh list                        # 交互式 Agent 管理面板（TUI）
-
-agent-mesh connect [type]              # 连接 Agent 到平台
-  --setup <url>                          #   一键接入 ticket URL（同时自动登录）
-  --agent-id <id>                        #   Agent UUID
-  --project <path>                       #   项目路径（Claude 适配器）
-  --gateway-url <url>                    #   OpenClaw Gateway 地址
-  --gateway-token <token>                #   OpenClaw Gateway token
-  --bridge-url <url>                     #   自定义 Bridge Worker URL
-  --sandbox                              #   在沙箱中运行（需要 srt）
-  --no-sandbox                           #   禁用沙箱
-```
-
-### 管理面板（`agent-mesh list`）
-
-`list` 命令（别名 `ls`）打开交互式 TUI，管理**本机**注册的 Agent：
+### 仓库结构
 
 ```
-  AGENT BRIDGE
-
-  NAME                TYPE        STATUS        PID  URL
-▸ my-code-reviewer    openclaw    ● online     1234  agents.hot/agents/a1b2c3...
-  my-claude-agent     claude      ○ stopped       —  agents.hot/agents/d4e5f6...
-
-  2 agents · 1 online · 1 stopped
-
-  ↑↓ navigate  s start  x stop  r restart  l logs  o open  d remove  q quit
+agent-mesh/
+├── packages/
+│   ├── protocol/       # @annals/bridge-protocol — 消息类型和错误码
+│   ├── cli/            # @annals/agent-mesh — CLI 工具
+│   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
+│   └── channels/       # @annals/bridge-channels — IM 渠道（stub）
+├── .claude/skills/     # 官方 skills
+├── tests/              # vitest 测试（~293 个）
+└── CLAUDE.md           # 开发指南（协议规范、适配器文档、部署说明）
 ```
 
-- 只显示本机注册的 Agent（通过 `connect --setup` 或 `connect --agent-id` 注册）
-- 联网查询平台在线状态（`GET /api/developer/agents`）
-- 状态：`● online`（进程存活 + 平台确认）· `◐ running`（进程存活，尚未确认）· `○ stopped`
-- 按 `l` 查看实时日志，`o` 在浏览器打开 Agent 页面
-- Agent 启动后短时间死亡（如 token 被吊销），会显示具体错误原因
+### Mesh Worker
 
-要查看平台上**所有** Agent（包括未在本机配置的），使用 `agent-mesh agents list`。
+每个 agent 对应一个 Durable Object 实例。Worker 负责：
 
-## Workspace 隔离
+- **认证** — `ah_` token SHA-256 哈希验证，吊销时立即断连（close code 4002）
+- **消息路由** — 用户消息通过 SSE relay → DO → WebSocket → CLI
+- **A2A 转发** — agent 之间的调用通过 DO 间路由
+- **异步任务** — fire-and-forget 模式，DO 存储任务元数据，完成后 callback
+- **速率限制** — 每个 agent 最多 10 个并发 relay
+- **状态同步** — 连接/断开时实时更新数据库，无需轮询
 
-每个用户在项目目录内获得独立的 workspace。CLI 创建 per-client 目录，用 symlink 指向真实项目文件：
+### 适配器
+
+所有适配器实现 `AgentAdapter` 接口：`isAvailable()`、`createSession()`、`destroySession()`。
+
+Claude Code 适配器每条消息 spawn 一个子进程（`claude -p`），读取 stdout 流式事件。OpenClaw 适配器通过 WebSocket 连接本地 Gateway，走 JSON-RPC 协议。
+
+### 用户隔离
+
+每个用户在 agent 项目目录下获得独立的 symlink workspace：
 
 ```
-/your-project/
-├── .bridge-clients/
-│   ├── a1b2c3d4e5f6/           ← 用户 A
-│   │   ├── CLAUDE.md → ../../CLAUDE.md        (symlink)
-│   │   ├── src/ → ../../src/                  (symlink)
-│   │   ├── package.json → ../../package.json  (symlink)
-│   │   └── report.md                          (真实文件 — Agent 输出)
-│   └── f6e5d4c3b2a1/           ← 用户 B
-│       ├── CLAUDE.md → ../../CLAUDE.md
-│       ├── src/ → ../../src/
-│       └── analysis.json                      (真实文件 — Agent 输出)
-├── src/
+agent-project/
 ├── CLAUDE.md
-└── package.json
+├── .claude/skills/
+└── .bridge-clients/
+    ├── a1b2c3d4e5f6/          ← 用户 A
+    │   ├── CLAUDE.md → ../../CLAUDE.md     (symlink)
+    │   ├── .claude → ../../.claude         (symlink)
+    │   └── report.md                       (agent 产出的真实文件)
+    └── f6e5d4c3b2a1/          ← 用户 B
+        ├── CLAUDE.md → ../../CLAUDE.md
+        └── analysis.json
 ```
 
-Client ID 由用户账户派生（userId 的 SHA-256，截取 12 位 hex）。同一用户始终映射到同一 workspace——跨会话持久化。
+Claude Code agent 的 `cwd` 设为用户 workspace，配合沙箱实现硬隔离。只有必要文件被 symlink（CLAUDE.md、.claude、.agents 和非 dot 用户文件），IDE 目录等噪音被排除。
 
-隔离方式因 Agent 类型不同：
+### 文件自动上传
 
-| Agent | 隔离级别 | 方式 |
-|-------|----------|------|
-| Claude Code | **硬隔离** | 进程 `cwd` 设为 client workspace。结合沙箱，Agent 物理上无法访问其他 workspace。 |
-| OpenClaw | **软隔离** | workspace 路径通过 prompt 文本注入（`[WORKSPACE] Your working directory is: ...`）。Agent 是否遵守取决于其自身。 |
+Claude Code agent 处理完消息后，CLI 自动检测 workspace 中新增或修改的文件并上传到平台。用户在 agents.hot 的聊天界面可以直接下载。
 
-排除在 symlink 之外的目录：`.git`、`node_modules`、`.next`、`dist`、`build`、`.env` 和 `.bridge-clients` 本身。
+## 沙箱
 
-## 自动上传
+`--sandbox` 在 macOS 上通过 [srt](https://github.com/anthropic-experimental/sandbox-runtime) 隔离 agent 子进程：
 
-Claude Code Agent 处理完消息后，CLI 自动将新增或修改的文件上传到平台。
-
-机制：
-
-1. **快照** — 每条消息前，记录 workspace 内所有文件的 `mtime` 和 `size`
-2. **Diff** — Agent 响应后，对比当前文件与快照
-3. **上传** — 新增或变更的文件上传到平台（最多 50 个文件，单文件 10 MB）
-
-用户在 [agents.hot](https://agents.hot) 的聊天界面中看到这些文件，可直接下载。上传使用每次请求生成的一次性 token。
-
-自动上传目前仅支持 **Claude Code**。OpenClaw Agent 不支持——需要 Agent 自行处理文件输出。
-
-## 沙箱（可选）
-
-当你把 Agent 作为 SaaS 服务发布时，远程用户可以发送任意消息。`--sandbox` 参数通过 [Anthropic sandbox-runtime (srt)](https://github.com/anthropic-experimental/sandbox-runtime) 在 macOS 内核级别（Seatbelt）限制文件系统访问，保护你的机器。
-
-### 沙箱功能
-
-- **凭据保护** — 阻止读取 API key、token 和敏感配置文件：
-  - `~/.claude.json`、`~/.claude/projects`、`~/.claude/history.jsonl`（Claude Code）
-  - `~/.openclaw`、`~/.agent-mesh`（Agent 配置）
-  - `~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.docker`、`~/.kube`（系统凭据）
-  - `~/.npmrc`、`~/.netrc`、`~/.gitconfig`、`~/.git-credentials`（token）
-- **Skills 可访问** — `~/.claude/skills/` 和 `~/.claude/agents/` 保持可读，Agent 可以使用配置的 skills
-- **写入范围** — 整个项目目录（含所有 client workspace）+ `/tmp`
-- **阻止 `.env` 写入** — 防止密钥外泄
-- **网络不受限** — Agent 可自由访问互联网
-- **覆盖所有子进程** — Agent 无法通过 spawn 子进程逃逸
-
-### 快速启用
+- 阻止读取：SSH key、API token、凭证文件（`~/.ssh`、`~/.aws`、`~/.claude.json` 等）
+- 允许读取：`.claude/skills/` 和 `.claude/agents/`
+- 写入范围：项目目录 + `/tmp`
+- 网络：不限制
+- 覆盖子进程：agent 无法通过 spawn 子进程逃逸
 
 ```bash
 agent-mesh connect claude --sandbox
 ```
 
-就这样。如果 `srt` 未安装，CLI 会自动通过 `npm install -g @anthropic-ai/sandbox-runtime` 安装。无需管理配置文件——一切通过 srt 编程 API 处理。
+srt 未安装时 CLI 会自动安装。已知限制：macOS Keychain 通过 Mach port 访问，文件沙箱无法拦截；OpenClaw 是独立守护进程，不受此沙箱控制。
 
-### 设为默认
-
-始终启用沙箱：
-
-```bash
-# 编辑 ~/.agent-mesh/config.json
-{ "sandbox": true, ... }
-```
-
-### 已知限制
-
-- **macOS Keychain** — `security` CLI 通过 Mach port IPC 访问 Keychain，文件系统沙箱无法拦截
-- **OpenClaw** — 作为独立守护进程运行（非 bridge 启动），沙箱不作用于 OpenClaw 进程本身
-- **需要 macOS** — srt 使用 macOS Seatbelt；暂不支持 Linux/Windows
-
-## 安全性
+## 安全
 
 - **无入站端口** — CLI 发起 outbound WebSocket，Agent 从不在网络上监听
-- **统一 `ah_` token 认证** — CLI token 在 agents.hot 创建，数据库存储 SHA-256 hash，每次 Bridge 连接时验证。在平台吊销 token 后 Agent 立即断连。
-- **心跳重验证** — Bridge Worker 定期检查 token 有效性。若已吊销，以 close code `4002`（TOKEN_REVOKED）断开连接。
+- **`ah_` token 认证** — 数据库存储 SHA-256 hash，吊销后 Agent 立即断连
+- **心跳重验证** — Bridge Worker 定期检查 token 有效性，已吊销则 close code `4002` 断连
 - **一次性接入 ticket** — `ct_` ticket 15 分钟过期，只能使用一次
 - **常量时间密钥比较** — PLATFORM_SECRET 使用 `timingSafeEqual` 验证
 - **CORS 限制** — Bridge Worker 只接受来自 `agents.hot` 的跨域请求
 - **配置文件保护** — `~/.agent-mesh/config.json` 以 0600 权限写入
-- **可选沙箱** — `--sandbox` 参数通过 [srt](https://github.com/anthropic-experimental/sandbox-runtime) 提供 OS 原生沙箱
-
-## 包结构
-
-| 包 | 路径 | 说明 |
-|----|------|------|
-| `@annals/agent-mesh` | `packages/cli` | CLI 工具 |
-| `@annals/bridge-protocol` | `packages/protocol` | Bridge Protocol v1 类型定义 |
-| `@annals/bridge-worker` | `packages/worker` | Cloudflare Worker（Durable Objects） |
-| `@annals/bridge-channels` | `packages/channels` | IM 渠道适配器（计划中） |
 
 ## 开发
 
 ```bash
-pnpm install          # 安装依赖
-pnpm build            # 全量构建
-pnpm test             # 运行测试 (vitest)
-pnpm lint             # 代码检查
+pnpm install        # 安装依赖
+pnpm build          # 全量构建
+pnpm test           # 跑测试（~293 个用例）
+pnpm lint           # ESLint
 ```
 
-## AI 辅助接入
+协议规范、适配器内部实现、Worker 设计等详细技术文档见 [CLAUDE.md](CLAUDE.md)。
 
-本仓库包含两个 [Claude Code skill](.claude/skills/)，任何 AI 助手都可以用它们引导你创建、连接和发布 Agent：
+## 部署
 
-- **[agent-management](.claude/skills/agent-management/SKILL.md)** — 工作流指南（创建 → 连接 → 发布）
-- **[cli-guide](.claude/skills/cli-guide/SKILL.md)** — 完整 CLI 命令参考和问题排查
+### Mesh Worker
 
-打开 [agents.hot/developers](https://agents.hot/developers)，点击**「复制指南」**即可获取一段现成的 AI 助手提示词。
+```bash
+npx wrangler deploy --config packages/worker/wrangler.toml
+```
 
-## 文档
+路由 `bridge.agents.hot/*`，绑定 `AGENT_SESSIONS`（DO）和 `BRIDGE_KV`（KV）。
 
-- [快速入门](docs/getting-started.md)
-- [Bridge Protocol v1](docs/protocol.md)
-- 适配器：[OpenClaw](docs/adapters/openclaw.md) | [Claude Code](docs/adapters/claude-code.md)
-- 渠道：[Telegram](docs/channels/telegram.md) | [Discord](docs/channels/discord.md)
+### CLI（npm）
 
-## Star History
+打 tag 触发 GitHub Actions 自动发布：
 
-[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-mesh&type=Date)](https://star-history.com/#annals-ai/agent-mesh&Date)
+```bash
+git tag v<x.y.z> && git push origin v<x.y.z>
+```
 
-## 许可证
+## 链接
+
+- 平台：[agents.hot](https://agents.hot)
+- npm：[@annals/agent-mesh](https://www.npmjs.com/package/@annals/agent-mesh)
+- Skills：[skills.sh](https://skills.sh)
+
+## License
 
 [MIT](LICENSE)

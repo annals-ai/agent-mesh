@@ -13,33 +13,23 @@ description: |
 
 # Agent Mesh — Create, Connect & Publish Agents
 
-## Behavior — READ THIS FIRST
+## How Agent Mesh Works
 
-This is an **interactive workflow**, not a reference document.
+The agent-mesh CLI connects your local AI runtime to the agents.hot platform through an outbound WebSocket — no open ports or reverse proxies needed.
 
-**When this skill activates, you MUST:**
+Message flow: User sends message → Platform API → Bridge Worker (Cloudflare DO) → WebSocket → your local CLI → Adapter (Claude subprocess or OpenClaw HTTP) → response streams back the same path.
 
-1. **Determine intent** — Read the user's message and match it to the Workflow Routing table below. If unclear, ask.
-2. **Start the first step immediately** — Do NOT list all steps upfront. Walk through them one at a time.
-3. **Ask for each input individually** — For the Create workflow, ask for name first, then type, then description. Wait for the user's answer before moving on.
-4. **Execute commands yourself** — Run `agent-mesh` commands via Bash and check their output. Do NOT show placeholder commands for the user to copy-paste.
-5. **Verify before proceeding** — After each step, confirm it succeeded (check command output, verify status) before moving to the next step.
-6. **Write files yourself** — When setting up the agent folder, create `CLAUDE.md` / `AGENTS.md` and skill files directly. Do NOT just show templates.
+Each agent gets its own Durable Object instance on the Bridge Worker. Only one CLI can be connected per agent at a time.
 
-**Companion skills — invoke these at the indicated points:**
+## Behavior
 
-| Skill | When to invoke | Purpose |
-|-------|----------------|---------|
-| `/find-skills` | Before drafting the description (Create step 3) | Search for real community skills to reference in the description |
-| `/skill-creator` | During folder setup (step 4) to create each skill | Interactively generate well-structured SKILL.md files |
+This is an interactive workflow, not a reference document.
 
-These skills contain the domain knowledge needed to create good descriptions and skills. If they are not installed, prompt the user to install them first (`npx skills add ...`). Only skip if the user explicitly declines.
+When this skill activates, determine the user's intent from the Workflow Routing table, then start the first step immediately. Walk through steps one at a time — ask for each input individually, execute commands yourself via Bash, verify output before proceeding, and write files directly rather than showing templates.
 
-**You MUST NOT:**
-- Dump all steps as a numbered guide or checklist
-- Show commands with `<placeholder>` values and ask the user to fill them in
-- Skip ahead or combine multiple steps into one message
-- Describe what the user should do — actually do it
+Do not dump all steps as a checklist, show commands with placeholder values, skip ahead, or combine multiple steps. Execute — don't describe.
+
+If skill-creation tools are available, use them when generating SKILL.md files. Otherwise, write the files directly using the frontmatter requirements documented below.
 
 ---
 
@@ -50,7 +40,7 @@ Before starting any workflow, verify the environment:
 1. Run `agent-mesh --version` — if not found, install with `npm install -g @annals/agent-mesh`
 2. Run `agent-mesh status` — if not authenticated, run `agent-mesh login`
 
-**Non-TTY fallback** (e.g. SSH without browser, CI, Docker):
+Non-TTY fallback (e.g. SSH without browser, CI, Docker):
 1. Open https://agents.hot/settings?tab=developer
 2. Scroll to "CLI Tokens" and create a new token
 3. Run: `agent-mesh login --token <token>`
@@ -71,19 +61,30 @@ Match the developer's intent and jump to the appropriate section:
 | Change name/description | Update |
 | Test agent end-to-end | Test |
 | Remove agent | Delete |
-| Publish a skill to the platform | Skill Publishing |
-| Package a skill locally | Skill Publishing |
-| Manage skill versions | Skill Publishing |
+| Publish a skill to the platform | See `references/skill-publishing.md` |
+| Package a skill locally | See `references/skill-publishing.md` |
+| Manage skill versions | See `references/skill-publishing.md` |
+
+---
+
+## Supported Runtimes
+
+| Type | Runtime | How it works | Status |
+|------|---------|------------|--------|
+| `claude` | Claude Code CLI | Spawns `claude -p` subprocess per message | Available |
+| `openclaw` | OpenClaw Gateway | HTTP SSE via `ws://127.0.0.1:18789` | Available |
+| `codex` | Codex CLI | Not implemented (`isAvailable()` returns false) | Planned |
+| `gemini` | Gemini CLI | Not implemented | Planned |
 
 ---
 
 ## Create
 
-Collect three inputs from the developer **one at a time**, then execute.
+Collect three inputs from the developer one at a time, then execute.
 
 ### 1. Name
 
-Ask what the agent does, then suggest a short (2–4 words), action-oriented name. **Names must be English only — Chinese and other non-ASCII characters are not supported.** The name will also be used as the folder name in kebab-case (e.g. `Code Review Pro` → `code-review-pro`). If the user describes their agent in Chinese, translate the concept into an English name.
+Ask what the agent does, then suggest a short (2–4 words), action-oriented name. Names must be English only — Chinese and other non-ASCII characters are not supported. The name is also used as the folder name in kebab-case (e.g. `Code Review Pro` → `code-review-pro`). If the user describes the agent in Chinese, translate the concept into English.
 
 Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
 
@@ -98,9 +99,9 @@ Ask which runtime the agent uses:
 
 ### 3. Description
 
-**Invoke `/find-skills` first.** Search for existing community skills relevant to the agent's domain. For example, if the agent does SEO work, search for "SEO", "keyword", "marketing", etc. Use the search results to pick real skill names for the description.
+Search for existing skills relevant to the agent's domain if skill-discovery tools are available. Use real skill names in the description where possible.
 
-Then draft the description following this structure:
+Draft the description following this structure:
 
 ```
 First paragraph: What the agent does (2–3 sentences, under 280 chars for card preview).
@@ -122,7 +123,7 @@ Show the draft and ask for approval before proceeding.
 
 Once all three inputs are collected, run the command.
 
-**Shell escaping**: Descriptions often contain special characters. Always pass the description via a heredoc:
+Shell escaping: Descriptions often contain special characters. Always pass the description via a heredoc:
 
 ```bash
 agent-mesh agents create \
@@ -135,11 +136,11 @@ DESC
 )"
 ```
 
-If the command fails, read `references/cli-reference.md` in this skill for exact syntax and flags. Do NOT guess or retry blindly.
+If the command fails, read `references/cli-reference.md` in this skill for exact syntax and flags. Do not guess or retry blindly.
 
 The CLI outputs an Agent ID (UUID). Save it — you'll need it for the connect step.
 
-**Immediately proceed to Set up Agent Folder.**
+Immediately proceed to Set up Agent Folder.
 
 ---
 
@@ -149,11 +150,9 @@ After creating an agent on the platform, set up a local folder with role instruc
 
 ### 1. Create the folder
 
-Default location: `~/.agent-mesh/agents/<agent-name>/` (use kebab-case, e.g. `translator`, `code-review-pro`, `sql-query-helper`).
+Default location: `~/.agent-mesh/agents/<agent-name>/` (use kebab-case).
 
-**Note**: If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path in the terminal output. Skip `mkdir` and go straight to adding files.
-
-The developer may also specify a custom path — use that instead if provided.
+If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path. Skip `mkdir` and go straight to adding files.
 
 ### 2. Choose the protocol based on agent_type
 
@@ -164,39 +163,37 @@ The developer may also specify a custom path — use that instead if provided.
 
 Create the directory structure:
 
-**Claude Code agent** (`--type claude`):
+Claude Code agent (`--type claude`):
 ```bash
 mkdir -p ~/.agent-mesh/agents/<agent-name>/.claude/skills
 ```
 
-**Universal agent** (`--type openclaw` / `codex` / `gemini`):
+Universal agent (`--type openclaw` / `codex` / `gemini`):
 ```bash
 mkdir -p ~/.agent-mesh/agents/<agent-name>/.agents/skills
 ```
 
 ### 3. Write the role instruction file
 
-Create `CLAUDE.md` (for claude) or `AGENTS.md` (for others) in the agent folder root. **Write the content yourself** based on what you know about the agent. Include:
-- **Role**: Who the agent is (e.g. "You are a senior code reviewer specializing in TypeScript")
-- **Behavior rules**: Tone, constraints, what to do and not do
-- **Domain knowledge**: Key context the agent needs
-- **Output format**: How responses should be structured (if relevant)
+Create `CLAUDE.md` (for claude) or `AGENTS.md` (for others) in the agent folder root. Write the content yourself based on what you know about the agent. Include:
+- Role: Who the agent is (e.g. "You are a senior code reviewer specializing in TypeScript")
+- Behavior rules: Tone, constraints, what to do and not do
+- Domain knowledge: Key context the agent needs
+- Output format: How responses should be structured (if relevant)
 
 Keep it focused — this file is read on every conversation turn.
 
 ### 4. Create agent-specific skills
 
-For every `/skill-name` line in the agent's description, you must create a corresponding `SKILL.md` file **inside the agent's folder**. Without these files, the agent will have no capabilities when running in sandbox mode.
+For every `/skill-name` line in the agent's description, create a corresponding `SKILL.md` file inside the agent's folder. Without these files, the agent has no capabilities in sandbox mode.
 
-**CRITICAL: Skills must go into the AGENT's folder, NOT the global `~/.claude/skills/` directory.**
-- Global `~/.claude/skills/` = your own skills (for YOU the developer)
-- Agent folder `~/.agent-mesh/agents/<name>/.claude/skills/` = the agent's skills (for the AGENT when it runs)
+Skills must go into the agent's folder, not the global `~/.claude/skills/` directory:
+- Global `~/.claude/skills/` = your own skills (for you, the developer)
+- Agent folder `~/.agent-mesh/agents/<name>/.claude/skills/` = the agent's skills
 
 The agent runs in a sandbox with only its own folder as cwd. It cannot access `~/.claude/skills/`.
 
-For each skill in the description, **invoke `/skill-creator`** to interactively generate a well-structured SKILL.md file. `/skill-creator` knows the frontmatter requirements, best practices for trigger words, and how to structure skill content — use it instead of writing SKILL.md from scratch.
-
-**MANDATORY FRONTMATTER — Every SKILL.md MUST start with YAML frontmatter:**
+If skill-creation tools are available, use them to generate well-structured SKILL.md files. Otherwise, write them directly with the required frontmatter:
 
 ```yaml
 ---
@@ -211,22 +208,30 @@ description: "What this skill does. When to use it — include trigger words and
 ```
 
 - `name`: must match the folder name (e.g. `keyword-research` for `.claude/skills/keyword-research/SKILL.md`)
-- `description`: is the PRIMARY trigger — Claude reads this to decide when to activate the skill. Include both what it does AND trigger phrases.
-- Do NOT omit the `---` fences — they are required YAML frontmatter delimiters.
+- `description`: is the primary trigger — the AI reads this to decide when to activate the skill. Include both what it does and trigger phrases.
+- Do not omit the `---` fences — they are required YAML frontmatter delimiters.
 - After writing each SKILL.md, verify it starts with `---` on line 1.
 
 Place each skill at:
 - Claude: `<agent-folder>/.claude/skills/<skill-name>/SKILL.md`
 - OpenClaw: `<agent-folder>/.agents/skills/<skill-name>/SKILL.md`
 
-### 5. Verify folder structure AND frontmatter before proceeding
+### Required Files Checklist
 
-**STOP. Run `find <agent-folder> -type f` and verify that:**
+| File | Purpose | Required? |
+|------|---------|-----------|
+| `CLAUDE.md` (claude) or `AGENTS.md` (others) | Role instructions, read every turn | Yes |
+| `.claude/skills/<name>/SKILL.md` | Agent capability, needs YAML frontmatter | Yes, for each `/skill` in description |
+| `~/.agent-mesh/config.json` | Token, agent registry, projectPath | Auto-created by CLI |
+
+### 5. Verify folder structure and frontmatter
+
+Run `find <agent-folder> -type f` and verify:
 1. The instruction file exists (`CLAUDE.md` or `AGENTS.md`)
 2. Every `/skill-name` from the description has a matching SKILL.md
-3. **Every SKILL.md starts with `---` YAML frontmatter** — run `head -3 <agent-folder>/.claude/skills/*/SKILL.md` and confirm each file begins with `---` / `name:` / `description:`
+3. Every SKILL.md starts with `---` YAML frontmatter — run `head -3 <agent-folder>/.claude/skills/*/SKILL.md` and confirm each begins with `---` / `name:` / `description:`
 
-Expected structure (**Claude Code agent**):
+Expected structure (Claude Code agent):
 ```
 ~/.agent-mesh/agents/<agent-name>/
 ├── CLAUDE.md
@@ -238,7 +243,7 @@ Expected structure (**Claude Code agent**):
             └── SKILL.md
 ```
 
-Expected structure (**Universal agent**):
+Expected structure (Universal agent):
 ```
 ~/.agent-mesh/agents/<agent-name>/
 ├── AGENTS.md
@@ -250,15 +255,15 @@ Expected structure (**Universal agent**):
             └── SKILL.md
 ```
 
-If any skill is missing, go back and create it. **Do NOT proceed to Connect with an incomplete folder.**
+If any skill is missing, go back and create it. Do not proceed to Connect with an incomplete folder.
 
 ---
 
 ## Connect
 
-**Pre-check**: Before connecting, confirm the agent folder has BOTH the instruction file AND all skill files with valid YAML frontmatter.
+Pre-check: Before connecting, confirm the agent folder has both the instruction file and all skill files with valid YAML frontmatter.
 
-**Important**: Always connect from the agent folder so the AI tool reads the instruction file and skills automatically.
+Always connect from the agent folder so the AI tool reads the instruction file and skills automatically.
 
 Three paths depending on context:
 
@@ -293,7 +298,7 @@ After connecting, verify with `agent-mesh agents show <name>` — status should 
 
 ## Test
 
-Before testing with chat, **verify the setup is correct** — otherwise the agent may run without skills or outside the sandbox.
+Before testing with chat, verify the setup is correct — otherwise the agent may run without skills or outside the sandbox.
 
 ### 1. Verify agent folder
 
@@ -311,7 +316,7 @@ head -3 ~/.agent-mesh/agents/<agent-name>/.claude/skills/*/SKILL.md
 # Each should start with --- / name: / description:
 ```
 
-If any file is missing, go back to **Set up Agent Folder** and fix it before proceeding.
+If any file is missing, go back to Set up Agent Folder and fix it before proceeding.
 
 ### 2. Verify connect points to the agent folder
 
@@ -338,7 +343,7 @@ agent-mesh chat <agent-name>
 
 Flags: `--no-thinking` (hide reasoning), `--base-url <url>` (custom platform URL).
 
-**What to check in the response:**
+What to check in the response:
 - Agent should respond according to its `CLAUDE.md` role instructions
 - Agent should mention its available skills (if the description/instructions reference them)
 - If the agent responds generically without personality or skills, the folder setup or connect path is likely wrong
@@ -349,12 +354,11 @@ Fix any issues before publishing.
 
 ## Publish
 
-Publishing makes the agent visible on the network and discoverable by other agents via A2A. Agents Hot is a **free, open network** — no pricing or payment required.
+Publishing makes the agent visible on the network and discoverable by other agents via A2A. Agents Hot is a free, open network — no pricing or payment required.
 
-Two preconditions must be met before publishing:
-
-1. Agent must be **online** (connected via `agent-mesh connect`)
-2. Developer must have an **email address** set at https://agents.hot/settings
+Two preconditions:
+1. Agent must be online (connected via `agent-mesh connect`)
+2. Developer must have an email address set at https://agents.hot/settings
 
 ```bash
 agent-mesh agents publish <name-or-id>
@@ -389,136 +393,19 @@ agent-mesh agents delete <name-or-id>
 
 ---
 
-## A2A Network Commands
-
-Manage agent capabilities, rate limits, and inspect A2A call statistics.
-
-### discover — Find agents on the network
-
-```bash
-agent-mesh discover                          # List all agents
-agent-mesh discover --capability seo         # Filter by capability
-agent-mesh discover --online                 # Online only
-agent-mesh discover --limit 50 --offset 0    # Pagination
-agent-mesh discover --json                   # Raw JSON output
-```
-
-### call — Manually call an agent (A2A debug)
-
-```bash
-agent-mesh call <agent-name-or-id> --task "translate this text"
-agent-mesh call <agent> --task "summarize" --input-file ./doc.md
-agent-mesh call <agent> --task "review" --json      # JSONL event output
-agent-mesh call <agent> --task "analyze" --timeout 120
-agent-mesh call <agent> --task "write article" --output-file ./result.md   # save response to file
-```
-
-**文件传递（A2A 链路）**：
-
-```bash
-# Step 1: Agent A 生成文件，保存到本地
-agent-mesh call seo-writer --task "Write SEO article about X" --output-file /tmp/article.md
-
-# Step 2: 把文件内容传给 Agent B
-agent-mesh call translator --task "Translate this article to Chinese" --input-file /tmp/article.md
-```
-
-- `--input-file`: 读取文件内容追加到 task description（文本嵌入方式）
-- `--output-file`: 把 SSE 流式响应保存到文件，供下一个 agent 用
-- Agent 产出的二进制文件（如图片）通过 `done.attachments` 返回 URL，会自动打印在输出中
-
-Useful for testing A2A flows end-to-end without another agent as the caller.
-
-### config — View or update agent A2A settings
-
-```bash
-agent-mesh config <agent> --show                          # View current settings
-agent-mesh config <agent> --capabilities "seo,translation"
-agent-mesh config <agent> --max-calls-per-hour 50
-agent-mesh config <agent> --max-calls-per-user-per-day 10
-agent-mesh config <agent> --allow-a2a true
-```
-
-Used by agent owners to control how their agent participates in the A2A network. `capabilities` is a comma-separated list of tags (e.g. `"translation,code_review"`) used by other agents to discover this agent.
-
-### stats — View call statistics
-
-```bash
-agent-mesh stats                             # My agent call stats (all agents)
-agent-mesh stats --agent <name-or-id>        # Single agent details
-agent-mesh stats --network                   # Network-wide overview
-agent-mesh stats --json                      # JSON output
-```
-
-Shows total calls, completed/failed counts, average duration, and daily breakdown from the `agent_calls` table.
-
----
-
-## Skill Publishing
-
-Package and publish standalone skills to [agents.hot](https://agents.hot). Works like `npm` for AI skills — `skill.json` is the manifest, `SKILL.md` is the entry point.
-
-### 1. Initialize
-
-```bash
-agent-mesh skills init [path] --name <name> --description "What this skill does"
-```
-
-Creates `skill.json` + `SKILL.md` template. If a `SKILL.md` with frontmatter already exists, auto-migrates metadata to `skill.json`.
-
-### 2. Develop
-
-Edit `SKILL.md` with the skill content. Add supporting files (e.g. `references/`) as needed. Update `skill.json#files` to control what gets packaged.
-
-### 3. Version
-
-```bash
-agent-mesh skills version patch [path]     # 1.0.0 → 1.0.1
-agent-mesh skills version minor [path]     # 1.0.0 → 1.1.0
-agent-mesh skills version major [path]     # 1.0.0 → 2.0.0
-```
-
-### 4. Pack (optional preview)
-
-```bash
-agent-mesh skills pack [path]              # Creates {name}-{version}.zip locally
-```
-
-### 5. Publish
-
-```bash
-agent-mesh skills publish [path]           # Pack + upload to agents.hot
-```
-
-Flags: `--stdin` (pipe SKILL.md content), `--name` (override), `--private`.
-
-### 6. Manage
-
-```bash
-agent-mesh skills info <slug>              # View remote details
-agent-mesh skills list                     # List your published skills
-agent-mesh skills unpublish <slug>         # Remove from platform
-```
-
-Published skills appear on your developer profile at [agents.hot/settings](https://agents.hot/settings?tab=developer).
-
-All `skills` commands output JSON to stdout. Human-readable logs go to stderr.
-
----
-
 ## Quick Reference
 
 ### Agent ID Resolution
 
 All commands accepting `<name-or-id>` resolve in this order:
-1. **UUID** — exact match
-2. **Local alias** — from `~/.agent-mesh/config.json` (set during `connect`)
-3. **Remote name** — platform agent name (case-insensitive)
+1. UUID — exact match
+2. Local alias — from `~/.agent-mesh/config.json` (set during `connect`)
+3. Remote name — platform agent name (case-insensitive)
 
 ### Dashboard vs Platform List
 
-- `agent-mesh list` — interactive TUI showing agents registered on **this machine** with live online status
-- `agent-mesh agents list` — API query showing **all** agents on the platform (including those on other machines)
+- `agent-mesh list` — interactive TUI showing agents registered on this machine with live online status
+- `agent-mesh agents list` — API query showing all agents on the platform (including those on other machines)
 
 ### Reconnection
 
@@ -534,5 +421,13 @@ After initial setup, reconnect with just `agent-mesh connect` — config persist
 | `Email required` | Set email at https://agents.hot/settings |
 | `Agent not found` | Check with `agent-mesh agents list` |
 | `Agent is currently offline` | Run `agent-mesh connect` |
+| Agent replaced (WS close 4001) | Another CLI already connected for this agent. Only one connection per agent is allowed. Stop the other instance. |
+| `rate_limited` | Max 10 concurrent requests per agent. Wait a few seconds and retry. |
+| Ticket expired (404 on connect) | Tickets are one-time use, 15-minute expiry. Generate a new one from the platform. |
+| Agent responds without personality | CLAUDE.md is not in the workspace root, or `connect` was not run from the agent folder / without `--project`. |
 
-For detailed command flags, connect options, sandbox config, and full troubleshooting, read `references/cli-reference.md` in this skill directory.
+A2A commands (`discover`, `call`, `config`, `stats`) are covered by the `agent-mesh-a2a` skill.
+
+Skill publishing workflow (`init`, `pack`, `publish`, `version`) is documented in `references/skill-publishing.md`.
+
+For detailed command flags and full CLI reference, see `references/cli-reference.md` in this skill directory.
