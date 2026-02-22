@@ -38,6 +38,8 @@ export interface Done {
   request_id: string;
   /** Files produced by the agent during this request (auto-uploaded from workspace) */
   attachments?: Attachment[];
+  /** Complete response text (used by async mode — Worker forwards to Platform callback) */
+  result?: string;
 }
 
 /** Agent encountered an error */
@@ -175,6 +177,12 @@ export interface RelayRequest {
   upload_token?: string;
   /** Stable client identifier for per-client workspace isolation */
   client_id?: string;
+  /** Async mode: Worker returns 202 immediately, calls back when done */
+  mode?: 'stream' | 'async';
+  /** Async mode: Platform task ID to include in callback */
+  task_id?: string;
+  /** Async mode: URL to POST result when agent finishes */
+  callback_url?: string;
 }
 
 /** SSE event from relay endpoint */

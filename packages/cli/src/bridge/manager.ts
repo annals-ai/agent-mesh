@@ -194,7 +194,11 @@ export class BridgeManager {
   }
 
   private wireSession(handle: SessionHandle, sessionId: string, requestRef: { requestId: string }): void {
+    // Accumulate full response text for async mode (result field in Done)
+    let fullResponseBuffer = '';
+
     handle.onChunk((delta) => {
+      fullResponseBuffer += delta;
       const chunk: Chunk = {
         type: 'chunk',
         session_id: sessionId,
@@ -225,9 +229,11 @@ export class BridgeManager {
         session_id: sessionId,
         request_id: requestRef.requestId,
         ...(attachments && attachments.length > 0 && { attachments: attachments as Attachment[] }),
+        ...(fullResponseBuffer && { result: fullResponseBuffer }),
       };
       this.trackRequest(sessionId, requestRef.requestId, 'done');
       this.wsClient.send(done);
+      fullResponseBuffer = '';
       this.sessionLastSeenAt.set(sessionId, Date.now());
       const fileInfo = attachments && attachments.length > 0 ? ` (${attachments.length} files)` : '';
       log.info(`Request done: session=${sessionId.slice(0, 8)}... request=${requestRef.requestId.slice(0, 8)}...${fileInfo}`);

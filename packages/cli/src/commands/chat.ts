@@ -18,9 +18,102 @@ export interface ChatOptions {
   baseUrl: string;
   showThinking?: boolean;
   signal?: AbortSignal;
+  mode?: 'stream' | 'async';
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Async chat: submit task → poll for result
+ */
+export async function asyncChat(opts: ChatOptions): Promise<void> {
+  const res = await fetch(`${opts.baseUrl}/api/agents/${opts.agentId}/chat`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${opts.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ message: opts.message, mode: 'async' }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      msg = body.message || body.error || msg;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
+  const { task_id, status, error_message, error_code } = await res.json() as {
+    task_id: string;
+    status: string;
+    poll_url?: string;
+    error_message?: string;
+    error_code?: string;
+  };
+
+  if (status === 'failed') {
+    throw new Error(`Task failed: ${error_message || error_code}`);
+  }
+
+  process.stderr.write(`${GRAY}[async] task=${task_id.slice(0, 8)}... polling${RESET}`);
+
+  // Poll for result
+  const maxWait = 5 * 60 * 1000;
+  const pollInterval = 2000;
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWait) {
+    if (opts.signal?.aborted) throw new Error('Aborted');
+
+    await sleep(pollInterval);
+
+    const pollRes = await fetch(`${opts.baseUrl}/api/tasks/${task_id}`, {
+      headers: { Authorization: `Bearer ${opts.token}` },
+      signal: opts.signal,
+    });
+
+    if (!pollRes.ok) {
+      throw new Error(`Poll failed: HTTP ${pollRes.status}`);
+    }
+
+    const task = await pollRes.json() as {
+      status: string;
+      result?: string;
+      error_message?: string;
+      error_code?: string;
+    };
+
+    if (task.status === 'completed') {
+      process.stderr.write(` done\n`);
+      process.stdout.write((task.result || '') + '\n');
+      return;
+    }
+    if (task.status === 'failed') {
+      process.stderr.write(` failed\n`);
+      throw new Error(`Task failed: ${task.error_message || task.error_code}`);
+    }
+
+    process.stderr.write('.');
+  }
+
+  process.stderr.write(` timeout\n`);
+  throw new Error('Task timed out waiting for result');
+}
+
+/**
+ * Stream chat: SSE streaming (original mode)
+ */
 export async function streamChat(opts: ChatOptions): Promise<void> {
+  // Default to async mode unless explicitly set to stream
+  if ((opts.mode ?? 'async') === 'async') {
+    return asyncChat(opts);
+  }
+
   const res = await fetch(`${opts.baseUrl}/api/agents/${opts.agentId}/chat`, {
     method: 'POST',
     headers: {
@@ -142,9 +235,11 @@ export function registerChatCommand(program: Command): void {
     .command('chat <agent> [message]')
     .description('Chat with an agent through the platform (for debugging)')
     .option('--no-thinking', 'Hide thinking/reasoning output')
+    .option('--stream', 'Force SSE streaming mode (default is async)')
     .option('--base-url <url>', 'Platform base URL', DEFAULT_BASE_URL)
     .action(async (agentInput: string, inlineMessage: string | undefined, opts: {
       thinking: boolean;
+      stream: boolean;
       baseUrl: string;
     }) => {
       const token = loadToken();
@@ -166,9 +261,11 @@ export function registerChatCommand(program: Command): void {
         process.exit(1);
       }
 
+      const mode = opts.stream ? 'stream' as const : 'async' as const;
+
       // Single message mode
       if (inlineMessage) {
-        log.info(`Chatting with ${BOLD}${agentName}${RESET}`);
+        log.info(`Chatting with ${BOLD}${agentName}${RESET} (${mode})`);
         try {
           await streamChat({
             agentId,
@@ -176,6 +273,7 @@ export function registerChatCommand(program: Command): void {
             token,
             baseUrl: opts.baseUrl,
             showThinking: opts.thinking,
+            mode,
           });
         } catch (err) {
           log.error((err as Error).message);
@@ -230,6 +328,7 @@ export function registerChatCommand(program: Command): void {
             token,
             baseUrl: opts.baseUrl,
             showThinking: opts.thinking,
+            mode,
           });
         } catch (err) {
           if (abortController.signal.aborted) return;

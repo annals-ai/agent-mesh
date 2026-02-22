@@ -39,6 +39,15 @@ interface PendingRelay {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface AsyncTaskMeta {
+  taskId: string;
+  callbackUrl: string;
+  startedAt: number;
+  lastActivity: number;
+}
+
+const ASYNC_TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes no chunk = timeout
+
 interface SessionSocketAttachment {
   promoted: boolean;
   agentId?: string;
@@ -249,6 +258,8 @@ export class AgentSession implements DurableObject {
         });
         this.scheduleHeartbeatAlarm();
         this.keepaliveAllRelays();
+        // Check async task timeouts (5 min no activity)
+        this.checkAsyncTaskTimeouts();
         // Periodically sync online status to DB (self-healing if DB drifts)
         if (this.agentId && Date.now() - this.lastPlatformSyncAt >= AgentSession.PLATFORM_SYNC_INTERVAL_MS) {
           this.lastPlatformSyncAt = Date.now();
@@ -364,7 +375,7 @@ export class AgentSession implements DurableObject {
       return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
     }
 
-    let body: { session_id: string; request_id: string; content: string; attachments?: Attachment[]; upload_url?: string; upload_token?: string; client_id?: string };
+    let body: { session_id: string; request_id: string; content: string; attachments?: Attachment[]; upload_url?: string; upload_token?: string; client_id?: string; mode?: string; task_id?: string; callback_url?: string };
     try {
       body = await request.json() as typeof body;
     } catch {
@@ -397,7 +408,19 @@ export class AgentSession implements DurableObject {
       return json(502, { error: 'agent_offline', message: 'Failed to send message to agent' });
     }
 
-    // Create SSE response stream
+    // ===== Async mode: persist task meta to DO storage, return 202 =====
+    if (body.mode === 'async' && body.task_id && body.callback_url) {
+      const taskMeta: AsyncTaskMeta = {
+        taskId: body.task_id,
+        callbackUrl: body.callback_url,
+        startedAt: Date.now(),
+        lastActivity: Date.now(),
+      };
+      await this.state.storage.put(`async:${body.request_id}`, JSON.stringify(taskMeta));
+      return json(202, { accepted: true, request_id: body.request_id });
+    }
+
+    // ===== Stream mode (default): create SSE response stream =====
     const requestId = body.request_id;
     const encoder = new TextEncoder();
 
@@ -480,6 +503,31 @@ export class AgentSession implements DurableObject {
   private async handleAgentMessage(msg: BridgeToWorkerMessage): Promise<void> {
     if (msg.type !== 'chunk' && msg.type !== 'done' && msg.type !== 'error') return;
 
+    // Check for async task first (DO storage)
+    const taskJson = await this.state.storage.get<string>(`async:${msg.request_id}`);
+    if (taskJson) {
+      const task: AsyncTaskMeta = JSON.parse(taskJson);
+
+      if (msg.type === 'chunk') {
+        // Update activity timestamp, don't accumulate chunks
+        task.lastActivity = Date.now();
+        await this.state.storage.put(`async:${msg.request_id}`, JSON.stringify(task));
+        return;
+      }
+      if (msg.type === 'done') {
+        const doneMsg = msg as Done;
+        await this.completeAsyncTask(msg.request_id, task, doneMsg.result || '');
+        return;
+      }
+      if (msg.type === 'error') {
+        const errMsg = msg as BridgeError;
+        await this.failAsyncTask(msg.request_id, task, errMsg.code, errMsg.message);
+        return;
+      }
+      return;
+    }
+
+    // Synchronous relay path
     const pending = this.pendingRelays.get(msg.request_id);
     if (!pending) return;
 
@@ -522,6 +570,62 @@ export class AgentSession implements DurableObject {
     } catch {
       clearTimeout(timer);
       this.pendingRelays.delete(msg.request_id);
+    }
+  }
+
+  // ========================================================
+  // Async task completion callbacks
+  // ========================================================
+  private async completeAsyncTask(requestId: string, task: AsyncTaskMeta, result: string): Promise<void> {
+    try {
+      await fetch(task.callbackUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Platform-Secret': this.env.PLATFORM_SECRET,
+        },
+        body: JSON.stringify({
+          task_id: task.taskId,
+          request_id: requestId,
+          status: 'completed',
+          result,
+          duration_ms: Date.now() - task.startedAt,
+        }),
+      });
+    } catch { /* callback failed — task stays running, caller polls timeout */ }
+
+    await this.state.storage.delete(`async:${requestId}`);
+  }
+
+  private async failAsyncTask(requestId: string, task: AsyncTaskMeta, code: string, message: string): Promise<void> {
+    try {
+      await fetch(task.callbackUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Platform-Secret': this.env.PLATFORM_SECRET,
+        },
+        body: JSON.stringify({
+          task_id: task.taskId,
+          request_id: requestId,
+          status: 'failed',
+          error_code: code,
+          error_message: message,
+        }),
+      });
+    } catch {}
+
+    await this.state.storage.delete(`async:${requestId}`);
+  }
+
+  private async checkAsyncTaskTimeouts(): Promise<void> {
+    const asyncEntries = await this.state.storage.list({ prefix: 'async:' });
+    for (const [key, value] of asyncEntries) {
+      const task: AsyncTaskMeta = JSON.parse(value as string);
+      if (Date.now() - task.lastActivity > ASYNC_TASK_TIMEOUT_MS) {
+        const requestId = key.replace('async:', '');
+        await this.failAsyncTask(requestId, task, 'timeout', 'No activity for 5 minutes');
+      }
     }
   }
 
@@ -797,6 +901,7 @@ export class AgentSession implements DurableObject {
   }
 
   private cleanupAllRelays(): void {
+    // Synchronous relays
     for (const [, pending] of this.pendingRelays) {
       clearTimeout(pending.timer);
       try {
@@ -805,6 +910,18 @@ export class AgentSession implements DurableObject {
       } catch {}
     }
     this.pendingRelays.clear();
+
+    // Async tasks — fail all with agent_offline
+    this.cleanupAsyncTasks();
+  }
+
+  private async cleanupAsyncTasks(): Promise<void> {
+    const asyncEntries = await this.state.storage.list({ prefix: 'async:' });
+    for (const [key, value] of asyncEntries) {
+      const task: AsyncTaskMeta = JSON.parse(value as string);
+      const requestId = key.replace('async:', '');
+      await this.failAsyncTask(requestId, task, 'agent_offline', 'Agent disconnected');
+    }
   }
 
   // ========================================================

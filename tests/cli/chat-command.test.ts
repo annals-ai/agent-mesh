@@ -98,6 +98,7 @@ describe('streamChat — SSE streaming', () => {
       message: 'Hi',
       token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
+      mode: 'stream',
     });
 
     const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
@@ -123,6 +124,7 @@ describe('streamChat — SSE streaming', () => {
       token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
       showThinking: true,
+      mode: 'stream',
     });
 
     const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
@@ -150,6 +152,7 @@ describe('streamChat — SSE streaming', () => {
       token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
       showThinking: false,
+      mode: 'stream',
     });
 
     const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
@@ -174,6 +177,7 @@ describe('streamChat — SSE streaming', () => {
       message: 'Read a file',
       token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
+      mode: 'stream',
     });
 
     const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
@@ -197,6 +201,7 @@ describe('streamChat — SSE streaming', () => {
       message: 'Create a file',
       token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
+      mode: 'stream',
     });
 
     const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
@@ -216,6 +221,7 @@ describe('streamChat — SSE streaming', () => {
       message: 'Crash me',
       token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
+      mode: 'stream',
     });
 
     const errOutput = stderrWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
@@ -233,6 +239,7 @@ describe('streamChat — SSE streaming', () => {
         message: 'Hello',
         token: 'ah_test-token',
         baseUrl: 'https://agents.hot',
+        mode: 'stream',
       }),
     ).rejects.toThrow(/offline/i);
   });
@@ -249,6 +256,7 @@ describe('streamChat — SSE streaming', () => {
       message: 'Test message',
       token: 'ah_my-token',
       baseUrl: 'http://localhost:3000',
+      mode: 'stream',
     });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -279,6 +287,7 @@ describe('streamChat — SSE streaming', () => {
       message: 'Search',
       token: 'ah_test-token',
       baseUrl: 'https://agents.hot',
+      mode: 'stream',
     });
 
     const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
@@ -300,7 +309,155 @@ describe('streamChat — SSE streaming', () => {
         message: 'Hello',
         token: 'ah_test-token',
         baseUrl: 'https://agents.hot',
+        mode: 'stream',
       }),
     ).rejects.toThrow(/empty/i);
+  });
+});
+
+describe('asyncChat — async polling', () => {
+  let originalFetch: typeof globalThis.fetch;
+  let stdoutWrite: ReturnType<typeof vi.fn>;
+  let stderrWrite: ReturnType<typeof vi.fn>;
+  let originalStdoutWrite: typeof process.stdout.write;
+  let originalStderrWrite: typeof process.stderr.write;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalStdoutWrite = process.stdout.write;
+    originalStderrWrite = process.stderr.write;
+    stdoutWrite = vi.fn().mockReturnValue(true);
+    stderrWrite = vi.fn().mockReturnValue(true);
+    process.stdout.write = stdoutWrite as unknown as typeof process.stdout.write;
+    process.stderr.write = stderrWrite as unknown as typeof process.stderr.write;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  });
+
+  it('should submit task and poll until completed', async () => {
+    let callCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/chat')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ task_id: 'task-123', status: 'running', poll_url: '/api/tasks/task-123' }),
+        });
+      }
+      // Poll endpoint — first call returns running, second returns completed
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'running' }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'completed', result: 'Hello from async!' }) });
+    }) as unknown as typeof fetch;
+
+    const { asyncChat } = await import('../../packages/cli/src/commands/chat.js');
+    await asyncChat({
+      agentId: AGENT_UUID,
+      message: 'Test async',
+      token: 'ah_test-token',
+      baseUrl: 'https://agents.hot',
+    });
+
+    const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
+    expect(output).toContain('Hello from async!');
+  });
+
+  it('should throw on immediate task failure', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ task_id: 'task-fail', status: 'failed', error_message: 'Agent offline' }),
+    }) as unknown as typeof fetch;
+
+    const { asyncChat } = await import('../../packages/cli/src/commands/chat.js');
+
+    await expect(
+      asyncChat({
+        agentId: AGENT_UUID,
+        message: 'Fail',
+        token: 'ah_test-token',
+        baseUrl: 'https://agents.hot',
+      }),
+    ).rejects.toThrow(/Agent offline/);
+  });
+
+  it('should throw on poll failure', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/chat')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ task_id: 'task-123', status: 'running' }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ status: 'failed', error_code: 'timeout', error_message: 'No activity' }),
+      });
+    }) as unknown as typeof fetch;
+
+    const { asyncChat } = await import('../../packages/cli/src/commands/chat.js');
+
+    await expect(
+      asyncChat({
+        agentId: AGENT_UUID,
+        message: 'Timeout',
+        token: 'ah_test-token',
+        baseUrl: 'https://agents.hot',
+      }),
+    ).rejects.toThrow(/No activity/);
+  });
+
+  it('should throw on HTTP error from chat endpoint', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ error: 'agent_offline', message: 'Agent is offline' }),
+    }) as unknown as typeof fetch;
+
+    const { asyncChat } = await import('../../packages/cli/src/commands/chat.js');
+
+    await expect(
+      asyncChat({
+        agentId: AGENT_UUID,
+        message: 'Hello',
+        token: 'ah_test-token',
+        baseUrl: 'https://agents.hot',
+      }),
+    ).rejects.toThrow(/offline/i);
+  });
+
+  it('streamChat defaults to async mode', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/chat')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ task_id: 'task-default', status: 'running' }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ status: 'completed', result: 'async default' }),
+      });
+    }) as unknown as typeof fetch;
+
+    const { streamChat } = await import('../../packages/cli/src/commands/chat.js');
+    await streamChat({
+      agentId: AGENT_UUID,
+      message: 'Default mode',
+      token: 'ah_test-token',
+      baseUrl: 'https://agents.hot',
+    });
+
+    // Should have sent mode: 'async' to chat endpoint
+    const chatCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: unknown[]) => String(c[0]).includes('/chat')
+    );
+    expect(chatCall).toBeDefined();
+    const body = JSON.parse((chatCall as unknown[])[1] && ((chatCall as unknown[])[1] as { body: string }).body || '{}');
+    expect(body.mode).toBe('async');
   });
 });
