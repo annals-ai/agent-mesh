@@ -1,6 +1,18 @@
-import { mkdirSync, readdirSync, symlinkSync, existsSync } from 'node:fs';
+import { mkdirSync, readdirSync, symlinkSync, existsSync, lstatSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { log } from './logger.js';
+
+/**
+ * Allowlist of entries to symlink into client workspaces.
+ * Only these names (and user-created src/content dirs) are linked.
+ * Other IDE/platform dirs (.cursor, .windsurf, etc.) are excluded.
+ */
+const SYMLINK_ALLOW = new Set([
+  'CLAUDE.md',
+  '.claude',
+  '.agents',
+  'src',
+]);
 
 const SYMLINK_EXCLUDE = new Set([
   '.bridge-clients',
@@ -13,10 +25,21 @@ const SYMLINK_EXCLUDE = new Set([
   'coverage',
   '.turbo',
   '.env',
+  'connect.log',
+  'skills',
+  'skills-lock.json',
 ]);
 
-function shouldExclude(name: string): boolean {
-  return SYMLINK_EXCLUDE.has(name) || name.startsWith('.env.');
+function shouldInclude(name: string): boolean {
+  // Always include allowlisted entries
+  if (SYMLINK_ALLOW.has(name)) return true;
+  // Always exclude known noise
+  if (SYMLINK_EXCLUDE.has(name) || name.startsWith('.env.')) return false;
+  // Include user content files/dirs that don't start with dot
+  // (e.g. src/, docs/, templates/, README.md)
+  if (!name.startsWith('.')) return true;
+  // Exclude all other dot-dirs (IDE/platform skill dirs)
+  return false;
 }
 
 /**
@@ -25,24 +48,29 @@ function shouldExclude(name: string): boolean {
  * Structure:
  *   <projectPath>/.bridge-clients/<clientId>/
  *     CLAUDE.md → ../../CLAUDE.md       (symlink)
- *     src/      → ../../src/            (symlink)
+ *     .claude/  → ../../.claude/        (symlink, skills)
+ *     .agents/  → ../../.agents/        (symlink, skill sources)
+ *     src/      → ../../src/            (symlink, if exists)
  *     blog.md                           (real file, created by agent)
  *
- * Existing workspaces are reused (persistent across sessions).
+ * Existing workspaces are reused — new project entries are auto-linked.
  */
 export function createClientWorkspace(projectPath: string, clientId: string): string {
   const wsDir = join(projectPath, '.bridge-clients', clientId);
-
-  if (existsSync(wsDir)) return wsDir;
+  const isNew = !existsSync(wsDir);
 
   mkdirSync(wsDir, { recursive: true });
 
   const entries = readdirSync(projectPath, { withFileTypes: true });
   for (const entry of entries) {
-    if (shouldExclude(entry.name)) continue;
+    if (!shouldInclude(entry.name)) continue;
+
+    const link = join(wsDir, entry.name);
+
+    // Skip if already exists (don't overwrite real files/symlinks created by agent)
+    try { lstatSync(link); continue; } catch { /* doesn't exist, proceed */ }
 
     const target = join(projectPath, entry.name);
-    const link = join(wsDir, entry.name);
     const relTarget = relative(wsDir, target);
 
     try {
@@ -52,7 +80,9 @@ export function createClientWorkspace(projectPath: string, clientId: string): st
     }
   }
 
-  log.info(`Client workspace created: ${wsDir}`);
+  if (isNew) {
+    log.info(`Client workspace created: ${wsDir}`);
+  }
   return wsDir;
 }
 
