@@ -94,6 +94,38 @@ describe('ClaudeAdapter', () => {
     adapter.destroySession('non-existent');
   });
 
+  it('should include --continue flag in spawn args', async () => {
+    const { spawnAgent } = await import('../../packages/cli/src/utils/process.js');
+    vi.mocked(spawnAgent).mockClear();
+    const { ClaudeAdapter } = await import('../../packages/cli/src/adapters/claude.js');
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const stdin = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & { kill: () => void };
+    child.kill = vi.fn();
+
+    vi.mocked(spawnAgent).mockResolvedValue({
+      child: child as never,
+      stdout,
+      stderr,
+      stdin,
+      kill: vi.fn(),
+    });
+
+    const adapter = new ClaudeAdapter({ project: '/workspace' });
+    const session = adapter.createSession('session-continue-test', {});
+
+    session.send('hello');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(spawnAgent).toHaveBeenCalled();
+    const args = vi.mocked(spawnAgent).mock.calls[0][1] as string[];
+    expect(args).toContain('--continue');
+
+    adapter.destroySession('session-continue-test');
+  });
+
   it('should include project path and claude runtime paths in sandbox write scope', async () => {
     const { spawnAgent } = await import('../../packages/cli/src/utils/process.js');
     vi.mocked(spawnAgent).mockClear();

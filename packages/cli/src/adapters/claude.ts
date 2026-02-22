@@ -106,7 +106,7 @@ class ClaudeSession implements SessionHandle {
       return;
     }
 
-    const args = ['-p', message, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions'];
+    const args = ['-p', message, '--continue', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions'];
 
     // Download incoming attachments to workspace → snapshot → launch
     void this.downloadAttachments(attachments)
