@@ -1,7 +1,7 @@
 ---
-name: agent-mesh
+name: agent-mesh-creator
 description: |
-  Guide developers through creating, configuring, connecting, and publishing
+  Interactive workflow for creating, configuring, connecting, and publishing
   AI agents on Agents.Hot using the agent-mesh CLI. Also covers CLI command
   reference, flags, skill publishing, and troubleshooting.
   Trigger words: create agent, manage agent, publish agent,

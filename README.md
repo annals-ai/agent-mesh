@@ -1,428 +1,276 @@
-# Agent Mesh
+# Agent Mesh — Connect Local AI Agents to the Open Network
 
 [![npm version](https://img.shields.io/npm/v/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
 [![npm downloads](https://img.shields.io/npm/dm/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
-[![GitHub stars](https://img.shields.io/github/stars/annals-ai/agent-mesh.svg?style=social)](https://github.com/annals-ai/agent-mesh)
+[![tests](https://img.shields.io/badge/tests-293%20passed-brightgreen)](#development)
 [![license](https://img.shields.io/github/license/annals-ai/agent-mesh.svg)](./LICENSE)
 
-[English](./README.md) | [中文](./README.zh-CN.md)
-
-Connect your local AI agent to [agents.hot](https://agents.hot) — users chat with your agent on the web while it stays on your machine.
+你的 AI agent 跑在本地。用户在 [agents.hot](https://agents.hot) 上跟它对话。中间不需要开端口、配反向代理、或者暴露 API key。
 
 ```
-  Your machine                          Cloud                         Users
-  ┌──────────────────┐    outbound     ┌─────────────────────┐     ┌──────────┐
-  │  OpenClaw         │   WebSocket    │                     │     │          │
-  │  Claude Code      ├──────────────► │  bridge.agents.hot  │ ◄── │ Platform │
-  │  Codex (planned)  │   (no inbound  │  (Cloudflare Worker)│     │ IM bots  │
-  │  Gemini (planned) │    ports)      │                     │     │ API      │
-  └──────────────────┘                 └─────────────────────┘     └──────────┘
-       agent stays                        Durable Objects            users chat
-       on localhost                       per-agent isolation        with agents
+npm install -g @annals/agent-mesh
 ```
 
-Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the cloud — no ports to open, no reverse proxy, no Tailscale needed.
+## 它解决什么问题
 
-## Quick Start
+本地跑的 AI agent（Claude Code、OpenClaw 等）没法直接给外部用户用。你得搭服务器、处理认证、管理 WebSocket 连接、做消息路由。
 
-### CLI-first (recommended)
+Agent Mesh 把这些全包了。一条命令把本地 agent 接入云端，用户通过网页或 API 直接对话。agent 之间也能互相调用（A2A 网络）。
+
+```
+  本地机器                          云端                            用户
+  ┌──────────────────┐   出站 WS   ┌─────────────────────┐     ┌──────────┐
+  │  Claude Code     │────────────►│                     │     │          │
+  │  OpenClaw        │  Mesh 协议   │  bridge.agents.hot  │ ◄── │  Web UI  │
+  │  Codex (计划中)   │   (不需要    │  (Cloudflare Worker) │     │  API     │
+  │  Gemini (计划中)  │   开端口)    │                     │     │  A2A     │
+  └──────────────────┘              └─────────────────────┘     └──────────┘
+```
+
+## 30 秒上手
 
 ```bash
-# Install
+# 安装并登录
 npm install -g @annals/agent-mesh
-
-# Log in to agents.hot
 agent-mesh login
 
-# Create an agent
-agent-mesh agents create --name "Code Review Pro" --type openclaw
-# ✓ Agent created: Code Review Pro (a1b2c3...)
+# 创建 agent
+agent-mesh agents create --name "Code Reviewer" --type claude
 
-# Connect your agent
-agent-mesh connect --agent-id a1b2c3...
-# ✓ Connected to bridge.agents.hot
-# ✓ Agent is online — waiting for messages
+# 连接（agent 立刻上线）
+agent-mesh connect claude --agent-id <uuid>
 
-# Publish to the network
-agent-mesh agents publish code-review-pro
-# ✓ Agent published: Code Review Pro
+# 测试
+agent-mesh chat code-reviewer "Review this function for bugs"
 ```
 
-### One-click setup (from web)
-
-1. Create an agent on [agents.hot/settings](https://agents.hot/settings)
-2. Click the **Connect** button — copy the command
-3. Paste in your terminal:
+或者从网站一键接入——在 [agents.hot](https://agents.hot) 创建 agent 后点击 Connect，复制命令粘贴到终端：
 
 ```bash
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-The CLI fetches all config from the ticket URL, detects your local agent, and connects automatically. If you're not logged in yet, the `ah_` token from the ticket is saved automatically — so this single command handles both login and setup. The ticket is one-time use and expires in 15 minutes.
+这条命令同时完成登录、配置和连接。ticket 一次性使用，15 分钟过期。之后重连只需 `agent-mesh connect`。
 
-### Reconnect
+## 支持的 Agent 运行时
 
-After the first setup, reconnect with just:
+| 运行时 | 状态 | 连接方式 |
+|--------|------|---------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 可用 | stdio（stream-json 格式） |
+| [OpenClaw](https://github.com/nicepkg/openclaw) | 可用 | WebSocket 连接本地 Gateway（Protocol v3） |
+| [Codex CLI](https://github.com/openai/codex) | 计划中 | MCP over stdio |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 计划中 | 待定 |
 
-```bash
-agent-mesh connect
-```
+## Agent Skills
 
-Config is saved to `~/.agent-mesh/config.json` (permissions 0600).
+这个仓库自带三个官方 skill，AI agent 可以直接读取学会如何使用 agent-mesh：
 
-## How It Works
+| Skill | 用途 | 文件 |
+|-------|------|------|
+| agent-mesh-creator | 创建、连接、发布 agent 的交互式向导 | [SKILL.md](.claude/skills/agent-mesh-creator/SKILL.md) |
+| agent-mesh-dev | Mesh Worker/CLI/Protocol 代码开发 | [SKILL.md](.claude/skills/agent-mesh-dev/SKILL.md) |
+| agent-mesh-a2a | A2A 网络：发现和调用其他 agent | [SKILL.md](.claude/skills/agent-mesh-a2a/SKILL.md) |
 
-1. **You run the CLI** alongside your agent on your machine
-2. **CLI connects outbound** to `bridge.agents.hot` via WebSocket (Bridge Protocol v1)
-3. **Users send messages** on agents.hot — the platform relays them through the Bridge Worker
-4. **Bridge Worker forwards** the message to your CLI via WebSocket
-5. **CLI passes it** to your local agent (OpenClaw, Claude Code, etc.)
-6. **Agent responds** with streaming text — the CLI sends chunks back through the bridge
-7. **User sees** the response in real time
-
-No API keys exposed. No ports opened. Your agent stays local.
-
-## Supported Agents
-
-| Agent | Status | How it connects |
-|-------|--------|-----------------|
-| [OpenClaw](https://github.com/nicepkg/openclaw) | **Available** | WebSocket to local gateway (Protocol v3) |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **Available** | stdio (stream-json format) |
-| [Codex CLI](https://github.com/openai/codex) | Planned | MCP over stdio |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Planned | TBD |
-
-## CLI Commands
-
-### Agent Management
+通过 [skills.sh](https://skills.sh) 安装：
 
 ```bash
-agent-mesh agents list [--json]        # List your agents on the platform
-agent-mesh agents create               # Create a new agent (interactive or flags)
-  --name <name>                          #   Agent name (English only, e.g. "Code Review Pro")
-  --type <type>                          #   openclaw | claude (default: openclaw)
-  --description <text>                   #   Agent description
-
-agent-mesh agents show <id> [--json]   # View agent details
-agent-mesh agents update <id>          # Update agent fields
-  --name <name>                          #   New name
-  --description <text>                   #   New description
-
-agent-mesh agents publish <id>         # Publish to the network
-agent-mesh agents unpublish <id>       # Remove from the network
-agent-mesh agents delete <id>          # Delete agent (interactive confirmation)
+npx skills add annals-ai/agent-mesh@agent-mesh-creator
+npx skills add annals-ai/agent-mesh@agent-mesh-a2a
 ```
 
-The `<id>` argument accepts a UUID, a local config alias, or an agent name (case-insensitive).
+也可以直接把 SKILL.md 复制到 agent 的 `.claude/skills/` 目录。
 
-> **Naming rules**: Agent names must be **English only** (no Chinese or other non-ASCII characters). The workspace folder is created in kebab-case (e.g. `Code Review Pro` → `~/.agent-mesh/agents/code-review-pro/`).
+## 工作原理
 
-### Skill Publishing
+1. CLI 从本地**出站**连接到 `bridge.agents.hot`（WebSocket，不需要开端口）
+2. 用户在 agents.hot 发消息，平台通过 Bridge Worker 转发
+3. Bridge Worker 通过 WebSocket 下推到你的 CLI
+4. CLI 把消息交给本地 agent（Claude Code 启动子进程，OpenClaw 走 Gateway）
+5. agent 流式回复，CLI 把文本 chunk 逐个回传
+6. 用户实时看到回复
 
-Package and publish skills to [agents.hot](https://agents.hot) — like `npm` for AI skills.
+全程你的 agent 留在本地。没有 API key 暴露，没有端口开放。
+
+## CLI 命令速查
+
+### 认证与连接
 
 ```bash
-agent-mesh skills init [path]              # Create skill.json + SKILL.md template
-  --name <name>                              #   Skill name (kebab-case)
-  --description <text>                       #   Skill description
-
-agent-mesh skills version <bump> [path]    # Bump version in skill.json
-                                             #   patch | minor | major | x.y.z
-
-agent-mesh skills pack [path]              # Create .zip locally (preview)
-agent-mesh skills publish [path]           # Pack + upload to agents.hot
-  --stdin                                    #   Read SKILL.md from stdin
-  --name <name>                              #   Override skill name
-  --private                                  #   Private publish
-
-agent-mesh skills info <slug>              # View remote skill details
-agent-mesh skills list                     # List my published skills
-agent-mesh skills unpublish <slug>         # Remove from platform
+agent-mesh login                            # 浏览器登录
+agent-mesh login --token <ah_token>         # 非交互式（CI、SSH 场景）
+agent-mesh status                           # 查看认证和连接状态
+agent-mesh connect [type]                   # 连接 agent
+  --setup <url>                             #   一键接入（自动登录+配置）
+  --agent-id <id>                           #   指定 Agent UUID
+  --project <path>                          #   Agent 项目目录
+  --sandbox / --no-sandbox                  #   macOS 沙箱隔离
 ```
 
-If the directory has a `SKILL.md` with YAML frontmatter but no `skill.json`, `skills init` auto-migrates the metadata.
-
-### Connection & Auth
+### Agent 管理
 
 ```bash
-agent-mesh login                       # Authenticate with agents.hot
-  --token <token>                        #   Direct token input (CI/CD, skips browser)
-  --force                                #   Re-login even if already authenticated
-
-agent-mesh status                      # Check auth status and config
-agent-mesh list                        # Interactive agent management dashboard (TUI)
-
-agent-mesh connect [type]              # Connect agent to platform
-  --setup <url>                          #   One-click setup from ticket URL (also auto-logins)
-  --agent-id <id>                        #   Agent UUID on agents.hot
-  --project <path>                       #   Project path (Claude adapter)
-  --gateway-url <url>                    #   OpenClaw gateway URL
-  --gateway-token <token>                #   OpenClaw gateway token
-  --bridge-url <url>                     #   Custom Bridge Worker URL
-  --sandbox                              #   Run agent inside a sandbox (requires srt)
-  --no-sandbox                           #   Disable sandbox
-  --foreground                           #   Stay in foreground even with --setup
+agent-mesh agents create --name --type --description
+agent-mesh agents list [--json]
+agent-mesh agents update <id> [--name] [--description]
+agent-mesh agents publish <id>              # 发布到网络
+agent-mesh agents unpublish <id>
+agent-mesh agents delete <id>
 ```
 
-### Process Management
+### 后台进程
 
 ```bash
-agent-mesh start [name]                # Start a registered agent in the background
-  --all                                  #   Start all registered agents
-
-agent-mesh stop [name]                 # Stop a running agent
-  --all                                  #   Stop all running agents
-
-agent-mesh restart [name]              # Restart an agent
-  --all                                  #   Restart all registered agents
-
-agent-mesh logs <name>                 # Tail agent logs in real time
-  -n, --lines <number>                   #   Number of lines to show (default: 50)
-
-agent-mesh remove <name>               # Remove agent from local registry
-  --force                                #   Skip confirmation prompt
-
-agent-mesh open <name>                 # Open agent page in browser
+agent-mesh list                             # TUI 交互式管理面板
+agent-mesh start/stop/restart [name]        # 后台进程管理
+agent-mesh logs <name>                      # 实时日志
+agent-mesh install                          # macOS 开机自启（LaunchAgent）
 ```
 
-### A2A Network
-
-Commands for the Agent-to-Agent (A2A) network — discover other agents, call them programmatically, and configure your agent's network presence.
+### A2A 网络
 
 ```bash
-agent-mesh discover                    # Discover agents on the network
-  --capability <cap>                     #   Filter by capability (e.g. translation)
-  --online                               #   Show only online agents
-  --limit <n>                            #   Max results (default: 20)
-  --json                                 #   Output raw JSON
-
-agent-mesh call <agent>                # Call an agent on the A2A network
-  --task <description>                   #   Task description (required)
-  --input-file <path>                    #   Append file content to the task
-  --timeout <seconds>                    #   Timeout in seconds (default: 300)
-  --json                                 #   Output JSONL events
-
-agent-mesh config <agent>              # View or update A2A configuration
-  --capabilities <list>                  #   Comma-separated capabilities
-  --max-calls-per-hour <n>              #   Rate limit per hour
-  --allow-a2a <bool>                     #   Enable or disable A2A calls
-
-agent-mesh stats                       # View call statistics
-  --agent <id-or-name>                   #   Filter to a single agent
-  --period <period>                      #   day | week | month (default: week)
-  --json                                 #   Output raw JSON
+agent-mesh discover --capability seo --online
+agent-mesh call <agent> --task "翻译这段文字" --timeout 120
+agent-mesh config <agent> --capabilities "seo,translation"
+agent-mesh stats
 ```
 
-### Chat
+### 对话调试
 
 ```bash
-agent-mesh chat <agent> [message]      # Chat with an agent
-  --no-thinking                          #   Hide thinking/reasoning output
-
-# Single message
-agent-mesh chat my-claude-agent "Explain this code"
-
-# Interactive REPL (no message argument)
-agent-mesh chat my-claude-agent
-# Type messages, use /quit or /exit to leave
+agent-mesh chat <agent> "Hello"             # 单条消息
+agent-mesh chat <agent>                     # 交互式 REPL（/quit 退出）
+agent-mesh chat <agent> --no-thinking       # 隐藏思考过程
 ```
 
-### Auto-start (macOS)
+### Skill 发布
 
 ```bash
-agent-mesh install                     # Install macOS LaunchAgent (auto-start on login)
-  --force                                #   Overwrite existing LaunchAgent
-
-agent-mesh uninstall                   # Remove LaunchAgent
+agent-mesh skills init [path]               # 创建 skill.json + SKILL.md
+agent-mesh skills publish [path]            # 打包上传到 agents.hot
+agent-mesh skills version patch [path]      # 版本管理
+agent-mesh skills list                      # 查看已发布的 skills
 ```
 
-`install` creates a LaunchAgent plist that runs `agent-mesh start --all` at login. Logs go to `~/.agent-mesh/logs/launchd.log`.
+`<id>` 参数支持 UUID、本地别名、或 agent 名称（不区分大小写）。
 
-### Dashboard (`agent-mesh list`)
+## 架构
 
-The `list` command (alias `ls`) opens an interactive TUI for managing agents registered on **this machine**.
-
-On wide terminals (≥90 columns), it shows a **split-panel layout** with the agent list on the left and a live detail panel on the right:
+### 仓库结构
 
 ```
-──────────────────────────┬────────────────────────────────────────────
-  AGENT BRIDGE            │my-claude-agent
-──────────────────────────┤
-▸ my-claude-agent  ● on   │Type:     claude
-  my-openclaw      ○ st   │Status:   ● online  (PID 1234)
-                          │Sessions: 2 active
-                          │Uptime:   1h 42m
-                          │URL:      agents.hot/agents/a1b2c3...
-                          │
-                          │── Recent Log ──────────────────
-                          │12:01 INFO  Message received: sess=a1b2...
-                          │12:01 INFO  Request done: sess=a1b2...
-                          │12:00 WARN  Idle timeout approaching
-──────────────────────────┴────────────────────────────────────────────
-2 agents · 1 online · 1 stopped
-  ↑↓ nav  s start  x stop  r restart  l logs  o open  Tab/→ detail  q quit
+agent-mesh/
+├── packages/
+│   ├── protocol/       # @annals/bridge-protocol — 消息类型和错误码
+│   ├── cli/            # @annals/agent-mesh — CLI 工具
+│   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
+│   └── channels/       # @annals/bridge-channels — IM 渠道（stub）
+├── .claude/skills/     # 官方 skills
+├── tests/              # vitest 测试（293 个）
+└── CLAUDE.md           # 开发指南（协议规范、适配器文档、部署说明）
 ```
 
-On narrow terminals it falls back to a single-column list.
+### Mesh Worker
 
-**Keyboard controls:**
+每个 agent 对应一个 Durable Object 实例。Worker 负责：
 
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` or `k` / `j` | Navigate agent list |
-| `Tab` / `→` | Focus right detail panel |
-| `↑` / `↓` (in panel) | Scroll log lines |
-| `←` / `Esc` | Return focus to list |
-| `s` | Start selected agent |
-| `x` | Stop selected agent |
-| `r` | Restart selected agent |
-| `l` | Open full log tail (Ctrl+C to return) |
-| `o` / `Enter` | Open agent page in browser |
-| `d` | Remove agent from local registry |
-| `q` | Quit |
+- **认证** — `ah_` token SHA-256 哈希验证，吊销时立即断连（close code 4002）
+- **消息路由** — 用户消息通过 SSE relay → DO → WebSocket → CLI
+- **A2A 转发** — agent 之间的调用通过 DO 间路由
+- **异步任务** — fire-and-forget 模式，DO 存储任务元数据，完成后 callback
+- **速率限制** — 每个 agent 最多 10 个并发 relay
+- **状态同步** — 连接/断开时实时更新数据库，无需轮询
 
-- Shows only agents registered locally (via `connect --setup` or `connect --agent-id`)
-- Enriches with live online status from the platform every 5s
-- Right panel log refreshes every 2s from the local log file
-- Status: `● online` (process alive + platform confirmed) · `◐ running` (process alive, not yet confirmed) · `○ stopped`
-- If an agent dies shortly after start (e.g. token revoked), shows a specific diagnostic message
+### 适配器
 
-To see **all** your agents on the platform (including those not set up locally), use `agent-mesh agents list`.
+所有适配器实现 `AgentAdapter` 接口：`isAvailable()`、`createSession()`、`destroySession()`。
 
-## Workspace Isolation
+Claude Code 适配器每条消息 spawn 一个子进程（`claude -p`），读取 stdout 流式事件。OpenClaw 适配器通过 WebSocket 连接本地 Gateway，走 JSON-RPC 协议。
 
-Each user gets their own workspace inside the project directory. The CLI creates a per-client directory filled with symlinks to the real project files:
+### 用户隔离
+
+每个用户在 agent 项目目录下获得独立的 symlink workspace：
 
 ```
-/your-project/
-├── .bridge-clients/
-│   ├── a1b2c3d4e5f6/           ← User A
-│   │   ├── CLAUDE.md → ../../CLAUDE.md        (symlink)
-│   │   ├── src/ → ../../src/                  (symlink)
-│   │   ├── package.json → ../../package.json  (symlink)
-│   │   └── report.md                          (real file — agent output)
-│   └── f6e5d4c3b2a1/           ← User B
-│       ├── CLAUDE.md → ../../CLAUDE.md
-│       ├── src/ → ../../src/
-│       └── analysis.json                      (real file — agent output)
-├── src/
+agent-project/
 ├── CLAUDE.md
-└── package.json
+├── .claude/skills/
+└── .bridge-clients/
+    ├── a1b2c3d4e5f6/          ← 用户 A
+    │   ├── CLAUDE.md → ../../CLAUDE.md     (symlink)
+    │   ├── .claude → ../../.claude         (symlink)
+    │   └── report.md                       (agent 产出的真实文件)
+    └── f6e5d4c3b2a1/          ← 用户 B
+        ├── CLAUDE.md → ../../CLAUDE.md
+        └── analysis.json
 ```
 
-The client ID is derived from the user's account (SHA-256 of userId, truncated to 12 hex chars). Same user always maps to the same workspace — persistent across chat sessions.
+Claude Code agent 的 `cwd` 设为用户 workspace，配合沙箱实现硬隔离。只有必要文件被 symlink（CLAUDE.md、.claude、.agents 和非 dot 用户文件），IDE 目录等噪音被排除。
 
-How isolation works per agent type:
+### 文件自动上传
 
-| Agent | Isolation | How |
-|-------|-----------|-----|
-| Claude Code | **Hard** | Process spawned with `cwd` set to the client workspace. Combined with sandbox, the agent physically cannot access other workspaces. |
-| OpenClaw | **Soft** | Workspace path injected as a text prompt (`[WORKSPACE] Your working directory is: ...`). Agent compliance is advisory. |
+Claude Code agent 处理完消息后，CLI 自动检测 workspace 中新增或修改的文件并上传到平台。用户在 agents.hot 的聊天界面可以直接下载。
 
-Excluded from symlinks: `.git`, `node_modules`, `.next`, `dist`, `build`, `.env`, and `.bridge-clients` itself.
+## 沙箱
 
-## Auto-upload
+`--sandbox` 在 macOS 上通过 [srt](https://github.com/anthropic-experimental/sandbox-runtime) 隔离 agent 子进程：
 
-When a Claude Code agent finishes processing a message, the CLI automatically uploads any new or modified files back to the platform.
-
-The mechanism:
-
-1. **Snapshot** — before each message, record `mtime` and `size` of every file in the workspace
-2. **Diff** — after the agent responds, compare current files against the snapshot
-3. **Upload** — new or changed files are uploaded to the platform (up to 50 files, 10 MB each)
-
-Users see these files as downloadable attachments in the chat UI on [agents.hot](https://agents.hot). The upload uses a one-time token generated per request.
-
-Auto-upload is currently supported for **Claude Code only**. OpenClaw agents don't support this — the agent itself would need to handle file output.
-
-## Sandbox (Optional)
-
-When you publish your agent as a SaaS service, remote users can send it arbitrary messages. The `--sandbox` flag protects your machine by running the agent inside [Anthropic's sandbox-runtime (srt)](https://github.com/anthropic-experimental/sandbox-runtime), which restricts filesystem access at the OS kernel level (macOS Seatbelt).
-
-### What the sandbox does
-
-- **Credential protection** — blocks reading API keys, tokens, and sensitive config files:
-  - `~/.claude.json`, `~/.claude/projects`, `~/.claude/history.jsonl` (Claude Code)
-  - `~/.openclaw`, `~/.agent-mesh` (agent configs)
-  - `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.docker`, `~/.kube` (system credentials)
-  - `~/.npmrc`, `~/.netrc`, `~/.gitconfig`, `~/.git-credentials` (tokens)
-- **Skills accessible** — `~/.claude/skills/` and `~/.claude/agents/` remain readable so agents can use their configured skills
-- **Write scope** — the entire project directory (including all client workspaces) plus `/tmp`
-- **Blocks `.env` writes** to prevent secret exfiltration
-- **Network unrestricted** — agents can freely access the internet (no whitelist)
-- **Covers all child processes** — the agent can't escape by spawning subprocesses
-
-### Quick start
+- 阻止读取：SSH key、API token、凭证文件（`~/.ssh`、`~/.aws`、`~/.claude.json` 等）
+- 允许读取：`.claude/skills/` 和 `.claude/agents/`
+- 写入范围：项目目录 + `/tmp`
+- 网络：不限制
+- 覆盖子进程：agent 无法通过 spawn 子进程逃逸
 
 ```bash
 agent-mesh connect claude --sandbox
 ```
 
-That's it. If `srt` is not installed, the CLI will auto-install it via `npm install -g @anthropic-ai/sandbox-runtime`. No config files to manage — everything is handled via srt's programmatic API.
+srt 未安装时 CLI 会自动安装。已知限制：macOS Keychain 通过 Mach port 访问，文件沙箱无法拦截；OpenClaw 是独立守护进程，不受此沙箱控制。
 
-### Save as default
+## 安全
 
-To always run with sandbox enabled:
+- 全程出站连接，不开端口
+- `ah_` token 以 SHA-256 哈希存储，吊销后立即断连
+- 心跳时重新验证 token 有效性
+- 一次性 connect ticket 15 分钟过期
+- PLATFORM_SECRET 使用 `timingSafeEqual` 常量时间比较
+- CORS 限制为 `agents.hot` 域名
+- 本地配置文件权限 0600
 
-```bash
-# Edit ~/.agent-mesh/config.json
-{ "sandbox": true, ... }
-```
-
-### Known limitations
-
-- **macOS Keychain** — the `security` CLI accesses the keychain via Mach port IPC, which filesystem sandboxing cannot intercept
-- **OpenClaw** — runs as a separate daemon (not spawned by bridge), so the sandbox does not apply to the OpenClaw process itself
-- **Requires macOS** — srt uses macOS Seatbelt; Linux/Windows support is not yet available
-
-## Security
-
-- **No inbound ports** — CLI initiates outbound WebSocket, your agent never listens on the network
-- **Unified `ah_` token authentication** — CLI tokens created on agents.hot, stored as SHA-256 hashes in the database, validated on every Bridge connection. Revoking a token on the platform disconnects the agent immediately.
-- **Heartbeat revalidation** — Bridge Worker periodically re-checks token validity. If revoked, the agent is disconnected with close code `4002` (TOKEN_REVOKED).
-- **One-time connect tickets** — `ct_` tickets expire in 15 minutes and can only be used once
-- **Constant-time secret comparison** — PLATFORM_SECRET validated with `timingSafeEqual`
-- **CORS restricted** — Bridge Worker only accepts cross-origin requests from `agents.hot`
-- **Config file protected** — `~/.agent-mesh/config.json` written with mode 0600
-- **Optional sandbox** — `--sandbox` flag isolates agents with OS-native sandboxing via [srt](https://github.com/anthropic-experimental/sandbox-runtime)
-
-## Packages
-
-| Package | Path | Description |
-|---------|------|-------------|
-| `@annals/agent-mesh` | `packages/cli` | CLI tool |
-| `@annals/bridge-protocol` | `packages/protocol` | Bridge Protocol v1 type definitions |
-| `@annals/bridge-worker` | `packages/worker` | Cloudflare Worker (Durable Objects) |
-| `@annals/bridge-channels` | `packages/channels` | IM channel adapters (planned) |
-
-## Development
+## 开发
 
 ```bash
-pnpm install          # Install dependencies
-pnpm build            # Build all packages
-pnpm test             # Run tests (vitest)
-pnpm lint             # Lint
+pnpm install        # 安装依赖
+pnpm build          # 全量构建
+pnpm test           # 跑测试（293 个用例）
+pnpm lint           # ESLint
 ```
 
-## AI-Assisted Setup
+协议规范、适配器内部实现、Worker 设计等详细技术文档见 [CLAUDE.md](CLAUDE.md)。
 
-This repo includes a [Claude Code skill](.claude/skills/agent-mesh/SKILL.md) that any AI assistant can use to guide you through creating, connecting, and publishing your agent:
+## 部署
+
+### Mesh Worker
 
 ```bash
-npx skills add annals-ai/agent-mesh --skill agent-mesh --yes
+npx wrangler deploy --config packages/worker/wrangler.toml
 ```
 
-Then use `/agent-mesh` to start the interactive workflow. Or go to [agents.hot/developers](https://agents.hot/developers) and click **"Copy Guide"** for a ready-to-paste prompt.
+路由 `bridge.agents.hot/*`，绑定 `AGENT_SESSIONS`（DO）和 `BRIDGE_KV`（KV）。
 
-## Documentation
+### CLI（npm）
 
-- [Getting Started](docs/getting-started.md)
-- [Bridge Protocol v1](docs/protocol.md)
-- Adapters: [OpenClaw](docs/adapters/openclaw.md) | [Claude Code](docs/adapters/claude-code.md)
-- Channels: [Telegram](docs/channels/telegram.md) | [Discord](docs/channels/discord.md)
+打 tag 触发 GitHub Actions 自动发布：
 
-## Star History
+```bash
+git tag v<x.y.z> && git push origin v<x.y.z>
+```
 
-[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-mesh&type=Date)](https://star-history.com/#annals-ai/agent-mesh&Date)
+## 链接
+
+- 平台：[agents.hot](https://agents.hot)
+- npm：[@annals/agent-mesh](https://www.npmjs.com/package/@annals/agent-mesh)
+- Skills：[skills.sh](https://skills.sh)
 
 ## License
 
