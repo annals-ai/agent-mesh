@@ -350,36 +350,6 @@ describe('ClaudeAdapter', () => {
   });
 });
 
-describe('CodexAdapter', () => {
-  it('should have correct type and display name', async () => {
-    const { CodexAdapter } = await import('../../packages/cli/src/adapters/codex.js');
-    const adapter = new CodexAdapter();
-    expect(adapter.type).toBe('codex');
-    expect(adapter.displayName).toBe('Codex CLI');
-  });
-
-  it('should return false for isAvailable', async () => {
-    const { CodexAdapter } = await import('../../packages/cli/src/adapters/codex.js');
-    const adapter = new CodexAdapter();
-    expect(await adapter.isAvailable()).toBe(false);
-  });
-});
-
-describe('GeminiAdapter', () => {
-  it('should have correct type and display name', async () => {
-    const { GeminiAdapter } = await import('../../packages/cli/src/adapters/gemini.js');
-    const adapter = new GeminiAdapter();
-    expect(adapter.type).toBe('gemini');
-    expect(adapter.displayName).toBe('Gemini CLI');
-  });
-
-  it('should return false for isAvailable', async () => {
-    const { GeminiAdapter } = await import('../../packages/cli/src/adapters/gemini.js');
-    const adapter = new GeminiAdapter();
-    expect(await adapter.isAvailable()).toBe(false);
-  });
-});
-
 describe('SessionPool', () => {
   it('should manage sessions', async () => {
     const { SessionPool } = await import('../../packages/cli/src/bridge/session-pool.js');

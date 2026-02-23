@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 
 export interface AgentEntry {
   agentId: string;
-  agentType: string;          // openclaw | claude | codex | gemini
+  agentType: string;          // openclaw | claude
   bridgeUrl: string;
   bridgeToken?: string;       // bt_ prefix (legacy, kept for config compat)
   gatewayUrl?: string;

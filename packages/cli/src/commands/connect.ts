@@ -6,8 +6,6 @@ import { BridgeWSClient } from '../platform/ws-client.js';
 import { BridgeManager } from '../bridge/manager.js';
 import { OpenClawAdapter } from '../adapters/openclaw.js';
 import { ClaudeAdapter } from '../adapters/claude.js';
-import { CodexAdapter } from '../adapters/codex.js';
-import { GeminiAdapter } from '../adapters/gemini.js';
 import type { AgentAdapter, AdapterConfig } from '../adapters/base.js';
 import { readOpenClawToken } from '../utils/openclaw-config.js';
 import { initSandbox, resetSandbox } from '../utils/sandbox.js';
@@ -31,12 +29,8 @@ function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
       return new OpenClawAdapter(config);
     case 'claude':
       return new ClaudeAdapter(config);
-    case 'codex':
-      return new CodexAdapter(config);
-    case 'gemini':
-      return new GeminiAdapter(config);
     default:
-      throw new Error(`Unknown agent type: ${type}. Supported: openclaw, claude, codex, gemini`);
+      throw new Error(`Unknown agent type: ${type}. Supported: openclaw, claude`);
   }
 }
 
@@ -274,11 +268,7 @@ export function registerConnectCommand(program: Command): void {
       log.info(`Checking ${adapter.displayName} availability...`);
       const available = await adapter.isAvailable();
       if (!available) {
-        if (agentType === 'codex' || agentType === 'gemini') {
-          log.error(`${adapter.displayName} adapter is not yet implemented. Supported adapters: openclaw, claude`);
-        } else {
-          log.error(`${adapter.displayName} is not available. Make sure it is installed and running.`);
-        }
+        log.error(`${adapter.displayName} is not available. Make sure it is installed and running.`);
         process.exit(1);
       }
       log.success(`${adapter.displayName} is available`);

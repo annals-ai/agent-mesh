@@ -47,7 +47,6 @@ const SENSITIVE_PATHS: string[] = [
   '~/.agent-mesh/config.json',   // contains ah_ platform token
   '~/.agent-mesh/pids',
   '~/.agent-mesh/logs',
-  '~/.codex',
   // Package manager tokens
   '~/.npmrc',
   '~/.yarnrc',
@@ -64,16 +63,6 @@ const SENSITIVE_PATHS: string[] = [
 
 const SANDBOX_PRESETS: Record<string, SandboxFilesystemConfig> = {
   claude: {
-    denyRead: [...SENSITIVE_PATHS],
-    allowWrite: ['.', '/tmp'],
-    denyWrite: ['.env', '.env.*'],
-  },
-  codex: {
-    denyRead: [...SENSITIVE_PATHS],
-    allowWrite: ['.', '/tmp'],
-    denyWrite: ['.env', '.env.*'],
-  },
-  gemini: {
     denyRead: [...SENSITIVE_PATHS],
     allowWrite: ['.', '/tmp'],
     denyWrite: ['.env', '.env.*'],

@@ -37,6 +37,6 @@ export function registerStatusCommand(program: Command): void {
 
       console.log('\nTo connect an agent, run:');
       console.log('  agent-mesh connect <type> --agent-id <id>');
-      console.log('\nSupported types: openclaw, claude, codex, gemini');
+      console.log('\nSupported types: openclaw, claude');
     });
 }
