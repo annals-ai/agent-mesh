@@ -199,6 +199,26 @@ export default {
       }
     }
 
+    // Task status — route to Durable Object
+    if (path === '/api/task-status' && request.method === 'GET') {
+      const agentId = url.searchParams.get('agent_id');
+      const requestId = url.searchParams.get('request_id');
+      if (!agentId || !requestId) {
+        return json(400, { error: 'invalid_request', message: 'Missing agent_id or request_id' });
+      }
+      if (!isValidAgentId(agentId)) {
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+      }
+
+      const id = env.AGENT_SESSIONS.idFromName(agentId);
+      const stub = env.AGENT_SESSIONS.get(id);
+      try {
+        return await stub.fetch(new Request(`${url.origin}/task-status?request_id=${encodeURIComponent(requestId)}`));
+      } catch {
+        return json(503, { error: 'agent_unavailable', message: 'Agent session temporarily unavailable' });
+      }
+    }
+
     // Relay — route to Durable Object
     if (path === '/api/relay' && request.method === 'POST') {
       let body: { agent_id?: string };

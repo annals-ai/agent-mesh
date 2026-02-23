@@ -20,6 +20,7 @@ import { registerCallCommand } from './commands/call.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerStatsCommand } from './commands/stats.js';
 import { registerSubscribeCommand } from './commands/subscribe.js';
+import { registerRegisterCommand } from './commands/register.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -51,5 +52,6 @@ registerCallCommand(program);
 registerConfigCommand(program);
 registerStatsCommand(program);
 registerSubscribeCommand(program);
+registerRegisterCommand(program);
 
 program.parse();

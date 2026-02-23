@@ -322,6 +322,13 @@ describe('asyncChat — async polling', () => {
   let originalStdoutWrite: typeof process.stdout.write;
   let originalStderrWrite: typeof process.stderr.write;
 
+  function mockFetchSseLocal(events: string[]) {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createSseStream(events),
+    }) as unknown as typeof fetch;
+  }
+
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     originalStdoutWrite = process.stdout.write;
@@ -344,7 +351,7 @@ describe('asyncChat — async polling', () => {
       if (url.includes('/chat')) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ task_id: 'task-123', status: 'running', poll_url: '/api/tasks/task-123' }),
+          json: () => Promise.resolve({ request_id: 'req-123', status: 'running', poll_url: `/api/agents/${AGENT_UUID}/task-status/req-123` }),
         });
       }
       // Poll endpoint — first call returns running, second returns completed
@@ -370,7 +377,7 @@ describe('asyncChat — async polling', () => {
   it('should throw on immediate task failure', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ task_id: 'task-fail', status: 'failed', error_message: 'Agent offline' }),
+      json: () => Promise.resolve({ request_id: 'req-fail', status: 'failed', error_message: 'Agent offline' }),
     }) as unknown as typeof fetch;
 
     const { asyncChat } = await import('../../packages/cli/src/commands/chat.js');
@@ -390,7 +397,7 @@ describe('asyncChat — async polling', () => {
       if (url.includes('/chat')) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ task_id: 'task-123', status: 'running' }),
+          json: () => Promise.resolve({ request_id: 'req-123', status: 'running' }),
         });
       }
       return Promise.resolve({
@@ -430,19 +437,11 @@ describe('asyncChat — async polling', () => {
     ).rejects.toThrow(/offline/i);
   });
 
-  it('streamChat defaults to async mode', async () => {
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('/chat')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ task_id: 'task-default', status: 'running' }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ status: 'completed', result: 'async default' }),
-      });
-    }) as unknown as typeof fetch;
+  it('streamChat defaults to stream mode', async () => {
+    mockFetchSseLocal([
+      JSON.stringify({ type: 'text-delta', id: 't', delta: 'stream default' }),
+      JSON.stringify({ type: 'finish', finishReason: 'stop' }),
+    ]);
 
     const { streamChat } = await import('../../packages/cli/src/commands/chat.js');
     await streamChat({
@@ -452,12 +451,12 @@ describe('asyncChat — async polling', () => {
       baseUrl: 'https://agents.hot',
     });
 
-    // Should have sent mode: 'async' to chat endpoint
+    // Should have sent as stream (no mode: 'async')
     const chatCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
       (c: unknown[]) => String(c[0]).includes('/chat')
     );
     expect(chatCall).toBeDefined();
     const body = JSON.parse((chatCall as unknown[])[1] && ((chatCall as unknown[])[1] as { body: string }).body || '{}');
-    expect(body.mode).toBe('async');
+    expect(body.mode).toBeUndefined();
   });
 });

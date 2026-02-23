@@ -40,8 +40,10 @@ interface PendingRelay {
 }
 
 interface AsyncTaskMeta {
-  taskId: string;
   callbackUrl: string;
+  sessionKey?: string;
+  sessionTitle?: string;
+  userMessage?: string;
   startedAt: number;
   lastActivity: number;
 }
@@ -125,6 +127,15 @@ export class AgentSession implements DurableObject {
     // A2A call — relay from another agent (via platform or DO-to-DO)
     if (url.pathname === '/a2a/call' && request.method === 'POST') {
       return this.handleA2ACall(request);
+    }
+
+    // Task status polling
+    if (url.pathname === '/task-status' && request.method === 'GET') {
+      const requestId = url.searchParams.get('request_id');
+      if (!requestId) {
+        return json(400, { error: 'invalid_request', message: 'Missing request_id' });
+      }
+      return this.handleTaskStatus(requestId);
     }
 
     // Status check
@@ -375,7 +386,7 @@ export class AgentSession implements DurableObject {
       return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
     }
 
-    let body: { session_id: string; request_id: string; content: string; attachments?: Attachment[]; upload_url?: string; upload_token?: string; client_id?: string; mode?: string; task_id?: string; callback_url?: string };
+    let body: { session_id: string; request_id: string; content: string; attachments?: Attachment[]; upload_url?: string; upload_token?: string; client_id?: string; mode?: string; callback_url?: string; session_title?: string; user_message?: string };
     try {
       body = await request.json() as typeof body;
     } catch {
@@ -409,10 +420,12 @@ export class AgentSession implements DurableObject {
     }
 
     // ===== Async mode: persist task meta to DO storage, return 202 =====
-    if (body.mode === 'async' && body.task_id && body.callback_url) {
+    if (body.mode === 'async' && body.callback_url) {
       const taskMeta: AsyncTaskMeta = {
-        taskId: body.task_id,
         callbackUrl: body.callback_url,
+        sessionKey: body.session_id,
+        sessionTitle: body.session_title,
+        userMessage: body.user_message,
         startedAt: Date.now(),
         lastActivity: Date.now(),
       };
@@ -577,6 +590,16 @@ export class AgentSession implements DurableObject {
   // Async task completion callbacks
   // ========================================================
   private async completeAsyncTask(requestId: string, task: AsyncTaskMeta, result: string): Promise<void> {
+    // Store result in DO for polling (24h TTL via alarm)
+    await this.state.storage.put(`result:${requestId}`, JSON.stringify({
+      status: 'completed',
+      result,
+      duration_ms: Date.now() - task.startedAt,
+      completed_at: new Date().toISOString(),
+    }));
+    this.scheduleCleanupAlarm();
+
+    // Callback to platform → write R2 chat history
     try {
       await fetch(task.callbackUrl, {
         method: 'POST',
@@ -585,19 +608,32 @@ export class AgentSession implements DurableObject {
           'X-Platform-Secret': this.env.PLATFORM_SECRET,
         },
         body: JSON.stringify({
-          task_id: task.taskId,
           request_id: requestId,
           status: 'completed',
           result,
           duration_ms: Date.now() - task.startedAt,
+          session_key: task.sessionKey,
+          session_title: task.sessionTitle,
+          user_message: task.userMessage,
         }),
       });
-    } catch { /* callback failed — task stays running, caller polls timeout */ }
+    } catch { /* callback failed — result still available via DO polling */ }
 
     await this.state.storage.delete(`async:${requestId}`);
   }
 
   private async failAsyncTask(requestId: string, task: AsyncTaskMeta, code: string, message: string): Promise<void> {
+    // Store failure in DO for polling (24h TTL via alarm)
+    await this.state.storage.put(`result:${requestId}`, JSON.stringify({
+      status: 'failed',
+      error_code: code,
+      error_message: message,
+      duration_ms: Date.now() - task.startedAt,
+      completed_at: new Date().toISOString(),
+    }));
+    this.scheduleCleanupAlarm();
+
+    // Callback to platform (best-effort)
     try {
       await fetch(task.callbackUrl, {
         method: 'POST',
@@ -606,7 +642,6 @@ export class AgentSession implements DurableObject {
           'X-Platform-Secret': this.env.PLATFORM_SECRET,
         },
         body: JSON.stringify({
-          task_id: task.taskId,
           request_id: requestId,
           status: 'failed',
           error_code: code,
@@ -865,6 +900,30 @@ export class AgentSession implements DurableObject {
       await this.updatePlatformStatus(storedAgentId, false);
       try { await this.env.BRIDGE_KV.delete(`agent:${storedAgentId}`); } catch {}
     }
+
+    // Case 3: Clean up expired result entries (24h TTL)
+    const resultEntries = await this.state.storage.list({ prefix: 'result:' });
+    if (resultEntries.size > 0) {
+      const keysToDelete: string[] = [];
+      for (const [key, value] of resultEntries) {
+        try {
+          const result = JSON.parse(value as string);
+          const completedAt = new Date(result.completed_at).getTime();
+          if (Date.now() - completedAt > 24 * 60 * 60 * 1000) {
+            keysToDelete.push(key);
+          }
+        } catch {
+          keysToDelete.push(key); // corrupt entry, remove
+        }
+      }
+      if (keysToDelete.length > 0) {
+        await this.state.storage.delete(keysToDelete);
+      }
+      // If there are still non-expired results, reschedule
+      if (resultEntries.size > keysToDelete.length) {
+        this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000);
+      }
+    }
   }
 
   // ========================================================
@@ -921,6 +980,43 @@ export class AgentSession implements DurableObject {
       const task: AsyncTaskMeta = JSON.parse(value as string);
       const requestId = key.replace('async:', '');
       await this.failAsyncTask(requestId, task, 'agent_offline', 'Agent disconnected');
+    }
+  }
+
+  // ========================================================
+  // Task status polling (HTTP handler for platform proxy)
+  // ========================================================
+  async handleTaskStatus(requestId: string): Promise<Response> {
+    // Check if task is still running
+    const asyncJson = await this.state.storage.get<string>(`async:${requestId}`);
+    if (asyncJson) {
+      const task: AsyncTaskMeta = JSON.parse(asyncJson);
+      return json(200, {
+        request_id: requestId,
+        status: 'running',
+        started_at: new Date(task.startedAt).toISOString(),
+      });
+    }
+
+    // Check if result is available
+    const resultJson = await this.state.storage.get<string>(`result:${requestId}`);
+    if (resultJson) {
+      const result = JSON.parse(resultJson);
+      return json(200, { request_id: requestId, ...result });
+    }
+
+    return json(404, { error: 'not_found', message: 'Task not found' });
+  }
+
+  // ========================================================
+  // Cleanup alarm for expired DO results (24h TTL)
+  // ========================================================
+  private scheduleCleanupAlarm(): void {
+    // Schedule alarm 24h from now to clean up result entries
+    // This is separate from heartbeat alarm — DO alarm API replaces previous alarm
+    // so we only schedule cleanup when there's no active WS connection
+    if (!this.authenticated) {
+      this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000);
     }
   }
 

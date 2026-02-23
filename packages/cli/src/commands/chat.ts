@@ -48,8 +48,8 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
     throw new Error(msg);
   }
 
-  const { task_id, status, error_message, error_code } = await res.json() as {
-    task_id: string;
+  const { request_id, status, error_message, error_code } = await res.json() as {
+    request_id: string;
     status: string;
     poll_url?: string;
     error_message?: string;
@@ -60,9 +60,9 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
     throw new Error(`Task failed: ${error_message || error_code}`);
   }
 
-  process.stderr.write(`${GRAY}[async] task=${task_id.slice(0, 8)}... polling${RESET}`);
+  process.stderr.write(`${GRAY}[async] request=${request_id.slice(0, 8)}... polling${RESET}`);
 
-  // Poll for result
+  // Poll for result via new task-status endpoint
   const maxWait = 5 * 60 * 1000;
   const pollInterval = 2000;
   const startTime = Date.now();
@@ -72,7 +72,7 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
 
     await sleep(pollInterval);
 
-    const pollRes = await fetch(`${opts.baseUrl}/api/tasks/${task_id}`, {
+    const pollRes = await fetch(`${opts.baseUrl}/api/agents/${opts.agentId}/task-status/${request_id}`, {
       headers: { Authorization: `Bearer ${opts.token}` },
       signal: opts.signal,
     });
@@ -109,8 +109,8 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
  * Stream chat: SSE streaming (original mode)
  */
 export async function streamChat(opts: ChatOptions): Promise<void> {
-  // Default to async mode unless explicitly set to stream
-  if ((opts.mode ?? 'async') === 'async') {
+  // Default to stream mode unless explicitly set to async
+  if (opts.mode === 'async') {
     return asyncChat(opts);
   }
 
@@ -235,11 +235,11 @@ export function registerChatCommand(program: Command): void {
     .command('chat <agent> [message]')
     .description('Chat with an agent through the platform (for debugging)')
     .option('--no-thinking', 'Hide thinking/reasoning output')
-    .option('--stream', 'Force SSE streaming mode (default is async)')
+    .option('--async', 'Use async polling mode (default is stream)')
     .option('--base-url <url>', 'Platform base URL', DEFAULT_BASE_URL)
     .action(async (agentInput: string, inlineMessage: string | undefined, opts: {
       thinking: boolean;
-      stream: boolean;
+      async: boolean;
       baseUrl: string;
     }) => {
       const token = loadToken();
@@ -261,7 +261,7 @@ export function registerChatCommand(program: Command): void {
         process.exit(1);
       }
 
-      const mode = opts.stream ? 'stream' as const : 'async' as const;
+      const mode = opts.async ? 'async' as const : 'stream' as const;
 
       // Single message mode
       if (inlineMessage) {
