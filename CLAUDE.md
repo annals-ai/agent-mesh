@@ -145,9 +145,27 @@ agent-mesh connect [type]                  # 连接 Agent
   --gateway-token <token># OpenClaw Gateway token
   --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
 
-agent-mesh chat <agent> [message]          # 通过平台对话调试 Agent
+agent-mesh call <agent>                    # A2A 调用（默认 async 轮询）
+  --task <description>   # 任务描述（必填）
+  --input-file <path>    # 读文件追加到任务描述
+  --output-file <path>   # 保存响应到文件
+  --stream               # 使用 SSE 流式而非 async 轮询
+  --json                 # 输出 JSONL 事件
+  --timeout <seconds>    # 超时秒数 (默认 300)
+
+agent-mesh chat <agent> [message]          # 通过平台对话调试 Agent（默认 stream）
+  --async                # 使用 async 轮询模式
   --no-thinking          # 隐藏思考过程
   --base-url <url>       # 平台地址 (默认 https://agents.hot)
+
+agent-mesh subscribe <author-login>        # 订阅开发者
+agent-mesh unsubscribe <author-login>      # 取消订阅
+agent-mesh subscriptions                   # 列出我的订阅
+
+agent-mesh register                        # 自注册为 Agent
+  --name <name>          # Agent 名称
+  --type <type>          # Agent 类型
+  --capabilities <caps>  # 能力列表（逗号分隔）
 
 agent-mesh agents list [--json]            # 列出我的 Agent
 agent-mesh agents create [options]         # 创建 Agent
@@ -177,9 +195,16 @@ agent-mesh status                          # 查看连接状态
 
 **命名规范**：Agent 名称必须为英文（不支持中文或其他非 ASCII 字符）。Workspace 文件夹使用 kebab-case（例如 `Code Review Pro` → `~/.agent-mesh/agents/code-review-pro/`）。
 
+### call 命令
+
+通过平台 API（`/api/agents/[id]/call`）发起 A2A 调用。
+**默认 async 模式**（0.15.0 起）：fire-and-forget → 轮询 task-status → 获取结果。
+用 `--stream` 回退到 SSE 流式。
+
 ### chat 命令
 
-通过平台 API（`/api/agents/[id]/chat`）向 Agent 发消息，解析 SSE 流式响应。
+通过平台 API（`/api/agents/[id]/chat`）向 Agent 发消息。
+**默认 stream 模式**：SSE 流式实时响应。用 `--async` 切换到轮询模式。
 适用于开发者调试自己的 Agent 或测试任意已发布 Agent。
 
 - **自己的 Agent** → owner bypass
@@ -191,10 +216,13 @@ agent-mesh status                          # 查看连接状态
 
 | agents-hot 文件 | 用途 |
 |-----------------|------|
-| `src/lib/bridge-client.ts` | `sendToBridge()` + `disconnectAgent()` + `getAgentsByToken()` |
+| `src/lib/mesh-client.ts` | `sendToBridge()` + `sendToBridgeAsync()` + `disconnectAgent()` + `getAgentsByToken()` |
 | `src/lib/connect-token.ts` | `generateConnectTicket()` — 一次性接入 ticket |
 | `src/lib/cli-token.ts` | `generateCliToken()` + `hashCliToken()` — ah_ API key 生成与哈希 |
-| `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay |
+| `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay（支持 stream + async 模式）|
+| `src/app/api/agents/[id]/call/route.ts` | A2A 调用 — SSE 流式 / async 轮询 / JSON record |
+| `src/app/api/agents/[id]/task-status/[requestId]/route.ts` | 异步任务状态代理（Service Binding → Worker DO）|
+| `src/app/api/agents/[id]/task-complete/route.ts` | 异步任务完成回调（Worker → R2 聊天历史）|
 | `src/app/api/developer/agents/route.ts` | 创建 Agent |
 | `src/app/api/developer/agents/[id]/connect-ticket/route.ts` | 生成一次性接入 ticket |
 | `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket — 创建 ah_ API key 并返回 |
