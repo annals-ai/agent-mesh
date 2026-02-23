@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { loadToken } from '../platform/auth.js';
 import { renderTable, GREEN, GRAY, RESET } from '../utils/table.js';
 
 interface DiscoverAgent {
@@ -52,7 +53,10 @@ export function registerDiscoverCommand(program: Command): void {
         params.set('offset', opts.offset);
 
         const url = `${BASE_URL}/api/agents/discover?${params}`;
-        const res = await fetch(url);
+        const token = loadToken();
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(url, { headers });
 
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));

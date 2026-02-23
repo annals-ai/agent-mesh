@@ -19,6 +19,7 @@ import { registerDiscoverCommand } from './commands/discover.js';
 import { registerCallCommand } from './commands/call.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerStatsCommand } from './commands/stats.js';
+import { registerSubscribeCommand } from './commands/subscribe.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -49,5 +50,6 @@ registerDiscoverCommand(program);
 registerCallCommand(program);
 registerConfigCommand(program);
 registerStatsCommand(program);
+registerSubscribeCommand(program);
 
 program.parse();

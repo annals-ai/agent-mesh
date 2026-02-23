@@ -83,6 +83,29 @@ describe('discover command', () => {
     expect(url).toContain('limit=50');
   });
 
+  it('should send auth header when token is available', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ agents: [], total: 0, limit: 20, offset: 0 }),
+    });
+
+    // Simulate what the discover command does: include auth header if token exists
+    const token = 'ah_test-token';
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    await globalThis.fetch('https://agents.hot/api/agents/discover?limit=20&offset=0', { headers });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/agents/discover'),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer ah_test-token',
+        }),
+      }),
+    );
+  });
+
   it('should handle API errors gracefully', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,

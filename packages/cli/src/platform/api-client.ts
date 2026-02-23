@@ -24,6 +24,7 @@ const ERROR_HINTS: Record<string, string> = {
   validation_error: 'Invalid input. Check your skill.json or command flags.',
   permission_denied: 'You don\'t have permission to modify this skill.',
   file_too_large: 'Package file exceeds the 50MB limit.',
+  subscription_required: 'This is a private agent. Subscribe first: agent-mesh subscribe <author-login>',
 };
 
 export class PlatformClient {

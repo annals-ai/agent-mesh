@@ -81,11 +81,19 @@ export function registerCallCommand(program: Command): void {
 
         if (!res.ok) {
           let msg = `HTTP ${res.status}`;
+          let errorCode = '';
           try {
             const body = await res.json();
+            errorCode = body.error || '';
             msg = body.message || body.error || msg;
           } catch { /* ignore */ }
-          log.error(msg);
+          if (errorCode === 'subscription_required') {
+            log.error('This is a private agent.');
+            console.error(`  Subscribe first: agent-mesh subscribe <author-login>`);
+            console.error(`  Then retry:      agent-mesh call ${agentInput} --task "..."`);
+          } else {
+            log.error(msg);
+          }
           process.exit(1);
         }
 
