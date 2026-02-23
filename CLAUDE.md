@@ -1,24 +1,23 @@
 # Agent Mesh — Development Guide
 
-Agents.Hot 平台的统一 Agent 连接层。让 OpenClaw / Claude Code / Codex / Gemini 通过 Bridge Protocol 接入 SaaS 平台。
+Agents.Hot 平台的统一 Agent 连接层。让 OpenClaw / Claude Code 通过 Bridge Protocol 接入 SaaS 平台。
 
 ## 仓库结构
 
-pnpm monorepo，4 个包：
+pnpm monorepo，3 个包：
 
 ```
 agent-mesh/
 ├── packages/
 │   ├── protocol/       # @agents-hot/bridge-protocol — 消息类型与错误码
 │   ├── cli/            # @agents-hot/agent-mesh — CLI 工具
-│   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
-│   └── channels/       # @agents-hot/bridge-channels — IM 渠道 (stub)
+│   └── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
 ├── tests/              # vitest 测试
 ├── vitest.config.ts
 └── package.json
 ```
 
-包依赖：`protocol ← cli`，`protocol ← worker`，`channels` 独立。
+包依赖：`protocol ← cli`，`protocol ← worker`。
 
 ## Bridge Protocol v1
 
@@ -107,9 +106,9 @@ abstract destroySession(id: string): Promise<void>
 - 5 分钟空闲超时 kill
 - `spawnAgent` 是 async 函数（因为 `wrapWithSandbox` 是 async），`send()` 委托给 `private async launchProcess()`
 
-### Codex / Gemini（stub）
+### Codex / Gemini
 
-`isAvailable()` 返回 false，待实现。
+已删除（v0.15.1）。如需支持新 Agent 类型，在 `adapters/` 新建文件并注册到 `connect.ts` 的 `createAdapter()` 即可。
 
 ## 一键接入流程（Connect Ticket）
 
