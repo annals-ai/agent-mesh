@@ -10,6 +10,7 @@ description: |
   agent-mesh troubleshooting, TUI dashboard, publish skill, skill init,
   skill pack, skill version, skills list, unpublish skill,
   install skill, update skill, remove skill, installed skills.
+version: 0.0.1
 ---
 
 # Agent Mesh — Create, Connect & Publish Agents

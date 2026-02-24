@@ -1,6 +1,6 @@
 {
   "name": "@annals/agent-mesh",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "description": "CLI bridge connecting local AI agents to the Agents.Hot platform",
   "type": "module",
   "bin": {

@@ -121,12 +121,19 @@ function resolveSkillsRoot(pathArg?: string): { projectRoot: string; skillsDir: 
 async function resolveSkillsRootAsync(pathArg?: string): Promise<{ projectRoot: string; skillsDir: string; convention: 'claude' | 'agents' }> {
   const projectRoot = pathArg ? resolve(pathArg) : process.cwd();
 
+  // Prefer .claude/skills/ (Claude Code convention)
+  const claudeDir = join(projectRoot, '.claude', 'skills');
+  if (await pathExists(claudeDir)) {
+    return { projectRoot, skillsDir: claudeDir, convention: 'claude' };
+  }
+
+  // Fall back to .agents/skills/ (OpenClaw convention)
   const agentsDir = join(projectRoot, '.agents', 'skills');
   if (await pathExists(agentsDir)) {
     return { projectRoot, skillsDir: agentsDir, convention: 'agents' };
   }
 
-  const claudeDir = join(projectRoot, '.claude', 'skills');
+  // Default: create .claude/skills/
   return { projectRoot, skillsDir: claudeDir, convention: 'claude' };
 }
 
