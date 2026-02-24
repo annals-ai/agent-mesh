@@ -11,12 +11,12 @@
  *   - agent-mesh login (or ~/.agent-mesh/config.json with valid token)
  *
  * Tests:
- *   1. skills init         — create skill.json + SKILL.md
- *   2. skills init (migrate) — migrate SKILL.md frontmatter to skill.json
- *   3. skills version patch — bump version
- *   4. skills version minor — bump version
- *   5. skills version major — bump version
- *   6. skills version set   — direct version set
+ *   1. skills init         — create SKILL.md with frontmatter
+ *   2. skills init (exists) — skip if SKILL.md already has frontmatter name
+ *   3. skills version patch — bump version in SKILL.md
+ *   4. skills version minor — bump version in SKILL.md
+ *   5. skills version major — bump version in SKILL.md
+ *   6. skills version set   — direct version set in SKILL.md
  *   7. skills pack          — create .zip
  *   8. skills publish       — upload to platform
  *   9. skills info          — view remote skill details
@@ -133,6 +133,7 @@ function assertEqual(actual, expected, label) {
 let testDir;
 const skillName = `e2e-test-skill-${Date.now()}`;
 let publishedSlug = null;
+let publishedAuthorLogin = null;
 
 // --- Setup ---
 
@@ -150,7 +151,7 @@ console.log(`  Test directory: ${testDir}\n`);
 console.log(`${BOLD}Local Commands${RESET}`);
 
 // 1. skills init (empty directory)
-test('skills init — creates skill.json + SKILL.md in empty dir', () => {
+test('skills init — creates SKILL.md with frontmatter in empty dir', () => {
   const dir = join(testDir, 'init-test');
   const result = run(`skills init ${dir} --name ${skillName} --description "E2E test skill"`);
   assert(result.ok, `Command failed: ${result.stderr}`);
@@ -159,33 +160,32 @@ test('skills init — creates skill.json + SKILL.md in empty dir', () => {
   assert(json, 'No JSON output');
   assertEqual(json.success, true, 'success');
 
-  // Verify files exist
-  assert(existsSync(join(dir, 'skill.json')), 'skill.json not created');
+  // Verify SKILL.md exists (no skill.json)
   assert(existsSync(join(dir, 'SKILL.md')), 'SKILL.md not created');
+  assert(!existsSync(join(dir, 'skill.json')), 'skill.json should NOT be created');
 
-  // Verify skill.json content
-  const manifest = JSON.parse(readFileSync(join(dir, 'skill.json'), 'utf-8'));
-  assertEqual(manifest.name, skillName, 'name');
-  assertEqual(manifest.version, '1.0.0', 'version');
+  // Verify SKILL.md has frontmatter
+  const md = readFileSync(join(dir, 'SKILL.md'), 'utf-8');
+  assert(md.startsWith('---'), 'SKILL.md should start with frontmatter');
+  assert(md.includes(`name: ${skillName}`), 'SKILL.md should contain skill name');
+  assert(md.includes('version: 1.0.0'), 'SKILL.md should contain version');
 });
 
-// 2. skills init — migrate frontmatter
-test('skills init — migrates SKILL.md frontmatter to skill.json', () => {
-  const dir = join(testDir, 'migrate-test');
+// 2. skills init — already exists
+test('skills init — skips if SKILL.md already has frontmatter name', () => {
+  const dir = join(testDir, 'exists-test');
   mkdirSync(dir, { recursive: true });
 
-  // Create SKILL.md with frontmatter but no skill.json
+  // Create SKILL.md with frontmatter
   writeFileSync(join(dir, 'SKILL.md'), `---
-name: migrated-skill
+name: existing-skill
 version: 2.5.0
-description: Migrated from frontmatter
-category: testing
-tags: [e2e, migration]
+description: Already exists
 ---
 
-# Migrated Skill
+# Existing Skill
 
-This skill was migrated from frontmatter.
+This skill already exists.
 `);
 
   const result = run(`skills init ${dir}`);
@@ -194,16 +194,13 @@ This skill was migrated from frontmatter.
   const json = parseJson(result.stdout);
   assert(json, 'No JSON output');
   assertEqual(json.success, true, 'success');
-  assertEqual(json.migrated, true, 'migrated flag');
+  assertEqual(json.exists, true, 'exists flag');
 
-  // Verify skill.json was created with migrated data
-  const manifest = JSON.parse(readFileSync(join(dir, 'skill.json'), 'utf-8'));
-  assertEqual(manifest.name, 'migrated-skill', 'name');
-  assertEqual(manifest.version, '2.5.0', 'version');
-  assertEqual(manifest.description, 'Migrated from frontmatter', 'description');
+  // Verify no skill.json was created
+  assert(!existsSync(join(dir, 'skill.json')), 'skill.json should NOT be created');
 });
 
-// 3–6. skills version
+// 3–6. skills version (version data lives in SKILL.md)
 test('skills version patch — 1.0.0 → 1.0.1', () => {
   const dir = join(testDir, 'init-test');
   const result = run(`skills version patch ${dir}`);
@@ -212,6 +209,10 @@ test('skills version patch — 1.0.0 → 1.0.1', () => {
   assertEqual(json.success, true, 'success');
   assertEqual(json.old, '1.0.0', 'old version');
   assertEqual(json.new, '1.0.1', 'new version');
+
+  // Verify SKILL.md was updated
+  const md = readFileSync(join(dir, 'SKILL.md'), 'utf-8');
+  assert(md.includes('version: 1.0.1'), 'SKILL.md should have updated version');
 });
 
 test('skills version minor — 1.0.1 → 1.1.0', () => {
@@ -269,10 +270,8 @@ console.log(`\n${BOLD}Network Commands (requires auth)${RESET}`);
 test('skills publish — uploads skill to platform', () => {
   const dir = join(testDir, 'init-test');
 
-  // Reset version for publish
-  const manifest = JSON.parse(readFileSync(join(dir, 'skill.json'), 'utf-8'));
-  manifest.version = '1.0.0';
-  writeFileSync(join(dir, 'skill.json'), JSON.stringify(manifest, null, 2) + '\n');
+  // Use CLI version command to set version for publish
+  run(`skills version 1.0.0 ${dir}`);
 
   const result = run(`skills publish ${dir}`);
   assert(result.ok, `Command failed: stdout=${result.stdout} stderr=${result.stderr}`);
@@ -285,14 +284,16 @@ test('skills publish — uploads skill to platform', () => {
   assert(json.url, 'should have url');
 
   publishedSlug = json.skill.slug;
-  console.log(`    ${YELLOW}Published slug: ${publishedSlug}${RESET}`);
+  publishedAuthorLogin = json.skill.author_login;
+  console.log(`    ${YELLOW}Published: ${publishedAuthorLogin}/${publishedSlug}${RESET}`);
 });
 
-// 9. skills info
+// 9. skills info (now requires author/slug)
 test('skills info — fetches remote skill details', () => {
   assert(publishedSlug, 'No published slug (publish test must pass first)');
+  assert(publishedAuthorLogin, 'No author_login (publish test must pass first)');
 
-  const result = run(`skills info ${publishedSlug}`);
+  const result = run(`skills info ${publishedAuthorLogin}/${publishedSlug}`);
   assert(result.ok, `Command failed: ${result.stderr}`);
 
   const json = parseJson(result.stdout);
@@ -344,14 +345,18 @@ Published via stdin.
 
   // Cleanup: unpublish this one too
   const stdinSlug = json.skill.slug;
-  run(`skills unpublish ${stdinSlug}`);
+  const stdinAuthorLogin = json.skill.author_login;
+  if (stdinAuthorLogin && stdinSlug) {
+    run(`skills unpublish ${stdinAuthorLogin}/${stdinSlug}`);
+  }
 });
 
-// 12. skills unpublish
+// 12. skills unpublish (now requires author/slug)
 test('skills unpublish — removes skill from platform', () => {
   assert(publishedSlug, 'No published slug (publish test must pass first)');
+  assert(publishedAuthorLogin, 'No author_login (publish test must pass first)');
 
-  const result = run(`skills unpublish ${publishedSlug}`);
+  const result = run(`skills unpublish ${publishedAuthorLogin}/${publishedSlug}`);
   assert(result.ok, `Command failed: stdout=${result.stdout} stderr=${result.stderr}`);
 
   const json = parseJson(result.stdout);

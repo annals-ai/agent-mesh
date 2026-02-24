@@ -1,10 +1,10 @@
 import type { Command } from 'commander';
-import { readFile, writeFile, readdir, stat, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, readdir, stat, mkdir, rm } from 'node:fs/promises';
 import { join, resolve, relative } from 'node:path';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
-import { loadSkillManifest, parseSkillMd, pathExists } from '../utils/skill-parser.js';
+import { loadSkillManifest, parseSkillMd, pathExists, updateFrontmatterField } from '../utils/skill-parser.js';
 import type { SkillManifest } from '../utils/skill-parser.js';
-import { createZipBuffer } from '../utils/zip.js';
+import { createZipBuffer, extractZipBuffer } from '../utils/zip.js';
 import type { ZipEntry } from '../utils/zip.js';
 import { SKIP_DIRS } from '../utils/auto-upload.js';
 import { renderTable, GREEN, GRAY, RESET, BOLD } from '../utils/table.js';
@@ -36,6 +36,7 @@ interface PublishResponse {
     version: string;
     has_files: boolean;
     is_private: boolean;
+    author_login: string | null;
   };
 }
 
@@ -45,6 +46,7 @@ interface SkillInfo {
   slug: string;
   description?: string;
   author?: string;
+  author_login?: string | null;
   version?: string;
   category?: string;
   tags?: string[];
@@ -77,40 +79,69 @@ function resolveSkillDir(pathArg?: string): string {
 }
 
 /**
+ * Parse an author/slug reference.
+ * Accepts "author/slug" format (required for remote operations).
+ */
+function parseSkillRef(ref: string): { authorLogin: string; slug: string } {
+  if (!ref.includes('/')) {
+    outputError('validation_error', `Invalid skill reference: "${ref}". Use author/slug format (e.g. kcsx/code-review)`);
+  }
+  const [authorLogin, slug] = ref.split('/', 2);
+  if (!authorLogin || !slug) {
+    outputError('validation_error', `Invalid skill reference: "${ref}". Use author/slug format (e.g. kcsx/code-review)`);
+  }
+  return { authorLogin, slug };
+}
+
+/**
+ * Build the API path for a skill given author + slug.
+ */
+function skillApiPath(authorLogin: string, slug: string): string {
+  return `/api/skills/${encodeURIComponent(authorLogin)}/${encodeURIComponent(slug)}`;
+}
+
+/**
+ * Detect skills directory convention.
+ * Returns the skills root directory path and which convention is used.
+ */
+function resolveSkillsRoot(pathArg?: string): { projectRoot: string; skillsDir: string; convention: 'claude' | 'agents' } {
+  const projectRoot = pathArg ? resolve(pathArg) : process.cwd();
+
+  // Check .agents/skills/ first (openclaw convention)
+  const agentsDir = join(projectRoot, '.agents', 'skills');
+  const claudeDir = join(projectRoot, '.claude', 'skills');
+
+  // We use sync check via resolve, but for simplicity just return claude convention as default
+  return { projectRoot, skillsDir: claudeDir, convention: 'claude' };
+}
+
+/**
+ * Detect skills directory convention (async version with actual filesystem check).
+ */
+async function resolveSkillsRootAsync(pathArg?: string): Promise<{ projectRoot: string; skillsDir: string; convention: 'claude' | 'agents' }> {
+  const projectRoot = pathArg ? resolve(pathArg) : process.cwd();
+
+  const agentsDir = join(projectRoot, '.agents', 'skills');
+  if (await pathExists(agentsDir)) {
+    return { projectRoot, skillsDir: agentsDir, convention: 'agents' };
+  }
+
+  const claudeDir = join(projectRoot, '.claude', 'skills');
+  return { projectRoot, skillsDir: claudeDir, convention: 'claude' };
+}
+
+/**
  * Collect files for packing based on manifest.files or directory walk.
  * Returns relative paths from the skill directory.
  */
 async function collectPackFiles(dir: string, manifest: SkillManifest): Promise<string[]> {
   const results: string[] = [];
 
-  if (manifest.files && manifest.files.length > 0) {
-    // Explicit file list from manifest
-    for (const pattern of manifest.files) {
-      const fullPath = join(dir, pattern);
-      try {
-        const s = await stat(fullPath);
-        if (s.isDirectory()) {
-          // Recursively collect from directory
-          const sub = await walkDir(fullPath);
-          for (const f of sub) {
-            results.push(relative(dir, f));
-          }
-        } else {
-          results.push(pattern);
-        }
-      } catch {
-        // File/dir doesn't exist, skip
-      }
-    }
-  } else {
-    // Walk entire directory, excluding known dirs
-    const all = await walkDir(dir);
-    for (const f of all) {
-      const rel = relative(dir, f);
-      // Skip skill.json itself from pack (metadata is sent separately)
-      if (rel === 'skill.json') continue;
-      results.push(rel);
-    }
+  // Walk entire directory, excluding known dirs
+  const all = await walkDir(dir);
+  for (const f of all) {
+    const rel = relative(dir, f);
+    results.push(rel);
   }
 
   // Always include main file if not already
@@ -204,10 +235,61 @@ function bumpVersion(current: string, bump: string): string {
   }
 }
 
+/**
+ * Download and install a skill to a local directory.
+ */
+async function downloadAndInstallSkill(
+  client: InstanceType<typeof import('../platform/api-client.js').PlatformClient>,
+  authorLogin: string,
+  slug: string,
+  skillsDir: string,
+): Promise<{ slug: string; name: string; version: string; files_count: number }> {
+  // 1. Get skill metadata
+  const meta = await client.get<SkillInfo>(skillApiPath(authorLogin, slug));
+
+  const targetDir = join(skillsDir, slug);
+  await mkdir(targetDir, { recursive: true });
+
+  if (meta.has_files) {
+    // Download ZIP package
+    const res = await client.getRaw(`${skillApiPath(authorLogin, slug)}/download`);
+    const arrayBuf = await res.arrayBuffer();
+    const buf = Buffer.from(arrayBuf);
+    const entries = extractZipBuffer(buf);
+
+    for (const entry of entries) {
+      const filePath = join(targetDir, entry.path);
+      const dir = join(filePath, '..');
+      await mkdir(dir, { recursive: true });
+      await writeFile(filePath, entry.data);
+    }
+
+    return {
+      slug,
+      name: meta.name,
+      version: meta.version || '1.0.0',
+      files_count: entries.length,
+    };
+  } else {
+    // Download raw SKILL.md
+    const res = await client.getRaw(`${skillApiPath(authorLogin, slug)}/raw`);
+    const content = await res.text();
+    await writeFile(join(targetDir, 'SKILL.md'), content);
+
+    return {
+      slug,
+      name: meta.name,
+      version: meta.version || '1.0.0',
+      files_count: 1,
+    };
+  }
+}
+
 // --- Skill template ---
 
 const SKILL_MD_TEMPLATE = `---
 name: {{name}}
+description: "{{description}}"
 version: 1.0.0
 ---
 
@@ -220,22 +302,12 @@ version: 1.0.0
 Describe how to use this skill.
 `;
 
-const SKILL_JSON_TEMPLATE = (name: string, description: string): object => ({
-  name,
-  version: '1.0.0',
-  description,
-  main: 'SKILL.md',
-  category: 'general',
-  tags: [],
-  files: ['SKILL.md'],
-});
-
 // --- Command registration ---
 
 export function registerSkillsCommand(program: Command): void {
   const skills = program
     .command('skills')
-    .description('Manage skill packages (publish, pack, version)');
+    .description('Manage skill packages (publish, install, pack, version)');
 
   // --- init ---
   skills
@@ -248,64 +320,35 @@ export function registerSkillsCommand(program: Command): void {
         const dir = resolveSkillDir(pathArg);
         await mkdir(dir, { recursive: true });
 
-        let name = opts.name;
-        let description = opts.description || '';
-
-        // Try to migrate from existing SKILL.md frontmatter
         const skillMdPath = join(dir, 'SKILL.md');
-        const skillJsonPath = join(dir, 'skill.json');
 
-        if (await pathExists(skillJsonPath)) {
-          outputError('already_exists', 'skill.json already exists in this directory');
-        }
-
+        // If SKILL.md already exists with a name in frontmatter, skip
         if (await pathExists(skillMdPath)) {
-          // Migrate frontmatter to skill.json
           const raw = await readFile(skillMdPath, 'utf-8');
           const { frontmatter } = parseSkillMd(raw);
 
           if (frontmatter.name) {
-            name = name || (frontmatter.name as string);
-            description = description || (frontmatter.description as string) || '';
-
-            const manifest = {
-              name,
-              version: (frontmatter.version as string) || '1.0.0',
-              description,
-              main: 'SKILL.md',
-              category: (frontmatter.category as string) || 'general',
-              tags: (frontmatter.tags as string[]) || [],
-              author: frontmatter.author as string | undefined,
-              source_url: frontmatter.source_url as string | undefined,
-              files: ['SKILL.md'],
-            };
-
-            await writeFile(skillJsonPath, JSON.stringify(manifest, null, 2) + '\n');
-            slog.info(`Migrated frontmatter from SKILL.md to skill.json`);
-            outputJson({ success: true, path: skillJsonPath, migrated: true });
+            slog.info(`SKILL.md already exists with name: ${frontmatter.name as string}`);
+            outputJson({ success: true, exists: true, path: skillMdPath });
             return;
           }
         }
 
-        // Generate from scratch
+        // Generate SKILL.md from scratch
+        let name = opts.name;
+        const description = opts.description || '';
+
         if (!name) {
-          // Derive from directory name
           name = dir.split('/').pop()?.replace(/[^a-z0-9-]/gi, '-').toLowerCase() || 'my-skill';
         }
 
-        const manifest = SKILL_JSON_TEMPLATE(name, description);
-        await writeFile(skillJsonPath, JSON.stringify(manifest, null, 2) + '\n');
-
-        // Create SKILL.md template if it doesn't exist
-        if (!(await pathExists(skillMdPath))) {
-          const content = SKILL_MD_TEMPLATE
-            .replace(/\{\{name\}\}/g, name)
-            .replace(/\{\{description\}\}/g, description || 'A new skill.');
-          await writeFile(skillMdPath, content);
-        }
+        const content = SKILL_MD_TEMPLATE
+          .replace(/\{\{name\}\}/g, name)
+          .replace(/\{\{description\}\}/g, description || 'A new skill.');
+        await writeFile(skillMdPath, content);
 
         slog.info(`Initialized skill: ${name}`);
-        outputJson({ success: true, path: skillJsonPath });
+        outputJson({ success: true, path: skillMdPath });
       } catch (err) {
         if (err instanceof Error && err.message.includes('already_exists')) throw err;
         outputError('init_failed', (err as Error).message);
@@ -429,11 +472,16 @@ export function registerSkillsCommand(program: Command): void {
 
         slog.success(`Skill ${result.action}: ${manifest.name}`);
 
+        const authorLogin = result.skill.author_login;
+        const skillUrl = authorLogin
+          ? `https://agents.hot/skills/${authorLogin}/${result.skill.slug}`
+          : `https://agents.hot/skills/${result.skill.slug}`;
+
         outputJson({
           success: true,
           action: result.action,
           skill: result.skill,
-          url: `https://agents.hot/skills/${result.skill.slug}`,
+          url: skillUrl,
         });
       } catch (err) {
         if (err instanceof PlatformApiError) {
@@ -445,20 +493,21 @@ export function registerSkillsCommand(program: Command): void {
 
   // --- info ---
   skills
-    .command('info <slug>')
-    .description('View skill details')
+    .command('info <ref>')
+    .description('View skill details (use author/slug format)')
     .option('--human', 'Human-readable output')
-    .action(async (slug: string, opts: { human?: boolean }) => {
+    .action(async (ref: string, opts: { human?: boolean }) => {
       try {
+        const { authorLogin, slug } = parseSkillRef(ref);
         const client = createClient();
-        const data = await client.get<SkillInfo>(`/api/skills/${encodeURIComponent(slug)}`);
+        const data = await client.get<SkillInfo>(skillApiPath(authorLogin, slug));
 
         if (opts.human) {
           console.log('');
           console.log(`  ${BOLD}${data.name}${RESET} v${data.version || '?'}`);
           if (data.description) console.log(`  ${data.description}`);
-          console.log(`  ${GRAY}slug${RESET}      ${data.slug}`);
-          console.log(`  ${GRAY}author${RESET}    ${data.author || '—'}`);
+          console.log(`  ${GRAY}ref${RESET}       ${authorLogin}/${data.slug}`);
+          console.log(`  ${GRAY}author${RESET}    ${data.author_login || data.author || '—'}`);
           console.log(`  ${GRAY}category${RESET}  ${data.category || '—'}`);
           console.log(`  ${GRAY}installs${RESET}  ${data.installs ?? 0}`);
           console.log(`  ${GRAY}private${RESET}   ${data.is_private ? 'yes' : 'no'}`);
@@ -497,12 +546,14 @@ export function registerSkillsCommand(program: Command): void {
             const table = renderTable(
               [
                 { key: 'name', label: 'NAME', width: 24 },
+                { key: 'author', label: 'AUTHOR', width: 16 },
                 { key: 'version', label: 'VERSION', width: 12 },
                 { key: 'installs', label: 'INSTALLS', width: 12, align: 'right' },
                 { key: 'private', label: 'PRIVATE', width: 10 },
               ],
               data.owned.map((s) => ({
                 name: s.name,
+                author: s.author_login || s.author || '—',
                 version: s.version || '—',
                 installs: String(s.installs ?? 0),
                 private: s.is_private ? 'yes' : `${GREEN}no${RESET}`,
@@ -521,7 +572,7 @@ export function registerSkillsCommand(program: Command): void {
               ],
               data.authorized.map((s) => ({
                 name: s.name,
-                author: s.author || '—',
+                author: s.author_login || s.author || '—',
                 version: s.version || '—',
               })),
             );
@@ -541,13 +592,14 @@ export function registerSkillsCommand(program: Command): void {
 
   // --- unpublish ---
   skills
-    .command('unpublish <slug>')
-    .description('Unpublish a skill')
-    .action(async (slug: string) => {
+    .command('unpublish <ref>')
+    .description('Unpublish a skill (use author/slug format)')
+    .action(async (ref: string) => {
       try {
+        const { authorLogin, slug } = parseSkillRef(ref);
         const client = createClient();
-        const result = await client.del<{ success: boolean; message: string }>(`/api/skills/${encodeURIComponent(slug)}`);
-        slog.success(`Skill unpublished: ${slug}`);
+        const result = await client.del<{ success: boolean; message: string }>(skillApiPath(authorLogin, slug));
+        slog.success(`Skill unpublished: ${authorLogin}/${slug}`);
         outputJson(result);
       } catch (err) {
         if (err instanceof PlatformApiError) {
@@ -564,25 +616,285 @@ export function registerSkillsCommand(program: Command): void {
     .action(async (bump: string, pathArg: string | undefined) => {
       try {
         const dir = resolveSkillDir(pathArg);
-        const skillJsonPath = join(dir, 'skill.json');
+        const skillMdPath = join(dir, 'SKILL.md');
 
-        if (!(await pathExists(skillJsonPath))) {
-          outputError('not_found', 'No skill.json found. Run `agent-mesh skills init` first.');
+        if (!(await pathExists(skillMdPath))) {
+          outputError('not_found', 'No SKILL.md found. Run `agent-mesh skills init` first.');
         }
 
-        const raw = await readFile(skillJsonPath, 'utf-8');
-        const data = JSON.parse(raw);
-        const oldVersion = data.version || '0.0.0';
+        const raw = await readFile(skillMdPath, 'utf-8');
+        const { frontmatter } = parseSkillMd(raw);
+        const oldVersion = (frontmatter.version as string) || '0.0.0';
         const newVersion = bumpVersion(oldVersion, bump);
 
-        data.version = newVersion;
-        await writeFile(skillJsonPath, JSON.stringify(data, null, 2) + '\n');
+        await updateFrontmatterField(skillMdPath, 'version', newVersion);
 
         slog.success(`${oldVersion} → ${newVersion}`);
         outputJson({ success: true, old: oldVersion, new: newVersion });
       } catch (err) {
         if (err instanceof Error && err.message.includes('success')) throw err;
         outputError('version_failed', (err as Error).message);
+      }
+    });
+
+  // --- install ---
+  skills
+    .command('install <ref> [path]')
+    .description('Install a skill from agents.hot (use author/slug format)')
+    .option('--force', 'Overwrite if already installed')
+    .action(async (ref: string, pathArg: string | undefined, opts: { force?: boolean }) => {
+      try {
+        const { authorLogin, slug } = parseSkillRef(ref);
+        const { skillsDir } = await resolveSkillsRootAsync(pathArg);
+
+        const targetDir = join(skillsDir, slug);
+
+        // Check if already installed
+        if (await pathExists(targetDir)) {
+          if (!opts.force) {
+            outputError('already_installed', `Skill "${slug}" is already installed at ${targetDir}. Use --force to overwrite.`);
+          }
+          // Remove existing before reinstall
+          await rm(targetDir, { recursive: true, force: true });
+        }
+
+        slog.info(`Installing ${authorLogin}/${slug}...`);
+        const client = createClient();
+        const result = await downloadAndInstallSkill(client, authorLogin, slug, skillsDir);
+
+        slog.success(`Installed ${result.name} (${result.files_count} files)`);
+        outputJson({
+          success: true,
+          skill: {
+            author: authorLogin,
+            slug: result.slug,
+            name: result.name,
+            version: result.version,
+          },
+          installed_to: targetDir,
+          files_count: result.files_count,
+        });
+      } catch (err) {
+        if (err instanceof PlatformApiError) {
+          outputError(err.errorCode, err.message);
+        }
+        outputError('install_failed', (err as Error).message);
+      }
+    });
+
+  // --- update ---
+  skills
+    .command('update [ref] [path]')
+    .description('Update installed skill(s) from agents.hot')
+    .action(async (ref: string | undefined, pathArg: string | undefined) => {
+      try {
+        const { skillsDir } = await resolveSkillsRootAsync(pathArg);
+        const client = createClient();
+
+        const updated: Array<{ slug: string; name: string; old_version: string; new_version: string }> = [];
+        const skipped: Array<{ slug: string; reason: string }> = [];
+        const failed: Array<{ slug: string; error: string }> = [];
+
+        if (ref) {
+          // Update a single skill
+          const { authorLogin, slug } = parseSkillRef(ref);
+          const targetDir = join(skillsDir, slug);
+
+          if (!(await pathExists(targetDir))) {
+            outputError('not_installed', `Skill "${slug}" is not installed. Use "skills install ${ref}" first.`);
+          }
+
+          // Read local version
+          const skillMdPath = join(targetDir, 'SKILL.md');
+          let localVersion = '0.0.0';
+          if (await pathExists(skillMdPath)) {
+            const raw = await readFile(skillMdPath, 'utf-8');
+            const { frontmatter } = parseSkillMd(raw);
+            localVersion = (frontmatter.version as string) || '0.0.0';
+          }
+
+          // Get remote version
+          const remote = await client.get<SkillInfo>(skillApiPath(authorLogin, slug));
+          const remoteVersion = remote.version || '0.0.0';
+
+          if (remoteVersion === localVersion) {
+            slog.info(`${slug} is already up to date (v${localVersion})`);
+            skipped.push({ slug, reason: 'up_to_date' });
+          } else {
+            slog.info(`Updating ${slug}: v${localVersion} → v${remoteVersion}...`);
+            await rm(targetDir, { recursive: true, force: true });
+            await downloadAndInstallSkill(client, authorLogin, slug, skillsDir);
+            updated.push({ slug, name: remote.name, old_version: localVersion, new_version: remoteVersion });
+            slog.success(`Updated ${slug} to v${remoteVersion}`);
+          }
+        } else {
+          // Scan all installed skills
+          if (!(await pathExists(skillsDir))) {
+            outputError('no_skills_dir', `Skills directory not found: ${skillsDir}`);
+          }
+
+          const entries = await readdir(skillsDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            const slug = entry.name;
+            const skillMdPath = join(skillsDir, slug, 'SKILL.md');
+
+            if (!(await pathExists(skillMdPath))) {
+              skipped.push({ slug, reason: 'no_skill_md' });
+              continue;
+            }
+
+            const raw = await readFile(skillMdPath, 'utf-8');
+            const { frontmatter } = parseSkillMd(raw);
+            const localVersion = (frontmatter.version as string) || '0.0.0';
+            const authorLogin = frontmatter.author as string | undefined;
+
+            if (!authorLogin) {
+              skipped.push({ slug, reason: 'no_author_in_frontmatter' });
+              continue;
+            }
+
+            try {
+              const remote = await client.get<SkillInfo>(skillApiPath(authorLogin, slug));
+              const remoteVersion = remote.version || '0.0.0';
+
+              if (remoteVersion === localVersion) {
+                skipped.push({ slug, reason: 'up_to_date' });
+              } else {
+                slog.info(`Updating ${slug}: v${localVersion} → v${remoteVersion}...`);
+                await rm(join(skillsDir, slug), { recursive: true, force: true });
+                await downloadAndInstallSkill(client, authorLogin, slug, skillsDir);
+                updated.push({ slug, name: remote.name, old_version: localVersion, new_version: remoteVersion });
+              }
+            } catch (err) {
+              failed.push({ slug, error: (err as Error).message });
+            }
+          }
+        }
+
+        slog.success(`Update complete: ${updated.length} updated, ${skipped.length} skipped, ${failed.length} failed`);
+        outputJson({ success: true, updated, skipped, failed });
+      } catch (err) {
+        if (err instanceof PlatformApiError) {
+          outputError(err.errorCode, err.message);
+        }
+        outputError('update_failed', (err as Error).message);
+      }
+    });
+
+  // --- remove ---
+  skills
+    .command('remove <slug> [path]')
+    .description('Remove a locally installed skill')
+    .action(async (slug: string, pathArg: string | undefined) => {
+      try {
+        const { skillsDir } = await resolveSkillsRootAsync(pathArg);
+        const targetDir = join(skillsDir, slug);
+
+        if (!(await pathExists(targetDir))) {
+          outputError('not_installed', `Skill "${slug}" is not installed at ${targetDir}`);
+        }
+
+        await rm(targetDir, { recursive: true, force: true });
+
+        slog.success(`Removed skill: ${slug}`);
+        outputJson({ success: true, removed: slug, path: targetDir });
+      } catch (err) {
+        outputError('remove_failed', (err as Error).message);
+      }
+    });
+
+  // --- installed ---
+  skills
+    .command('installed [path]')
+    .description('List locally installed skills')
+    .option('--check-updates', 'Check for available updates')
+    .option('--human', 'Human-readable table output')
+    .action(async (pathArg: string | undefined, opts: { checkUpdates?: boolean; human?: boolean }) => {
+      try {
+        const { skillsDir } = await resolveSkillsRootAsync(pathArg);
+
+        if (!(await pathExists(skillsDir))) {
+          if (opts.human) {
+            slog.info(`No skills directory found at ${skillsDir}`);
+            return;
+          }
+          outputJson({ skills_dir: skillsDir, skills: [] });
+          return;
+        }
+
+        const entries = await readdir(skillsDir, { withFileTypes: true });
+        const skills: Array<{
+          slug: string;
+          name: string;
+          version: string;
+          author?: string;
+          has_update?: boolean;
+          remote_version?: string;
+        }> = [];
+
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const slug = entry.name;
+          const skillMdPath = join(skillsDir, slug, 'SKILL.md');
+
+          if (!(await pathExists(skillMdPath))) continue;
+
+          const raw = await readFile(skillMdPath, 'utf-8');
+          const { frontmatter } = parseSkillMd(raw);
+
+          const skillInfo: typeof skills[number] = {
+            slug,
+            name: (frontmatter.name as string) || slug,
+            version: (frontmatter.version as string) || '0.0.0',
+            author: frontmatter.author as string | undefined,
+          };
+
+          if (opts.checkUpdates && skillInfo.author) {
+            try {
+              const client = createClient();
+              const remote = await client.get<SkillInfo>(skillApiPath(skillInfo.author, slug));
+              skillInfo.remote_version = remote.version || '0.0.0';
+              skillInfo.has_update = skillInfo.remote_version !== skillInfo.version;
+            } catch {
+              // Skip update check failures silently
+            }
+          }
+
+          skills.push(skillInfo);
+        }
+
+        if (opts.human) {
+          if (skills.length === 0) {
+            slog.info('No skills installed.');
+            return;
+          }
+
+          const columns = [
+            { key: 'name', label: 'NAME', width: 24 },
+            { key: 'version', label: 'VERSION', width: 12 },
+            { key: 'author', label: 'AUTHOR', width: 16 },
+          ];
+
+          if (opts.checkUpdates) {
+            columns.push({ key: 'update', label: 'UPDATE', width: 14 });
+          }
+
+          const rows = skills.map((s) => ({
+            name: s.name,
+            version: s.version,
+            author: s.author || '—',
+            update: s.has_update ? `${GREEN}${s.remote_version}${RESET}` : '—',
+          }));
+
+          slog.banner('Installed Skills');
+          console.log(renderTable(columns, rows));
+          return;
+        }
+
+        outputJson({ skills_dir: skillsDir, skills });
+      } catch (err) {
+        outputError('installed_failed', (err as Error).message);
       }
     });
 }

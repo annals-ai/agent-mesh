@@ -2,6 +2,53 @@ import { describe, it, expect } from 'vitest';
 import { inflateRawSync } from 'node:zlib';
 
 describe('zip', () => {
+  describe('extractZipBuffer', () => {
+    it('should round-trip: create then extract', async () => {
+      const { createZipBuffer, extractZipBuffer } = await import('../../packages/cli/src/utils/zip.js');
+
+      const original = [
+        { path: 'SKILL.md', data: Buffer.from('# Test Skill\n\nHello world!') },
+        { path: 'references/api.md', data: Buffer.from('# API Reference') },
+      ];
+
+      const zip = createZipBuffer(original);
+      const extracted = extractZipBuffer(zip);
+
+      expect(extracted).toHaveLength(2);
+      expect(extracted[0].path).toBe('SKILL.md');
+      expect(extracted[0].data.toString('utf-8')).toBe('# Test Skill\n\nHello world!');
+      expect(extracted[1].path).toBe('references/api.md');
+      expect(extracted[1].data.toString('utf-8')).toBe('# API Reference');
+    });
+
+    it('should handle empty zip', async () => {
+      const { createZipBuffer, extractZipBuffer } = await import('../../packages/cli/src/utils/zip.js');
+
+      const zip = createZipBuffer([]);
+      const extracted = extractZipBuffer(zip);
+
+      expect(extracted).toHaveLength(0);
+    });
+
+    it('should handle single file', async () => {
+      const { createZipBuffer, extractZipBuffer } = await import('../../packages/cli/src/utils/zip.js');
+
+      const content = 'This is a test file with some content that should survive round-trip.';
+      const zip = createZipBuffer([{ path: 'test.txt', data: Buffer.from(content) }]);
+      const extracted = extractZipBuffer(zip);
+
+      expect(extracted).toHaveLength(1);
+      expect(extracted[0].path).toBe('test.txt');
+      expect(extracted[0].data.toString('utf-8')).toBe(content);
+    });
+
+    it('should throw on invalid buffer', async () => {
+      const { extractZipBuffer } = await import('../../packages/cli/src/utils/zip.js');
+
+      expect(() => extractZipBuffer(Buffer.from('not a zip'))).toThrow('Invalid ZIP');
+    });
+  });
+
   describe('createZipBuffer', () => {
     it('should create a valid ZIP with single file', async () => {
       const { createZipBuffer } = await import('../../packages/cli/src/utils/zip.js');

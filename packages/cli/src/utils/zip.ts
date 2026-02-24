@@ -1,4 +1,4 @@
-import { deflateRawSync } from 'node:zlib';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 
 /**
  * Zero-dependency ZIP builder using Node.js built-in zlib.
@@ -142,4 +142,85 @@ export function createZipBuffer(entries: ZipEntry[]): Buffer {
   chunks.push(eocd);
 
   return Buffer.concat(chunks);
+}
+
+// --- ZIP extraction ---
+
+export interface ExtractedEntry {
+  path: string;
+  data: Buffer;
+}
+
+/**
+ * Extract files from a ZIP buffer. Supports DEFLATE (8) and STORED (0).
+ * Zero external dependencies — uses Node.js built-in zlib.
+ */
+export function extractZipBuffer(buf: Buffer): ExtractedEntry[] {
+  const entries: ExtractedEntry[] = [];
+
+  // Find End of Central Directory record (search from end)
+  let eocdOffset = -1;
+  for (let i = buf.length - 22; i >= 0; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+
+  if (eocdOffset === -1) {
+    throw new Error('Invalid ZIP: EOCD not found');
+  }
+
+  const entryCount = buf.readUInt16LE(eocdOffset + 10);
+  const centralDirOffset = buf.readUInt32LE(eocdOffset + 16);
+
+  // Parse Central Directory entries
+  let offset = centralDirOffset;
+  for (let i = 0; i < entryCount; i++) {
+    if (buf.readUInt32LE(offset) !== 0x02014b50) {
+      throw new Error(`Invalid ZIP: bad central directory signature at ${offset}`);
+    }
+
+    const compressionMethod = buf.readUInt16LE(offset + 10);
+    const compressedSize = buf.readUInt32LE(offset + 20);
+    const uncompressedSize = buf.readUInt32LE(offset + 24);
+    const nameLen = buf.readUInt16LE(offset + 28);
+    const extraLen = buf.readUInt16LE(offset + 30);
+    const commentLen = buf.readUInt16LE(offset + 32);
+    const localHeaderOffset = buf.readUInt32LE(offset + 42);
+
+    const name = buf.subarray(offset + 46, offset + 46 + nameLen).toString('utf-8');
+
+    // Skip directories
+    if (!name.endsWith('/')) {
+      // Read from local file header to get actual data offset
+      const localNameLen = buf.readUInt16LE(localHeaderOffset + 26);
+      const localExtraLen = buf.readUInt16LE(localHeaderOffset + 28);
+      const dataOffset = localHeaderOffset + 30 + localNameLen + localExtraLen;
+
+      const compressedData = buf.subarray(dataOffset, dataOffset + compressedSize);
+
+      let data: Buffer;
+      if (compressionMethod === 0) {
+        // STORED
+        data = Buffer.from(compressedData);
+      } else if (compressionMethod === 8) {
+        // DEFLATE
+        data = inflateRawSync(compressedData);
+      } else {
+        throw new Error(`Unsupported compression method: ${compressionMethod}`);
+      }
+
+      if (data.length !== uncompressedSize) {
+        throw new Error(`Size mismatch for ${name}: expected ${uncompressedSize}, got ${data.length}`);
+      }
+
+      entries.push({ path: name, data });
+    }
+
+    // Move to next central directory entry
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+
+  return entries;
 }

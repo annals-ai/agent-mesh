@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 // --- Types ---
@@ -13,7 +13,6 @@ export interface SkillManifest {
   author?: string;
   source_url?: string;
   private?: boolean;
-  files?: string[];
 }
 
 // --- YAML frontmatter parser ---
@@ -106,38 +105,10 @@ export function parseSkillMd(raw: string): { frontmatter: Record<string, unknown
 // --- Manifest loader ---
 
 /**
- * Load skill manifest from a directory.
- * Priority: skill.json > SKILL.md frontmatter.
+ * Load skill manifest from SKILL.md frontmatter.
+ * SKILL.md with YAML frontmatter is the single source of truth.
  */
 export async function loadSkillManifest(dir: string): Promise<SkillManifest> {
-  // 1. Try skill.json
-  const skillJsonPath = join(dir, 'skill.json');
-  try {
-    const raw = await readFile(skillJsonPath, 'utf-8');
-    const data = JSON.parse(raw);
-
-    if (!data.name) throw new Error('skill.json missing required field: name');
-    if (!data.version) throw new Error('skill.json missing required field: version');
-
-    return {
-      name: data.name,
-      version: data.version,
-      description: data.description,
-      main: data.main || 'SKILL.md',
-      category: data.category,
-      tags: data.tags,
-      author: data.author,
-      source_url: data.source_url,
-      private: data.private,
-      files: data.files,
-    };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw err;
-    }
-  }
-
-  // 2. Fallback: SKILL.md frontmatter
   const skillMdPath = join(dir, 'SKILL.md');
   try {
     const raw = await readFile(skillMdPath, 'utf-8');
@@ -145,7 +116,7 @@ export async function loadSkillManifest(dir: string): Promise<SkillManifest> {
 
     const name = frontmatter.name as string | undefined;
     if (!name) {
-      throw new Error('No skill.json found and SKILL.md has no "name" in frontmatter');
+      throw new Error('SKILL.md has no "name" in frontmatter');
     }
 
     return {
@@ -161,7 +132,7 @@ export async function loadSkillManifest(dir: string): Promise<SkillManifest> {
     };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`No skill.json or SKILL.md found in ${dir}`);
+      throw new Error(`No SKILL.md found in ${dir}`);
     }
     throw err;
   }
@@ -194,5 +165,37 @@ export async function pathExists(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Update or append a single field in SKILL.md YAML frontmatter.
+ * Throws if the file has no frontmatter block.
+ */
+export async function updateFrontmatterField(filePath: string, field: string, value: string): Promise<void> {
+  const raw = await readFile(filePath, 'utf-8');
+  const trimmed = raw.trimStart();
+
+  if (!trimmed.startsWith('---')) {
+    throw new Error('SKILL.md has no frontmatter block');
+  }
+
+  const endIdx = trimmed.indexOf('\n---', 3);
+  if (endIdx === -1) {
+    throw new Error('SKILL.md has no frontmatter block');
+  }
+
+  const yamlBlock = trimmed.slice(4, endIdx);
+  const after = trimmed.slice(endIdx);
+
+  // Try to replace existing field
+  const fieldRegex = new RegExp(`^(${field}\\s*:\\s*)(.*)$`, 'm');
+  if (fieldRegex.test(yamlBlock)) {
+    const updated = yamlBlock.replace(fieldRegex, `$1${value}`);
+    await writeFile(filePath, `---\n${updated}${after}`);
+  } else {
+    // Append field before closing ---
+    const updated = `${yamlBlock}\n${field}: ${value}`;
+    await writeFile(filePath, `---\n${updated}${after}`);
   }
 }

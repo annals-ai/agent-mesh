@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
-import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 describe('skill-parser', () => {
@@ -98,63 +98,32 @@ Body.`;
   });
 
   describe('loadSkillManifest', () => {
-    it('should load from skill.json', async () => {
-      const { loadSkillManifest } = await import('../../packages/cli/src/utils/skill-parser.js');
-
-      await writeFile(join(tempDir, 'skill.json'), JSON.stringify({
-        name: 'test-skill',
-        version: '2.0.0',
-        description: 'A test',
-        category: 'development',
-        tags: ['test'],
-      }));
-
-      const manifest = await loadSkillManifest(tempDir);
-      expect(manifest.name).toBe('test-skill');
-      expect(manifest.version).toBe('2.0.0');
-      expect(manifest.description).toBe('A test');
-      expect(manifest.category).toBe('development');
-      expect(manifest.tags).toEqual(['test']);
-      expect(manifest.main).toBe('SKILL.md');
-    });
-
-    it('should fallback to SKILL.md frontmatter', async () => {
+    it('should load from SKILL.md frontmatter', async () => {
       const { loadSkillManifest } = await import('../../packages/cli/src/utils/skill-parser.js');
 
       await writeFile(join(tempDir, 'SKILL.md'), `---
-name: fallback-skill
+name: test-skill
 version: 0.5.0
 description: From frontmatter
+category: development
+tags: [test]
 ---
 
 # Content`);
 
       const manifest = await loadSkillManifest(tempDir);
-      expect(manifest.name).toBe('fallback-skill');
+      expect(manifest.name).toBe('test-skill');
       expect(manifest.version).toBe('0.5.0');
       expect(manifest.description).toBe('From frontmatter');
+      expect(manifest.category).toBe('development');
+      expect(manifest.tags).toEqual(['test']);
+      expect(manifest.main).toBe('SKILL.md');
     });
 
-    it('should throw if neither skill.json nor SKILL.md exists', async () => {
+    it('should throw if SKILL.md does not exist', async () => {
       const { loadSkillManifest } = await import('../../packages/cli/src/utils/skill-parser.js');
 
-      await expect(loadSkillManifest(tempDir)).rejects.toThrow('No skill.json or SKILL.md found');
-    });
-
-    it('should throw if skill.json is missing name', async () => {
-      const { loadSkillManifest } = await import('../../packages/cli/src/utils/skill-parser.js');
-
-      await writeFile(join(tempDir, 'skill.json'), JSON.stringify({ version: '1.0.0' }));
-
-      await expect(loadSkillManifest(tempDir)).rejects.toThrow('missing required field: name');
-    });
-
-    it('should throw if skill.json is missing version', async () => {
-      const { loadSkillManifest } = await import('../../packages/cli/src/utils/skill-parser.js');
-
-      await writeFile(join(tempDir, 'skill.json'), JSON.stringify({ name: 'foo' }));
-
-      await expect(loadSkillManifest(tempDir)).rejects.toThrow('missing required field: version');
+      await expect(loadSkillManifest(tempDir)).rejects.toThrow('No SKILL.md found');
     });
 
     it('should throw if SKILL.md has no name in frontmatter', async () => {
@@ -181,25 +150,6 @@ Content`);
       const manifest = await loadSkillManifest(tempDir);
       expect(manifest.version).toBe('1.0.0');
     });
-
-    it('should prefer skill.json over SKILL.md', async () => {
-      const { loadSkillManifest } = await import('../../packages/cli/src/utils/skill-parser.js');
-
-      await writeFile(join(tempDir, 'skill.json'), JSON.stringify({
-        name: 'from-json',
-        version: '3.0.0',
-      }));
-      await writeFile(join(tempDir, 'SKILL.md'), `---
-name: from-md
-version: 1.0.0
----
-
-Content`);
-
-      const manifest = await loadSkillManifest(tempDir);
-      expect(manifest.name).toBe('from-json');
-      expect(manifest.version).toBe('3.0.0');
-    });
   });
 
   describe('readSkillContent', () => {
@@ -223,6 +173,55 @@ name: test
 
       const content = await readSkillContent(tempDir);
       expect(content).toBe('# Just content\n\nNo frontmatter.');
+    });
+  });
+
+  describe('updateFrontmatterField', () => {
+    it('should update an existing field', async () => {
+      const { updateFrontmatterField, parseSkillMd } = await import('../../packages/cli/src/utils/skill-parser.js');
+
+      const filePath = join(tempDir, 'SKILL.md');
+      await writeFile(filePath, `---
+name: test-skill
+version: 1.0.0
+---
+
+# Content`);
+
+      await updateFrontmatterField(filePath, 'version', '2.0.0');
+
+      const raw = await readFile(filePath, 'utf-8');
+      const { frontmatter } = parseSkillMd(raw);
+      expect(frontmatter.version).toBe('2.0.0');
+      expect(frontmatter.name).toBe('test-skill');
+    });
+
+    it('should append a new field', async () => {
+      const { updateFrontmatterField, parseSkillMd } = await import('../../packages/cli/src/utils/skill-parser.js');
+
+      const filePath = join(tempDir, 'SKILL.md');
+      await writeFile(filePath, `---
+name: test-skill
+---
+
+# Content`);
+
+      await updateFrontmatterField(filePath, 'version', '1.0.0');
+
+      const raw = await readFile(filePath, 'utf-8');
+      const { frontmatter } = parseSkillMd(raw);
+      expect(frontmatter.version).toBe('1.0.0');
+      expect(frontmatter.name).toBe('test-skill');
+    });
+
+    it('should throw if no frontmatter block', async () => {
+      const { updateFrontmatterField } = await import('../../packages/cli/src/utils/skill-parser.js');
+
+      const filePath = join(tempDir, 'SKILL.md');
+      await writeFile(filePath, '# No frontmatter\n\nJust content.');
+
+      await expect(updateFrontmatterField(filePath, 'version', '1.0.0'))
+        .rejects.toThrow('no frontmatter block');
     });
   });
 });

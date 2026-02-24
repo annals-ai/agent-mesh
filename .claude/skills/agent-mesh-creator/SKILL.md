@@ -117,12 +117,10 @@ Second paragraph (optional): Technical specialties.
 
 /skill-name    What this skill does
 /another-skill Another capability
-
-#tag1 #tag2 #tag3
 ```
 
 - `/skill` lines are extracted by the chat UI as slash commands — users type `/` in the chat input to see and invoke the agent's available skills. Each must have a matching SKILL.md in the agent folder.
-- `#tag` lines enable search and discovery.
+- Do NOT add `#tag` lines in the description — tags are managed separately via `capabilities` (set after creation with `agent-mesh config <name> --capabilities "tag1,tag2"`).
 - Specificity matters — generic descriptions rank poorly.
 
 Show the draft and ask for approval before proceeding.
@@ -437,6 +435,6 @@ After initial setup, reconnect with just `agent-mesh connect` — config persist
 
 A2A commands (`discover`, `call`, `config`, `stats`) are covered by the `agent-mesh-a2a` skill.
 
-Skill publishing workflow (`init`, `pack`, `publish`, `version`) is documented in `references/skill-publishing.md`.
+Skill publishing workflow (`init`, `pack`, `publish`, `version`) is documented in `references/skill-publishing.md`. All skill metadata lives in SKILL.md YAML frontmatter — there is no `skill.json`.
 
 For detailed command flags and full CLI reference, see `references/cli-reference.md` in this skill directory.

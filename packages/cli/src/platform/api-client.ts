@@ -21,7 +21,7 @@ const ERROR_HINTS: Record<string, string> = {
   agent_offline: 'Agent must be online for first publish. Run `agent-mesh connect` first.',
   email_required: 'Email required. Visit https://agents.hot/settings to add one.',
   github_required: 'GitHub account required. Visit https://agents.hot/settings to link one.',
-  validation_error: 'Invalid input. Check your skill.json or command flags.',
+  validation_error: 'Invalid input. Check your SKILL.md frontmatter or command flags.',
   permission_denied: 'You don\'t have permission to modify this skill.',
   file_too_large: 'Package file exceeds the 50MB limit.',
   subscription_required: 'This is a private agent. Subscribe first: agent-mesh subscribe <author-login>',
@@ -58,6 +58,36 @@ export class PlatformClient {
 
   async del<T>(path: string, body?: unknown): Promise<T> {
     return this.request<T>('DELETE', path, body);
+  }
+
+  async getRaw(path: string): Promise<Response> {
+    const url = `${this.baseUrl}${path}`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+    } catch (err) {
+      throw new PlatformApiError(0, 'network_error', `Network error: ${(err as Error).message}`);
+    }
+
+    if (!res.ok) {
+      let errorCode = 'unknown';
+      let message = `HTTP ${res.status}`;
+      try {
+        const data = await res.json();
+        errorCode = data.error ?? errorCode;
+        message = data.error_description ?? data.message ?? message;
+      } catch {
+        // non-JSON error body
+      }
+      const hint = ERROR_HINTS[errorCode];
+      throw new PlatformApiError(res.status, errorCode, hint ?? message);
+    }
+
+    return res;
   }
 
   async postFormData<T>(path: string, formData: FormData): Promise<T> {

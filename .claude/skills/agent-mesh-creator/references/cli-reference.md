@@ -159,16 +159,25 @@ Output: text (streamed), thinking (gray), tool calls (yellow), file attachments,
 
 ## Skills Management
 
-Skill publishing workflow is documented in detail in `references/skill-publishing.md`. Quick reference:
+Skills use **author-scoped naming**: `author/slug` (like npm `@scope/package`). All metadata lives in SKILL.md YAML frontmatter. Detailed docs in `references/skill-publishing.md`.
 
 ```bash
-agent-mesh skills init [path]              # Create skill.json + SKILL.md
-agent-mesh skills version <bump> [path]    # Bump version (patch|minor|major|x.y.z)
-agent-mesh skills pack [path]              # Create .zip locally
-agent-mesh skills publish [path]           # Pack + upload to agents.hot
-agent-mesh skills info <slug>              # View remote details
-agent-mesh skills list                     # List your published skills
-agent-mesh skills unpublish <slug>         # Remove from platform
+# Create & Publish
+agent-mesh skills init [path]                    # Create SKILL.md with frontmatter
+agent-mesh skills version <bump> [path]          # Bump version (patch|minor|major|x.y.z)
+agent-mesh skills pack [path]                    # Create .zip locally
+agent-mesh skills publish [path]                 # Pack + upload to agents.hot
+
+# Remote Management (use author/slug format)
+agent-mesh skills info <author/slug>             # View remote details
+agent-mesh skills list                           # List your published skills
+agent-mesh skills unpublish <author/slug>        # Remove from platform
+
+# Install & Update
+agent-mesh skills install <author/slug> [path]   # Install to .claude/skills/
+agent-mesh skills update [author/slug] [path]    # Update one or all installed skills
+agent-mesh skills remove <slug> [path]           # Remove locally installed skill
+agent-mesh skills installed [path]               # List installed skills
 ```
 
 ## Agent ID Resolution

@@ -22,41 +22,44 @@ describe('skills command', () => {
   });
 
   describe('packSkill (via pack command internals)', () => {
-    it('should collect files based on manifest.files', async () => {
+    it('should collect files from directory walk', async () => {
       const { loadSkillManifest } = await import('../../packages/cli/src/utils/skill-parser.js');
-      const { createZipBuffer } = await import('../../packages/cli/src/utils/zip.js');
 
-      // Setup test skill
-      await writeFile(join(tempDir, 'skill.json'), JSON.stringify({
-        name: 'test-skill',
-        version: '1.0.0',
-        files: ['SKILL.md', 'references/'],
-      }));
-      await writeFile(join(tempDir, 'SKILL.md'), '# Test Skill');
+      // Setup test skill with SKILL.md frontmatter only
+      await writeFile(join(tempDir, 'SKILL.md'), `---
+name: test-skill
+version: 1.0.0
+description: A test
+---
+
+# Test Skill`);
       await mkdir(join(tempDir, 'references'));
       await writeFile(join(tempDir, 'references', 'api.md'), '# API Docs');
-      await writeFile(join(tempDir, 'secret.txt'), 'should not be included');
 
       const manifest = await loadSkillManifest(tempDir);
       expect(manifest.name).toBe('test-skill');
-      expect(manifest.files).toEqual(['SKILL.md', 'references/']);
+      expect(manifest.version).toBe('1.0.0');
     });
   });
 
   describe('version bump', () => {
-    it('should bump patch version', async () => {
-      await writeFile(join(tempDir, 'skill.json'), JSON.stringify({
-        name: 'test',
-        version: '1.2.3',
-      }));
+    it('should bump patch version via SKILL.md frontmatter', async () => {
+      const { parseSkillMd } = await import('../../packages/cli/src/utils/skill-parser.js');
 
-      // Simulate version bump logic
-      const raw = await readFile(join(tempDir, 'skill.json'), 'utf-8');
-      const data = JSON.parse(raw);
-      const parts = data.version.split('.').map(Number);
-      data.version = `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+      await writeFile(join(tempDir, 'SKILL.md'), `---
+name: test
+version: 1.2.3
+---
 
-      expect(data.version).toBe('1.2.4');
+# Content`);
+
+      const raw = await readFile(join(tempDir, 'SKILL.md'), 'utf-8');
+      const { frontmatter } = parseSkillMd(raw);
+      const version = frontmatter.version as string;
+      const parts = version.split('.').map(Number);
+      const newVersion = `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+
+      expect(newVersion).toBe('1.2.4');
     });
 
     it('should bump minor version', async () => {
@@ -80,67 +83,53 @@ describe('skills command', () => {
   });
 
   describe('init', () => {
-    it('should create skill.json and SKILL.md in empty dir', async () => {
+    it('should create SKILL.md in empty dir', async () => {
       const subDir = join(tempDir, 'new-skill');
       await mkdir(subDir);
 
-      // Simulate init logic
+      // Simulate init logic: only create SKILL.md
       const name = 'new-skill';
-      const manifest = {
-        name,
-        version: '1.0.0',
-        description: '',
-        main: 'SKILL.md',
-        category: 'general',
-        tags: [],
-        files: ['SKILL.md'],
-      };
+      const description = 'A new skill.';
+      const content = `---
+name: ${name}
+description: "${description}"
+version: 1.0.0
+---
 
-      await writeFile(join(subDir, 'skill.json'), JSON.stringify(manifest, null, 2) + '\n');
-      await writeFile(join(subDir, 'SKILL.md'), `# ${name}\n\nA new skill.`);
+# ${name}
+
+${description}
+
+## Usage
+
+Describe how to use this skill.
+`;
+
+      await writeFile(join(subDir, 'SKILL.md'), content);
 
       // Verify
-      const json = JSON.parse(await readFile(join(subDir, 'skill.json'), 'utf-8'));
-      expect(json.name).toBe('new-skill');
-      expect(json.version).toBe('1.0.0');
-
       const md = await readFile(join(subDir, 'SKILL.md'), 'utf-8');
+      expect(md).toContain('name: new-skill');
+      expect(md).toContain('version: 1.0.0');
       expect(md).toContain('# new-skill');
     });
 
-    it('should migrate SKILL.md frontmatter to skill.json', async () => {
+    it('should skip if SKILL.md already has frontmatter name', async () => {
       await writeFile(join(tempDir, 'SKILL.md'), `---
-name: migrated-skill
+name: existing-skill
 version: 2.0.0
-description: Migrated from frontmatter
-category: development
-tags: [ai, code]
+description: Already exists
 ---
 
 # Content`);
 
-      // Simulate migration
+      // Simulate init logic: check if SKILL.md exists with name
       const { parseSkillMd } = await import('../../packages/cli/src/utils/skill-parser.js');
       const raw = await readFile(join(tempDir, 'SKILL.md'), 'utf-8');
       const { frontmatter } = parseSkillMd(raw);
 
-      const manifest = {
-        name: frontmatter.name,
-        version: frontmatter.version || '1.0.0',
-        description: frontmatter.description || '',
-        main: 'SKILL.md',
-        category: frontmatter.category || 'general',
-        tags: frontmatter.tags || [],
-        files: ['SKILL.md'],
-      };
-
-      await writeFile(join(tempDir, 'skill.json'), JSON.stringify(manifest, null, 2) + '\n');
-
-      const json = JSON.parse(await readFile(join(tempDir, 'skill.json'), 'utf-8'));
-      expect(json.name).toBe('migrated-skill');
-      expect(json.version).toBe('2.0.0');
-      expect(json.description).toBe('Migrated from frontmatter');
-      expect(json.tags).toEqual(['ai', 'code']);
+      expect(frontmatter.name).toBe('existing-skill');
+      // Init should return { success: true, exists: true } and not modify the file
     });
   });
 
@@ -223,7 +212,7 @@ tags: [ai, code]
     });
   });
 
-  describe('info (API integration)', () => {
+  describe('info (API integration — author-scoped)', () => {
     let originalFetch: typeof globalThis.fetch;
 
     beforeEach(() => {
@@ -234,11 +223,12 @@ tags: [ai, code]
       globalThis.fetch = originalFetch;
     });
 
-    it('should fetch skill details by slug', async () => {
+    it('should fetch skill details by author/slug', async () => {
       const skillData = {
         id: 'abc-123',
         name: 'code-review',
         slug: 'code-review',
+        author_login: 'kcsx',
         description: 'Code review skill',
         version: '1.0.0',
         installs: 42,
@@ -251,10 +241,44 @@ tags: [ai, code]
 
       const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
       const client = new PlatformClient('ah_test-token');
-      const result = await client.get<typeof skillData>('/api/skills/code-review');
+      const result = await client.get<typeof skillData>('/api/skills/kcsx/code-review');
 
       expect(result.name).toBe('code-review');
+      expect(result.author_login).toBe('kcsx');
       expect(result.installs).toBe(42);
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'https://agents.hot/api/skills/kcsx/code-review',
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('getRaw (API integration)', () => {
+    let originalFetch: typeof globalThis.fetch;
+
+    beforeEach(() => {
+      originalFetch = globalThis.fetch;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should return raw Response for getRaw', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve('# Skill Content'),
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+      });
+
+      const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
+      const client = new PlatformClient('ah_test-token');
+      const res = await client.getRaw('/api/skills/kcsx/test/raw');
+
+      expect(res.ok).toBe(true);
+      const text = await res.text();
+      expect(text).toBe('# Skill Content');
     });
   });
 

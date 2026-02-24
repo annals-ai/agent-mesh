@@ -174,18 +174,25 @@ agent-mesh agents publish <id>             # 发布到市场
 agent-mesh agents unpublish <id>           # 从市场下架
 agent-mesh agents delete <id> [--confirm]  # 删除 Agent
 
-agent-mesh skills init [path]              # 初始化 skill.json + SKILL.md
+agent-mesh skills init [path]              # 初始化 SKILL.md（含 frontmatter）
   --name <name>          # Skill 名称
   --description <text>   # Skill 描述
 agent-mesh skills pack [path]              # 打包为 .zip（本地预览）
 agent-mesh skills publish [path]           # 打包 + 上传到 agents.hot
   --stdin                # 从 stdin 读取 SKILL.md
-  --name <name>          # 覆盖 skill.json 名称
+  --name <name>          # 覆盖 SKILL.md 名称
   --private              # 私有发布
-agent-mesh skills info <slug>              # 查看远程 skill 详情
+agent-mesh skills info <author/slug>       # 查看远程 skill 详情（author-scoped）
 agent-mesh skills list                     # 列出我发布的 skills
-agent-mesh skills unpublish <slug>         # 取消发布 skill
+agent-mesh skills unpublish <author/slug>  # 取消发布 skill（author-scoped）
 agent-mesh skills version <bump> [path]    # 版本管理 (patch|minor|major|x.y.z)
+agent-mesh skills install <author/slug> [path]   # 安装 skill 到本地 .claude/skills/
+  --force                # 强制覆盖已安装的
+agent-mesh skills update [author/slug] [path]    # 更新已安装的 skill
+agent-mesh skills remove <slug> [path]           # 删除本地已安装的 skill
+agent-mesh skills installed [path]               # 列出本地已安装的 skills
+  --check-updates        # 检查可用更新
+  --human                # 人类可读表格输出
 
 agent-mesh status                          # 查看连接状态
 ```
