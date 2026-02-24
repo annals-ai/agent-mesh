@@ -7,7 +7,32 @@ import { parseSseChunk } from '../utils/sse-parser.js';
 import { log } from '../utils/logger.js';
 import { GRAY, RESET, BOLD } from '../utils/table.js';
 
+export { submitRating };
+
 const DEFAULT_BASE_URL = 'https://agents.hot';
+
+/**
+ * Submit a rating for a completed call. Exported for reuse by the `rate` command.
+ */
+async function submitRating(baseUrl: string, token: string, agentId: string, callId: string, rating: number): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/agents/${agentId}/rate`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ call_id: callId, rating }),
+  });
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      msg = body.message || body.error || msg;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -34,7 +59,7 @@ async function asyncCall(opts: {
   json?: boolean;
   outputFile?: string;
   signal?: AbortSignal;
-}): Promise<void> {
+}): Promise<{ callId: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
   const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${opts.id}/call`, {
@@ -124,6 +149,7 @@ async function asyncCall(opts: {
           status: 'completed',
           result,
           ...(task.attachments?.length ? { attachments: task.attachments } : {}),
+          rate_hint: `POST /api/agents/${opts.id}/rate  body: { call_id: "${call_id}", rating: 1-5 }`,
         }));
       } else {
         process.stdout.write(result + '\n');
@@ -137,7 +163,10 @@ async function asyncCall(opts: {
         writeFileSync(opts.outputFile, result);
         if (!opts.json) log.info(`Saved to ${opts.outputFile}`);
       }
-      return;
+      if (!opts.json) {
+        log.info(`${GRAY}Rate this call: agent-mesh rate ${call_id} <1-5> --agent ${opts.id}${RESET}`);
+      }
+      return { callId: call_id };
     }
 
     if (task.status === 'failed') {
@@ -172,7 +201,7 @@ async function streamCall(opts: {
   json?: boolean;
   outputFile?: string;
   signal?: AbortSignal;
-}): Promise<void> {
+}): Promise<{ callId: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
   const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${opts.id}/call`, {
@@ -238,6 +267,7 @@ async function streamCall(opts: {
   let buffer = '';
   let outputBuffer = '';
   let inThinkingBlock = false;
+  let callId = res.headers.get('X-Call-Id') || '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -251,6 +281,9 @@ async function streamCall(opts: {
       if (data === '[DONE]') continue;
       try {
         const event = JSON.parse(data);
+        if (event.type === 'start' && event.call_id) {
+          callId = event.call_id;
+        }
         if (opts.json) {
           console.log(JSON.stringify(event));
         } else {
@@ -311,7 +344,12 @@ async function streamCall(opts: {
   if (!opts.json) {
     console.log('\n');
     log.success('Call completed');
+    if (callId) {
+      log.info(`${GRAY}Rate this call: agent-mesh rate ${callId} <1-5> --agent ${opts.id}${RESET}`);
+    }
   }
+
+  return { callId };
 }
 
 export function registerCallCommand(program: Command): void {
@@ -324,6 +362,7 @@ export function registerCallCommand(program: Command): void {
     .option('--stream', 'Use SSE streaming instead of async polling')
     .option('--json', 'Output JSONL events')
     .option('--timeout <seconds>', 'Timeout in seconds', '300')
+    .option('--rate <rating>', 'Rate the agent after call (1-5)', parseInt)
     .action(async (agentInput: string, opts: {
       task: string;
       inputFile?: string;
@@ -331,6 +370,7 @@ export function registerCallCommand(program: Command): void {
       stream?: boolean;
       json?: boolean;
       timeout?: string;
+      rate?: number;
     }) => {
       try {
         const token = loadToken();
@@ -364,13 +404,26 @@ export function registerCallCommand(program: Command): void {
           signal: abortController.signal,
         };
 
+        let result: { callId: string };
         if (opts.stream) {
-          await streamCall(callOpts);
+          result = await streamCall(callOpts);
         } else {
-          await asyncCall(callOpts);
+          result = await asyncCall(callOpts);
         }
 
         clearTimeout(timer);
+
+        // Submit rating if --rate flag provided
+        if (opts.rate && result.callId) {
+          try {
+            await submitRating(DEFAULT_BASE_URL, token, id, result.callId, opts.rate);
+            if (!opts.json) {
+              log.success(`Rated ${opts.rate}/5`);
+            }
+          } catch (rateErr) {
+            log.warn(`Rating failed: ${(rateErr as Error).message}`);
+          }
+        }
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           log.error('Call timed out');
