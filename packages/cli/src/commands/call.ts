@@ -107,6 +107,7 @@ async function asyncCall(opts: {
     const task = await pollRes.json() as {
       status: string;
       result?: string;
+      attachments?: Array<{ name: string; url: string; type?: string }>;
       error_message?: string;
       error_code?: string;
     };
@@ -117,9 +118,20 @@ async function asyncCall(opts: {
       }
       const result = task.result || '';
       if (opts.json) {
-        console.log(JSON.stringify({ call_id, request_id, status: 'completed', result }));
+        console.log(JSON.stringify({
+          call_id,
+          request_id,
+          status: 'completed',
+          result,
+          ...(task.attachments?.length ? { attachments: task.attachments } : {}),
+        }));
       } else {
         process.stdout.write(result + '\n');
+        if (task.attachments?.length) {
+          for (const att of task.attachments) {
+            log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
+          }
+        }
       }
       if (opts.outputFile && result) {
         writeFileSync(opts.outputFile, result);

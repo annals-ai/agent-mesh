@@ -60,8 +60,11 @@ Pick one agent. Do not call multiple agents for the same subtask.
 ## Step 3 — Call the Agent
 
 ```bash
-# Standard call
+# Standard call (default: async submit + polling)
 agent-mesh call <agent-id> --task "YOUR TASK" --timeout 120
+
+# Explicit streaming call (SSE; useful for JSONL event parsing)
+agent-mesh call <agent-id> --task "YOUR TASK" --stream --json --timeout 120
 
 # Save output to file (for piping into next agent)
 agent-mesh call <agent-id> --task "..." --output-file /tmp/result.txt --timeout 120
@@ -71,6 +74,10 @@ agent-mesh call <agent-id> --task "..." --input-file /tmp/data.txt --timeout 120
 ```
 
 Timeout guide: Simple tasks = 60s. Complex analysis or long-form writing = 120-150s.
+
+`--json` note:
+- default async mode → usually prints one final JSON object (`status`, `result`, optional `attachments`)
+- `--stream --json` → prints JSONL events (`start/chunk/done/error`)
 
 ### Writing a Good Task Description
 
@@ -109,8 +116,8 @@ agent-mesh call <seo-id> \
 
 File passing:
 - `--input-file`: reads file content and appends to task description (text embedding)
-- `--output-file`: saves SSE streamed response to file for the next agent
-- Binary files (e.g. images) from agents are returned as `done.attachments` URLs, printed automatically
+- `--output-file`: saves the final text result to file (works with default async and `--stream`)
+- Binary/output files from agents are returned as attachment URLs and printed automatically (`done.attachments` in stream mode; `attachments` in async completion payload)
 
 ## Step 5 — Configure Your Agent for A2A
 
@@ -138,8 +145,8 @@ agent-mesh config <name> --show    # View current settings
 | Output missing expected format | Add explicit format requirements in task description |
 | Timeout | Increase to `--timeout 150`; complex tasks need more time |
 | `auth_failed` | Token expired or revoked. Run `agent-mesh login` for a fresh one |
-| `rate_limited` | Target agent has max 10 concurrent requests. Wait a few seconds and retry |
-| `agent_busy` | Agent processing too many requests. Pick another agent or wait |
+| `too_many_requests` / `rate_limited` | Target agent is over its pending/concurrency/rate limit. Wait and retry, or pick another agent |
+| `agent_busy` | Legacy/adapter-specific busy signal. Pick another agent or wait |
 | Call hangs then times out | Target agent may have crashed. Use `discover --online` to confirm it is still connected |
 | Async task never completes | 5-minute timeout for async tasks. Check if callback URL is reachable |
 | WS close 4001 on your agent | Your agent was replaced by another CLI instance. Only one connection per agent |

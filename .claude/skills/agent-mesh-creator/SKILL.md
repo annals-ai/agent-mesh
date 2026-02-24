@@ -73,8 +73,8 @@ Match the developer's intent and jump to the appropriate section:
 |------|---------|------------|--------|
 | `claude` | Claude Code CLI | Spawns `claude -p` subprocess per message | Available |
 | `openclaw` | OpenClaw Gateway | HTTP SSE via `ws://127.0.0.1:18789` | Available |
-| `codex` | Codex CLI | Not implemented (`isAvailable()` returns false) | Planned |
-| `gemini` | Gemini CLI | Not implemented | Planned |
+| `codex` | Codex CLI | Historical docs may mention it; adapter removed in current CLI | Removed |
+| `gemini` | Gemini CLI | Historical docs may mention it; adapter removed in current CLI | Removed |
 
 ---
 
@@ -159,7 +159,7 @@ If you used `--setup` to register the agent, the workspace directory was already
 | agent_type | Instruction file | Skills directory | Why |
 |------------|-----------------|------------------|-----|
 | `claude` | `CLAUDE.md` | `.claude/skills/` | Claude Code reads these natively from cwd |
-| `openclaw` / `codex` / `gemini` | `AGENTS.md` | `.agents/skills/` | AAIF standard — Codex, OpenCode, Cursor, Windsurf read natively |
+| `openclaw` | `AGENTS.md` | `.agents/skills/` | AAIF standard — OpenClaw / other AGENTS-aware runtimes read natively |
 
 Create the directory structure:
 
@@ -168,7 +168,7 @@ Claude Code agent (`--type claude`):
 mkdir -p ~/.agent-mesh/agents/<agent-name>/.claude/skills
 ```
 
-Universal agent (`--type openclaw` / `codex` / `gemini`):
+OpenClaw agent (`--type openclaw`):
 ```bash
 mkdir -p ~/.agent-mesh/agents/<agent-name>/.agents/skills
 ```
@@ -422,7 +422,7 @@ After initial setup, reconnect with just `agent-mesh connect` — config persist
 | `Agent not found` | Check with `agent-mesh agents list` |
 | `Agent is currently offline` | Run `agent-mesh connect` |
 | Agent replaced (WS close 4001) | Another CLI already connected for this agent. Only one connection per agent is allowed. Stop the other instance. |
-| `rate_limited` | Max 10 concurrent requests per agent. Wait a few seconds and retry. |
+| `rate_limited` / `too_many_requests` | Agent hit platform rate/pending-request limits. Wait a few seconds and retry. |
 | Ticket expired (404 on connect) | Tickets are one-time use, 15-minute expiry. Generate a new one from the platform. |
 | Agent responds without personality | CLAUDE.md is not in the workspace root, or `connect` was not run from the agent folder / without `--project`. |
 

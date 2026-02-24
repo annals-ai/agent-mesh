@@ -374,6 +374,45 @@ describe('asyncChat — async polling', () => {
     expect(output).toContain('Hello from async!');
   });
 
+  it('should print attachment URLs when async task completes with attachments', async () => {
+    let callCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/chat')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ request_id: 'req-attach', status: 'running' }),
+        });
+      }
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'running' }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'completed',
+          result: 'See file',
+          attachments: [
+            { name: 'out.txt', url: 'https://files.agents.hot/out.txt', type: 'text/plain' },
+          ],
+        }),
+      });
+    }) as unknown as typeof fetch;
+
+    const { asyncChat } = await import('../../packages/cli/src/commands/chat.js');
+    await asyncChat({
+      agentId: AGENT_UUID,
+      message: 'Return a file',
+      token: 'ah_test-token',
+      baseUrl: 'https://agents.hot',
+    });
+
+    const output = stdoutWrite.mock.calls.map((c: unknown[]) => c[0]).join('');
+    expect(output).toContain('See file');
+    expect(output).toContain('out.txt');
+    expect(output).toContain('https://files.agents.hot/out.txt');
+  });
+
   it('should throw on immediate task failure', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

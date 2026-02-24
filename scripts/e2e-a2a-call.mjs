@@ -5,8 +5,9 @@
  * Verifies the full A2A call chain:
  * 1. Seed agents are online
  * 2. Discovery works
- * 3. Streaming call works
- * 4. agent_calls record is updated
+ * 3. Seed/capability discovery checks pass
+ * 4. Explicit streaming call works (`--stream`)
+ * 5. Platform A2A call path is exercised end-to-end
  *
  * Usage:
  *   node scripts/e2e-a2a-call.mjs
@@ -116,14 +117,14 @@ try {
   skip('Capability discovery failed');
 }
 
-// --- Test 5: Streaming call ---
+// --- Test 5: Explicit streaming call (CLI default is async; force stream for JSONL SSE events) ---
 if (agents.length > 0) {
   const target = agents[0];
-  console.log(`\n  ${GRAY}Testing streaming call to: ${target.name}${RESET}`);
+  console.log(`\n  ${GRAY}Testing explicit streaming call to: ${target.name}${RESET}`);
 
   try {
     const output = run(
-      `agent-mesh call ${target.id} --task "Respond with exactly: A2A_TEST_OK" --json`,
+      `agent-mesh call ${target.id} --task "Respond with exactly: A2A_TEST_OK" --json --stream`,
       { timeout: 60000 }
     );
 
@@ -138,10 +139,8 @@ if (agents.length > 0) {
 
       if (hasChunk) {
         pass('Streaming call returned chunk events');
-      } else if (events.some(e => e.call_id)) {
-        pass('Call returned result (JSON fallback mode)');
       } else {
-        fail('No chunk events in streaming response');
+        fail('No chunk events in explicit streaming response');
       }
 
       if (hasDone) {

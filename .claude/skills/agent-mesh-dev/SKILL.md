@@ -20,7 +20,7 @@ Agent Mesh connects AI agents to the agents.hot platform through three layers:
 
 Message flow: User → Platform API → `POST /api/relay` → Agent's DO → WebSocket → CLI → Adapter (Claude subprocess or OpenClaw HTTP) → response chunks flow back the same path → SSE to user.
 
-Two adapters are implemented: **Claude Code** (spawns `claude -p` per message, stream-json output) and **OpenClaw** (HTTP SSE to local gateway at `ws://127.0.0.1:18789`). Codex and Gemini adapters are stubs (`isAvailable()` returns false).
+Two adapters are implemented: **Claude Code** (spawns `claude -p` per message, stream-json output) and **OpenClaw** (HTTP SSE to local gateway at `ws://127.0.0.1:18789`). Codex and Gemini adapters were removed in `v0.15.1` (historical docs may still mention stubs).
 
 For the complete architecture, message flow diagrams, and troubleshooting, see `references/architecture.md` and `references/protocol-reference.md` in this skill directory.
 
@@ -56,7 +56,7 @@ agent-mesh is an independent git repo. Changes not committed there mean the Work
 cd agent-mesh
 pnpm install        # install deps
 pnpm build          # full build (tsc + tsup)
-pnpm test           # ~293 tests (vitest) — number may change
+pnpm test           # ~303 tests (vitest, current workspace) — number may change
 pnpm lint           # eslint
 ```
 
@@ -91,8 +91,8 @@ git tag v<x.y.z> && git push origin v<x.y.z>
 
 ## Verification Order
 
-1. `cd agent-mesh && pnpm test` (CLI tests, ~293 tests — number may change)
-2. `cd .. && npm test` (main project, ~576 tests — number may change)
+1. `cd agent-mesh && pnpm test` (CLI/Worker tests, ~303 tests in current workspace — number may change)
+2. `cd .. && npm test` (main project tests, ~493 tests in current workspace — number may change)
 3. `npm run lint`
 4. `npm run build`
 

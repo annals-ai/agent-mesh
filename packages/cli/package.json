@@ -12,7 +12,7 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@annals/bridge-protocol": "^0.1.0",
+    "@annals/bridge-protocol": "^0.2.0",
     "commander": "^13.0.0",
     "ws": "^8.18.0"
   },

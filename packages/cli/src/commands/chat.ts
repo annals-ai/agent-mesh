@@ -84,6 +84,7 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
     const task = await pollRes.json() as {
       status: string;
       result?: string;
+      attachments?: Array<{ name: string; url: string; type?: string }>;
       error_message?: string;
       error_code?: string;
     };
@@ -91,6 +92,11 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
     if (task.status === 'completed') {
       process.stderr.write(` done\n`);
       process.stdout.write((task.result || '') + '\n');
+      if (task.attachments?.length) {
+        for (const att of task.attachments) {
+          process.stdout.write(`${GRAY}[file: ${att.name} -> ${att.url}]${RESET}\n`);
+        }
+      }
       return;
     }
     if (task.status === 'failed') {

@@ -413,16 +413,12 @@ export class AgentSession implements DurableObject {
       ...(body.client_id && { client_id: body.client_id }),
     };
 
-    try {
-      ws.send(JSON.stringify(message));
-    } catch {
-      return json(502, { error: 'agent_offline', message: 'Failed to send message to agent' });
-    }
+    const isAsync = body.mode === 'async' && !!body.callback_url;
 
-    // ===== Async mode: persist task meta to DO storage, return 202 =====
-    if (body.mode === 'async' && body.callback_url) {
+    // ===== Async mode: persist task meta BEFORE ws.send to avoid race on fast agent replies =====
+    if (isAsync) {
       const taskMeta: AsyncTaskMeta = {
-        callbackUrl: body.callback_url,
+        callbackUrl: body.callback_url!,
         sessionKey: body.session_id,
         sessionTitle: body.session_title,
         userMessage: body.user_message,
@@ -430,6 +426,18 @@ export class AgentSession implements DurableObject {
         lastActivity: Date.now(),
       };
       await this.state.storage.put(`async:${body.request_id}`, JSON.stringify(taskMeta));
+    }
+
+    try {
+      ws.send(JSON.stringify(message));
+    } catch {
+      if (isAsync) {
+        try { await this.state.storage.delete(`async:${body.request_id}`); } catch {}
+      }
+      return json(502, { error: 'agent_offline', message: 'Failed to send message to agent' });
+    }
+
+    if (isAsync) {
       return json(202, { accepted: true, request_id: body.request_id });
     }
 
@@ -529,7 +537,7 @@ export class AgentSession implements DurableObject {
       }
       if (msg.type === 'done') {
         const doneMsg = msg as Done;
-        await this.completeAsyncTask(msg.request_id, task, doneMsg.result || '');
+        await this.completeAsyncTask(msg.request_id, task, doneMsg.result || '', doneMsg.attachments);
         return;
       }
       if (msg.type === 'error') {
@@ -589,11 +597,19 @@ export class AgentSession implements DurableObject {
   // ========================================================
   // Async task completion callbacks
   // ========================================================
-  private async completeAsyncTask(requestId: string, task: AsyncTaskMeta, result: string): Promise<void> {
+  private async completeAsyncTask(
+    requestId: string,
+    task: AsyncTaskMeta,
+    result: string,
+    attachments?: Attachment[],
+  ): Promise<void> {
+    const normalizedAttachments = attachments && attachments.length > 0 ? attachments : undefined;
+
     // Store result in DO for polling (24h TTL via alarm)
     await this.state.storage.put(`result:${requestId}`, JSON.stringify({
       status: 'completed',
       result,
+      ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
       duration_ms: Date.now() - task.startedAt,
       completed_at: new Date().toISOString(),
     }));
@@ -611,6 +627,7 @@ export class AgentSession implements DurableObject {
           request_id: requestId,
           status: 'completed',
           result,
+          ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
           duration_ms: Date.now() - task.startedAt,
           session_key: task.sessionKey,
           session_title: task.sessionTitle,
