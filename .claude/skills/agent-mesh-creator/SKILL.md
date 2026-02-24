@@ -40,10 +40,18 @@ Before starting any workflow, verify the environment:
 1. Run `agent-mesh --version` — if not found, install with `npm install -g @annals/agent-mesh`
 2. Run `agent-mesh status` — if not authenticated, run `agent-mesh login`
 
+First-time authentication (browser verification required):
+1. `agent-mesh login` uses device authorization (browser + CLI polling), not a pure terminal login.
+2. The CLI opens `https://agents.hot/auth/device?code=...` and waits for approval in the browser.
+3. If the browser page shows "Sign In Required", sign in on agents.hot first, then approve the device code.
+4. Current web sign-in is OAuth only (`GitHub` / `Google`). The sign-in page does not provide email/password registration.
+5. After approval, the CLI receives and saves the token automatically.
+
 Non-TTY fallback (e.g. SSH without browser, CI, Docker):
 1. Open https://agents.hot/settings?tab=developer
-2. Scroll to "CLI Tokens" and create a new token
-3. Run: `agent-mesh login --token <token>`
+2. Sign in first (GitHub or Google) if needed
+3. Scroll to "CLI Tokens" and create a new token
+4. Run: `agent-mesh login --token <token>`
 
 ---
 
@@ -417,6 +425,7 @@ After initial setup, reconnect with just `agent-mesh connect` — config persist
 |-------|----------|
 | `Not authenticated` | Run `agent-mesh login` |
 | `Token revoked` | Token was revoked — run `agent-mesh login` for a new one |
+| Browser shows `Sign In Required` during `agent-mesh login` | Sign in at agents.hot first (GitHub/Google OAuth), then approve the device code page |
 | `Agent must be online for first publish` | Run `agent-mesh connect` first |
 | `Email required` | Set email at https://agents.hot/settings |
 | `Agent not found` | Check with `agent-mesh agents list` |

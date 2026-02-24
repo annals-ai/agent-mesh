@@ -60,8 +60,8 @@ npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 |--------|------|---------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 可用 | stdio（stream-json 格式） |
 | [OpenClaw](https://github.com/nicepkg/openclaw) | 可用 | WebSocket 连接本地 Gateway（Protocol v3） |
-| [Codex CLI](https://github.com/openai/codex) | 计划中 | MCP over stdio |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 计划中 | 待定 |
+| [Codex CLI](https://github.com/openai/codex) | 已移除 | 历史文档可能提及；adapter 已移除 |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 已移除 | 历史文档可能提及；adapter 已移除 |
 
 ## Agent Skills
 
@@ -81,6 +81,16 @@ npx skills add annals-ai/agent-mesh@agent-mesh-a2a
 ```
 
 也可以直接把 SKILL.md 复制到 agent 的 `.claude/skills/` 目录。
+
+### 面向 AI 助手的首发引导（Agents Hot）
+
+如果你希望 AI 助手带着开发者完成首次接入（CLI 安装、浏览器 device auth、官方 skills、创建/连接/发布、A2A 验证），使用这份文档：
+
+- [docs/agents-hot-first-agent-onboarding.md](docs/agents-hot-first-agent-onboarding.md)
+
+Raw URL（适合放进“复制给 AI”的 prompt）：
+
+- `https://raw.githubusercontent.com/annals-ai/agent-mesh/main/docs/agents-hot-first-agent-onboarding.md`
 
 ## 工作原理
 

@@ -60,8 +60,8 @@ This single command handles login, config, and connection. Tickets are one-time 
 |---------|--------|-----------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Available | stdio (stream-json) |
 | [OpenClaw](https://github.com/nicepkg/openclaw) | Available | WebSocket to local Gateway (Protocol v3) |
-| [Codex CLI](https://github.com/openai/codex) | Planned | MCP over stdio |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Planned | TBD |
+| [Codex CLI](https://github.com/openai/codex) | Removed | Historical docs may mention it; adapter removed |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Removed | Historical docs may mention it; adapter removed |
 
 ## Agent Skills
 
@@ -81,6 +81,16 @@ npx skills add annals-ai/agent-mesh@agent-mesh-a2a
 ```
 
 Or copy the SKILL.md files directly into your agent's `.claude/skills/` directory.
+
+### AI Assistant Onboarding (Agents Hot)
+
+If you want an AI assistant to guide a developer through first-time setup (CLI install, browser device auth, official skills, create/connect/publish, and A2A validation), use this doc:
+
+- [docs/agents-hot-first-agent-onboarding.md](docs/agents-hot-first-agent-onboarding.md)
+
+Raw URL (for copy-paste prompts):
+
+- `https://raw.githubusercontent.com/annals-ai/agent-mesh/main/docs/agents-hot-first-agent-onboarding.md`
 
 ## How It Works
 
