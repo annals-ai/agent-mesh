@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { readFile, writeFile, readdir, stat, mkdir, rm } from 'node:fs/promises';
+import { readFile, writeFile, readdir, stat, mkdir, rm, symlink, unlink } from 'node:fs/promises';
 import { join, resolve, relative } from 'node:path';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { loadSkillManifest, parseSkillMd, pathExists, updateFrontmatterField } from '../utils/skill-parser.js';
@@ -104,37 +104,37 @@ function skillApiPath(authorLogin: string, slug: string): string {
  * Detect skills directory convention.
  * Returns the skills root directory path and which convention is used.
  */
-function resolveSkillsRoot(pathArg?: string): { projectRoot: string; skillsDir: string; convention: 'claude' | 'agents' } {
+function resolveSkillsRoot(pathArg?: string): { projectRoot: string; skillsDir: string; claudeSkillsDir: string } {
   const projectRoot = pathArg ? resolve(pathArg) : process.cwd();
-
-  // Check .agents/skills/ first (openclaw convention)
-  const agentsDir = join(projectRoot, '.agents', 'skills');
-  const claudeDir = join(projectRoot, '.claude', 'skills');
-
-  // We use sync check via resolve, but for simplicity just return claude convention as default
-  return { projectRoot, skillsDir: claudeDir, convention: 'claude' };
+  const skillsDir = join(projectRoot, '.agents', 'skills');
+  const claudeSkillsDir = join(projectRoot, '.claude', 'skills');
+  return { projectRoot, skillsDir, claudeSkillsDir };
 }
 
 /**
- * Detect skills directory convention (async version with actual filesystem check).
+ * Detect skills directories.
+ * Primary storage: .agents/skills/ (inference-sh/skills convention)
+ * Claude symlinks: .claude/skills/<slug> → ../../.agents/skills/<slug>
  */
-async function resolveSkillsRootAsync(pathArg?: string): Promise<{ projectRoot: string; skillsDir: string; convention: 'claude' | 'agents' }> {
+async function resolveSkillsRootAsync(pathArg?: string): Promise<{ projectRoot: string; skillsDir: string; claudeSkillsDir: string }> {
   const projectRoot = pathArg ? resolve(pathArg) : process.cwd();
+  const skillsDir = join(projectRoot, '.agents', 'skills');
+  const claudeSkillsDir = join(projectRoot, '.claude', 'skills');
+  return { projectRoot, skillsDir, claudeSkillsDir };
+}
 
-  // Prefer .claude/skills/ (Claude Code convention)
-  const claudeDir = join(projectRoot, '.claude', 'skills');
-  if (await pathExists(claudeDir)) {
-    return { projectRoot, skillsDir: claudeDir, convention: 'claude' };
-  }
-
-  // Fall back to .agents/skills/ (OpenClaw convention)
-  const agentsDir = join(projectRoot, '.agents', 'skills');
-  if (await pathExists(agentsDir)) {
-    return { projectRoot, skillsDir: agentsDir, convention: 'agents' };
-  }
-
-  // Default: create .claude/skills/
-  return { projectRoot, skillsDir: claudeDir, convention: 'claude' };
+/**
+ * Create a symlink in .claude/skills/<slug> pointing to ../../.agents/skills/<slug>
+ * Mirrors the inference-sh/skills convention used by `npx skills add`.
+ */
+async function ensureClaudeSymlink(claudeSkillsDir: string, slug: string): Promise<void> {
+  await mkdir(claudeSkillsDir, { recursive: true });
+  const linkPath = join(claudeSkillsDir, slug);
+  // Remove existing (dir or broken symlink)
+  try { await unlink(linkPath); } catch { /* ignore */ }
+  try { await rm(linkPath, { recursive: true, force: true }); } catch { /* ignore */ }
+  // Create relative symlink: ../../.agents/skills/<slug>
+  await symlink(`../../.agents/skills/${slug}`, linkPath);
 }
 
 /**
@@ -652,7 +652,7 @@ export function registerSkillsCommand(program: Command): void {
     .action(async (ref: string, pathArg: string | undefined, opts: { force?: boolean }) => {
       try {
         const { authorLogin, slug } = parseSkillRef(ref);
-        const { skillsDir } = await resolveSkillsRootAsync(pathArg);
+        const { skillsDir, claudeSkillsDir } = await resolveSkillsRootAsync(pathArg);
 
         const targetDir = join(skillsDir, slug);
 
@@ -668,6 +668,9 @@ export function registerSkillsCommand(program: Command): void {
         slog.info(`Installing ${authorLogin}/${slug}...`);
         const client = createClient();
         const result = await downloadAndInstallSkill(client, authorLogin, slug, skillsDir);
+
+        // Create .claude/skills/<slug> symlink (inference-sh/skills convention)
+        await ensureClaudeSymlink(claudeSkillsDir, slug);
 
         slog.success(`Installed ${result.name} (${result.files_count} files)`);
         outputJson({
@@ -795,7 +798,7 @@ export function registerSkillsCommand(program: Command): void {
     .description('Remove a locally installed skill')
     .action(async (slug: string, pathArg: string | undefined) => {
       try {
-        const { skillsDir } = await resolveSkillsRootAsync(pathArg);
+        const { skillsDir, claudeSkillsDir } = await resolveSkillsRootAsync(pathArg);
         const targetDir = join(skillsDir, slug);
 
         if (!(await pathExists(targetDir))) {
@@ -803,6 +806,8 @@ export function registerSkillsCommand(program: Command): void {
         }
 
         await rm(targetDir, { recursive: true, force: true });
+        // Also remove .claude/skills symlink if it exists
+        try { await unlink(join(claudeSkillsDir, slug)); } catch { /* ignore */ }
 
         slog.success(`Removed skill: ${slug}`);
         outputJson({ success: true, removed: slug, path: targetDir });
