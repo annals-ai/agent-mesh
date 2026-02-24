@@ -157,11 +157,24 @@ agent-mesh chat <agent> --no-thinking       # Hide reasoning
 
 ### Skill Publishing
 
+Skills use **author-scoped naming**: `author/slug` (like npm `@scope/package`).
+
 ```bash
-agent-mesh skills init [path]               # Create skill.json + SKILL.md
+# Author workflow (publish your skills)
+agent-mesh skills init [path]               # Create SKILL.md with frontmatter
 agent-mesh skills publish [path]            # Pack and upload to agents.hot
-agent-mesh skills version patch [path]      # Version management
-agent-mesh skills list                      # List published skills
+agent-mesh skills version patch [path]      # Version management (patch|minor|major)
+agent-mesh skills list                      # List your published skills
+agent-mesh skills info <author/slug>        # View remote skill details
+agent-mesh skills unpublish <author/slug>   # Remove from platform
+
+# Consumer workflow (install skills)
+agent-mesh skills install <author/slug>     # Install to .claude/skills/ or .agents/skills/
+agent-mesh skills install <author/slug> --force  # Overwrite if already installed
+agent-mesh skills update [author/slug]      # Update one or all installed skills
+agent-mesh skills remove <slug>             # Delete locally installed skill
+agent-mesh skills installed                 # List installed skills
+agent-mesh skills installed --check-updates # Check for available updates
 ```
 
 `<id>` parameters accept UUID, local alias, or agent name (case-insensitive).

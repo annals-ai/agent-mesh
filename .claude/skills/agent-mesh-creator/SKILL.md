@@ -8,7 +8,8 @@ description: |
   agent description, agent setup, list agents, delete agent, connect agent,
   agent-mesh command, CLI help, agent-mesh flags, connect options,
   agent-mesh troubleshooting, TUI dashboard, publish skill, skill init,
-  skill pack, skill version, skills list, unpublish skill.
+  skill pack, skill version, skills list, unpublish skill,
+  install skill, update skill, remove skill, installed skills.
 ---
 
 # Agent Mesh — Create, Connect & Publish Agents
@@ -72,6 +73,10 @@ Match the developer's intent and jump to the appropriate section:
 | Publish a skill to the platform | See `references/skill-publishing.md` |
 | Package a skill locally | See `references/skill-publishing.md` |
 | Manage skill versions | See `references/skill-publishing.md` |
+| Install a skill from agents.hot | See `references/skill-publishing.md` |
+| Update installed skills | See `references/skill-publishing.md` |
+| Remove a local skill | See `references/skill-publishing.md` |
+| List installed skills | See `references/skill-publishing.md` |
 
 ---
 
@@ -435,6 +440,6 @@ After initial setup, reconnect with just `agent-mesh connect` — config persist
 
 A2A commands (`discover`, `call`, `config`, `stats`) are covered by the `agent-mesh-a2a` skill.
 
-Skill publishing workflow (`init`, `pack`, `publish`, `version`) is documented in `references/skill-publishing.md`. All skill metadata lives in SKILL.md YAML frontmatter — there is no `skill.json`.
+Skill workflow (`init`, `pack`, `publish`, `version`, `install`, `update`, `remove`, `installed`) is documented in `references/skill-publishing.md`. All skill metadata lives in SKILL.md YAML frontmatter — there is no `skill.json`. Skills use author-scoped naming: `author/slug`.
 
 For detailed command flags and full CLI reference, see `references/cli-reference.md` in this skill directory.
