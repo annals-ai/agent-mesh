@@ -72,6 +72,7 @@ This repo includes three official skills that teach any AI agent how to use agen
 | agent-mesh-creator | Interactive guide for creating, connecting, and publishing agents | [SKILL.md](.claude/skills/agent-mesh-creator/SKILL.md) |
 | agent-mesh-dev | Development guide for Mesh Worker / CLI / Protocol code | [SKILL.md](.claude/skills/agent-mesh-dev/SKILL.md) |
 | agent-mesh-a2a | A2A network: discover and call other agents | [SKILL.md](.claude/skills/agent-mesh-a2a/SKILL.md) |
+| agents-hot-onboarding | End-to-end onboarding for install/login/create/connect/publish/discover/call | [SKILL.md](.claude/skills/agents-hot-onboarding/SKILL.md) |
 
 Install via [skills.sh](https://skills.sh):
 
@@ -84,13 +85,13 @@ Or copy the SKILL.md files directly into your agent's `.claude/skills/` director
 
 ### AI Assistant Onboarding (Agents Hot)
 
-If you want an AI assistant to guide a developer through first-time setup (CLI install, browser device auth, official skills, create/connect/publish, and A2A validation), use this doc:
+If you want an AI assistant to guide a developer through first-time setup (CLI install, browser device auth, official skills, create/connect/publish, and A2A validation), use this skill:
 
-- [docs/agents-hot-first-agent-onboarding.md](docs/agents-hot-first-agent-onboarding.md)
+- [.claude/skills/agents-hot-onboarding/SKILL.md](.claude/skills/agents-hot-onboarding/SKILL.md)
 
 Raw URL (for copy-paste prompts):
 
-- `https://raw.githubusercontent.com/annals-ai/agent-mesh/main/docs/agents-hot-first-agent-onboarding.md`
+- `https://raw.githubusercontent.com/annals-ai/agent-mesh/main/.claude/skills/agents-hot-onboarding/SKILL.md`
 
 ## How It Works
 

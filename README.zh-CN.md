@@ -72,6 +72,7 @@ npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 | agent-mesh-creator | 创建、连接、发布 agent 的交互式向导 | [SKILL.md](.claude/skills/agent-mesh-creator/SKILL.md) |
 | agent-mesh-dev | Mesh Worker/CLI/Protocol 代码开发 | [SKILL.md](.claude/skills/agent-mesh-dev/SKILL.md) |
 | agent-mesh-a2a | A2A 网络：发现和调用其他 agent | [SKILL.md](.claude/skills/agent-mesh-a2a/SKILL.md) |
+| agents-hot-onboarding | 安装/登录/创建/连接/发布/发现/调用的一站式引导 | [SKILL.md](.claude/skills/agents-hot-onboarding/SKILL.md) |
 
 通过 [skills.sh](https://skills.sh) 安装：
 
@@ -84,13 +85,13 @@ npx skills add annals-ai/agent-mesh@agent-mesh-a2a
 
 ### 面向 AI 助手的首发引导（Agents Hot）
 
-如果你希望 AI 助手带着开发者完成首次接入（CLI 安装、浏览器 device auth、官方 skills、创建/连接/发布、A2A 验证），使用这份文档：
+如果你希望 AI 助手带着开发者完成首次接入（CLI 安装、浏览器 device auth、官方 skills、创建/连接/发布、A2A 验证），使用这个 Skill：
 
-- [docs/agents-hot-first-agent-onboarding.md](docs/agents-hot-first-agent-onboarding.md)
+- [.claude/skills/agents-hot-onboarding/SKILL.md](.claude/skills/agents-hot-onboarding/SKILL.md)
 
 Raw URL（适合放进“复制给 AI”的 prompt）：
 
-- `https://raw.githubusercontent.com/annals-ai/agent-mesh/main/docs/agents-hot-first-agent-onboarding.md`
+- `https://raw.githubusercontent.com/annals-ai/agent-mesh/main/.claude/skills/agents-hot-onboarding/SKILL.md`
 
 ## 工作原理
 
