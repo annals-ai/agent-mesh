@@ -37,6 +37,26 @@ interface AgentDeleteResponse {
   message: string;
 }
 
+const SUPPORTED_AGENT_TYPES = ['claude'] as const;
+type SupportedAgentType = (typeof SUPPORTED_AGENT_TYPES)[number];
+
+function normalizeAgentType(input: string | undefined): SupportedAgentType | null {
+  if (!input) return null;
+  const normalized = input.trim().toLowerCase();
+  if (normalized === 'claude-code' || normalized === 'claudecode') return 'claude';
+  if ((SUPPORTED_AGENT_TYPES as readonly string[]).includes(normalized)) {
+    return normalized as SupportedAgentType;
+  }
+  return null;
+}
+
+function parseAgentTypeOrExit(input: string | undefined): SupportedAgentType {
+  const agentType = normalizeAgentType(input);
+  if (agentType) return agentType;
+  log.error(`Invalid agent type: ${input}. Supported: ${SUPPORTED_AGENT_TYPES.join(', ')} (alias: claude-code).`);
+  process.exit(1);
+}
+
 // --- Helpers ---
 
 function readLine(prompt: string): Promise<string> {
@@ -118,7 +138,7 @@ export function registerAgentsCommand(program: Command): void {
     .command('create')
     .description('Create a new agent')
     .option('--name <name>', 'Agent name')
-    .option('--type <type>', 'Agent type (openclaw | claude)', 'openclaw')
+    .option('--type <type>', 'Agent type (claude)', 'claude')
     .option('--description <desc>', 'Agent description')
     .action(async (opts: {
       name?: string;
@@ -127,7 +147,7 @@ export function registerAgentsCommand(program: Command): void {
     }) => {
       try {
         let { name, description } = opts;
-        const agentType = opts.type;
+        const agentType = parseAgentTypeOrExit(opts.type);
 
         // Interactive mode if name is missing and TTY
         if (!name && process.stdin.isTTY) {
@@ -207,7 +227,7 @@ export function registerAgentsCommand(program: Command): void {
     .command('update <id-or-name>')
     .description('Update an agent')
     .option('--name <name>', 'New name')
-    .option('--type <type>', 'Agent type (openclaw | claude)')
+    .option('--type <type>', 'Agent type (claude)')
     .option('--description <desc>', 'Agent description')
     .action(async (input: string, opts: {
       name?: string;
@@ -217,7 +237,7 @@ export function registerAgentsCommand(program: Command): void {
       try {
         const updates: Record<string, unknown> = {};
         if (opts.name !== undefined) updates.name = opts.name;
-        if (opts.type !== undefined) updates.agent_type = opts.type;
+        if (opts.type !== undefined) updates.agent_type = parseAgentTypeOrExit(opts.type);
         if (opts.description !== undefined) updates.description = opts.description;
 
         if (Object.keys(updates).length === 0) {

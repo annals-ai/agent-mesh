@@ -4,19 +4,21 @@ import { loadConfig, addAgent, findAgentByAgentId, uniqueSlug, getAgentWorkspace
 import { writePid, removePid, spawnBackground, isProcessAlive, getLogPath } from '../utils/process-manager.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { BridgeManager } from '../bridge/manager.js';
-import { OpenClawAdapter } from '../adapters/openclaw.js';
 import { ClaudeAdapter } from '../adapters/claude.js';
 import type { AgentAdapter, AdapterConfig } from '../adapters/base.js';
-import { readOpenClawToken } from '../utils/openclaw-config.js';
 import { initSandbox, resetSandbox } from '../utils/sandbox.js';
 import { log } from '../utils/logger.js';
 import { RESET, BOLD, GREEN, GRAY } from '../utils/table.js';
 
 const DEFAULT_BRIDGE_URL = 'wss://bridge.agents.hot/ws';
 
+function getWorkspaceHint(): string {
+  return 'Put CLAUDE.md (role instructions) and .claude/skills/ here.';
+}
+
 function logWorkspaceHint(slug: string, projectPath: string): void {
   console.log(`  ${GRAY}Workspace: ${RESET}${projectPath}`);
-  console.log(`  ${GRAY}Put CLAUDE.md (role instructions) and .claude/skills/ here.${RESET}`);
+  console.log(`  ${GRAY}${getWorkspaceHint()}${RESET}`);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -25,12 +27,10 @@ function sleep(ms: number): Promise<void> {
 
 function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
   switch (type) {
-    case 'openclaw':
-      return new OpenClawAdapter(config);
     case 'claude':
       return new ClaudeAdapter(config);
     default:
-      throw new Error(`Unknown agent type: ${type}. Supported: openclaw, claude`);
+      throw new Error(`Unknown agent type: ${type}. Supported: claude`);
   }
 }
 
@@ -40,9 +40,7 @@ export function registerConnectCommand(program: Command): void {
     .description('Connect a local agent to the Agents.Hot platform')
     .option('--setup <url>', 'One-click setup from agents.hot connect ticket URL')
     .option('--agent-id <id>', 'Agent ID registered on Agents.Hot')
-    .option('--project <path>', 'Project path (for claude adapter)')
-    .option('--gateway-url <url>', 'OpenClaw gateway URL (for openclaw adapter)')
-    .option('--gateway-token <token>', 'OpenClaw gateway token')
+    .option('--project <path>', 'Agent workspace path')
     .option('--bridge-url <url>', 'Bridge Worker WebSocket URL')
     .option('--sandbox', 'Run agent inside a sandbox (requires srt)')
     .option('--no-sandbox', 'Disable sandbox even if enabled in config')
@@ -51,8 +49,6 @@ export function registerConnectCommand(program: Command): void {
       setup?: string;
       agentId?: string;
       project?: string;
-      gatewayUrl?: string;
-      gatewayToken?: string;
       bridgeUrl?: string;
       sandbox?: boolean;
       foreground?: boolean;
@@ -81,16 +77,9 @@ export function registerConnectCommand(program: Command): void {
             bridge_url: string;
           };
 
-          // Auto-detect OpenClaw token for openclaw agents
-          let gatewayToken = opts.gatewayToken;
-          if (ticketData.agent_type === 'openclaw' && !gatewayToken) {
-            const localToken = readOpenClawToken();
-            if (localToken) {
-              gatewayToken = localToken;
-              log.success('Auto-detected OpenClaw gateway token from ~/.openclaw/openclaw.json');
-            } else {
-              log.warn('Could not auto-detect OpenClaw token. Use --gateway-token to provide it manually.');
-            }
+          if (ticketData.agent_type !== 'claude') {
+            log.error(`Unsupported agent type from ticket: ${ticketData.agent_type}. Only claude is supported.`);
+            process.exit(1);
           }
 
           // Resolve agent name from platform
@@ -120,8 +109,6 @@ export function registerConnectCommand(program: Command): void {
             agentId: ticketData.agent_id,
             agentType: ticketData.agent_type,
             bridgeUrl: ticketData.bridge_url,
-            gatewayUrl: opts.gatewayUrl,
-            gatewayToken: gatewayToken,
             projectPath: opts.project || getAgentWorkspaceDir(slug),
             sandbox: opts.sandbox,
             addedAt: new Date().toISOString(),
@@ -135,7 +122,6 @@ export function registerConnectCommand(program: Command): void {
           if (opts.foreground) {
             opts.agentId = ticketData.agent_id;
             opts.bridgeUrl = ticketData.bridge_url;
-            opts.gatewayToken = gatewayToken;
             type = ticketData.agent_type;
             // Fall through to foreground connection below
           } else {
@@ -196,8 +182,6 @@ export function registerConnectCommand(program: Command): void {
         agentName = found.name;
         const entry = found.entry;
         opts.bridgeUrl = opts.bridgeUrl || entry.bridgeUrl;
-        opts.gatewayUrl = opts.gatewayUrl || entry.gatewayUrl;
-        opts.gatewayToken = opts.gatewayToken || entry.gatewayToken;
         opts.project = opts.project || entry.projectPath || getAgentWorkspaceDir(found.name);
         if (opts.sandbox === undefined && entry.sandbox !== undefined) opts.sandbox = entry.sandbox;
       }
@@ -242,23 +226,8 @@ export function registerConnectCommand(program: Command): void {
         }
       }
 
-      // OpenClaw chatCompletions endpoint pre-check
-      if (agentType === 'openclaw') {
-        const { isChatCompletionsEnabled } = await import('../utils/openclaw-config.js');
-        if (!isChatCompletionsEnabled()) {
-          log.warn(
-            'OpenClaw chatCompletions endpoint may not be enabled.\n' +
-            '  Add to ~/.openclaw/openclaw.json:\n' +
-            '  { "gateway": { "http": { "endpoints": { "chatCompletions": { "enabled": true } } } } }\n' +
-            '  Continuing anyway (gateway may be on a remote host)...'
-          );
-        }
-      }
-
       const adapterConfig: AdapterConfig = {
         project: opts.project,
-        gatewayUrl: opts.gatewayUrl,
-        gatewayToken: opts.gatewayToken,
         sandboxEnabled,
         agentId,
       };
@@ -296,8 +265,6 @@ export function registerConnectCommand(program: Command): void {
           agentId,
           agentType,
           bridgeUrl,
-          gatewayUrl: opts.gatewayUrl,
-          gatewayToken: opts.gatewayToken,
           projectPath: opts.project,
           sandbox: opts.sandbox,
           addedAt: new Date().toISOString(),

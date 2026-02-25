@@ -164,7 +164,7 @@ const AGENTS_DIR = join(CONFIG_DIR, 'agents');
 /**
  * Get (and create) the dedicated workspace directory for an agent.
  * Each agent gets `~/.agent-mesh/agents/<name>/` as its project root.
- * Developer puts CLAUDE.md and .claude/skills/ here to define the agent's role.
+ * Developer defines role + skills here: `CLAUDE.md` + `.claude/skills/`
  */
 export function getAgentWorkspaceDir(name: string): string {
   const dir = join(AGENTS_DIR, name);
