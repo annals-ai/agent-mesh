@@ -35,13 +35,33 @@ export function parseSkillMd(raw: string): { frontmatter: Record<string, unknown
   const yamlBlock = trimmed.slice(4, endIdx);
   const content = trimmed.slice(endIdx + 4).trimStart();
 
-  // Minimal YAML parser — supports key: value, key: [a, b], and arrays with - prefix
+  // Minimal YAML parser — supports key: value, key: [a, b], arrays with - prefix, and multiline |/>
   const frontmatter: Record<string, unknown> = {};
   let currentKey: string | null = null;
   let currentArray: string[] | null = null;
+  let currentMultiline: { style: '|' | '>'; lines: string[] } | null = null;
 
-  for (const line of yamlBlock.split('\n')) {
+  const lines = yamlBlock.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimLine = line.trim();
+
+    // Multiline collection: indented lines belong to the current multiline block
+    if (currentKey && currentMultiline) {
+      if (line.match(/^[ ]{2,}/) && (trimLine || currentMultiline.lines.length > 0)) {
+        currentMultiline.lines.push(trimLine);
+        continue;
+      }
+      // Flush multiline
+      const joined = currentMultiline.style === '|'
+        ? currentMultiline.lines.join('\n')
+        : currentMultiline.lines.join(' ');
+      frontmatter[currentKey] = joined.trim();
+      currentKey = null;
+      currentMultiline = null;
+      // Fall through to process this line as a new key
+    }
+
     if (!trimLine || trimLine.startsWith('#')) continue;
 
     // Array item under a key
@@ -70,6 +90,13 @@ export function parseSkillMd(raw: string): { frontmatter: Record<string, unknown
       continue;
     }
 
+    // Multiline string: | or >
+    if (rawVal === '|' || rawVal === '>') {
+      currentKey = key;
+      currentMultiline = { style: rawVal, lines: [] };
+      continue;
+    }
+
     // Inline array: [a, b, c]
     if (rawVal.startsWith('[') && rawVal.endsWith(']')) {
       frontmatter[key] = rawVal
@@ -92,6 +119,14 @@ export function parseSkillMd(raw: string): { frontmatter: Record<string, unknown
 
     // String (strip quotes)
     frontmatter[key] = rawVal.replace(/^["']|["']$/g, '');
+  }
+
+  // Flush trailing multiline
+  if (currentKey && currentMultiline) {
+    const joined = currentMultiline.style === '|'
+      ? currentMultiline.lines.join('\n')
+      : currentMultiline.lines.join(' ');
+    frontmatter[currentKey] = joined.trim();
   }
 
   // Flush trailing array

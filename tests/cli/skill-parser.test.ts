@@ -95,6 +95,63 @@ Body.`;
       const result = parseSkillMd('---\nname: broken\nno closing marker');
       expect(result.frontmatter).toEqual({});
     });
+
+    it('should parse | multiline string preserving newlines', async () => {
+      const { parseSkillMd } = await import('../../packages/cli/src/utils/skill-parser.js');
+
+      const md = `---
+name: test-skill
+description: |
+  Line one.
+  Line two.
+  Line three.
+version: 2.0.0
+---
+
+Content.`;
+
+      const result = parseSkillMd(md);
+      expect(result.frontmatter.description).toBe('Line one.\nLine two.\nLine three.');
+      expect(result.frontmatter.name).toBe('test-skill');
+      expect(result.frontmatter.version).toBe('2.0.0');
+    });
+
+    it('should parse > multiline string folding into spaces', async () => {
+      const { parseSkillMd } = await import('../../packages/cli/src/utils/skill-parser.js');
+
+      const md = `---
+name: fold-skill
+description: >
+  This is a long
+  description that
+  folds into one line.
+---
+
+Body.`;
+
+      const result = parseSkillMd(md);
+      expect(result.frontmatter.description).toBe('This is a long description that folds into one line.');
+    });
+
+    it('should parse fields after multiline block correctly', async () => {
+      const { parseSkillMd } = await import('../../packages/cli/src/utils/skill-parser.js');
+
+      const md = `---
+name: multi
+description: |
+  First line.
+  Second line.
+category: development
+tags: [a, b]
+---
+
+Done.`;
+
+      const result = parseSkillMd(md);
+      expect(result.frontmatter.description).toBe('First line.\nSecond line.');
+      expect(result.frontmatter.category).toBe('development');
+      expect(result.frontmatter.tags).toEqual(['a', 'b']);
+    });
   });
 
   describe('loadSkillManifest', () => {
