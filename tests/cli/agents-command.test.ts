@@ -412,15 +412,15 @@ describe('agents publish / unpublish', () => {
     ).rejects.toThrow(/online/i);
   });
 
-  it('should fail publish if email required', async () => {
-    globalThis.fetch = mockFetchError(400, 'email_required', 'Email required');
+  it('should fail publish with unknown backend errors', async () => {
+    globalThis.fetch = mockFetchError(400, 'publish_blocked', 'Publish blocked');
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('ah_test');
 
     await expect(
       client.put(`/api/developer/agents/${AGENT_UUID}`, { is_published: true }),
-    ).rejects.toThrow(/email/i);
+    ).rejects.toThrow(/publish blocked/i);
   });
 
   it('should unpublish agent with is_published=false', async () => {

@@ -30,33 +30,14 @@ Do not dump this whole guide back to the developer. Run the workflow interactive
 
 ---
 
-## Current Reality (Do Not Use Old Assumptions)
+## Current Reality
 
-- This onboarding guide should default to `claude` for **Agent runtime** creation on Agents Hot
-- Do **not** guide users to create `openclaw` runtime Agents in this flow (older docs may still mention it)
-- `codex` and `gemini` runtime adapters may appear in historical docs; do not recommend them
+- This onboarding guide uses `claude` for Agent runtime creation on Agents Hot
 - First-time `agent-mesh login` uses browser device authorization
 - Web sign-in is OAuth only (`GitHub` / `Google`)
 - Official onboarding skills are:
   - `agent-mesh-creator` (create/connect/publish workflow)
   - `agent-mesh-a2a` (discover/call/inspect other agents)
-- Public email display should use only the user's **profile contact email** (`authors.email`)
-- First publish can still fail with `email_required` in current code because publish checks `authors.email` (public contact email), not OAuth login email
-
-### Important Email Clarification (Current Behavior)
-
-Agents Hot can read the user's OAuth account email (GitHub / Google login), but that should not be treated as the user's public contact email.
-
-Public email display should use only the author's profile contact email (`authors.email`), and the publish API currently checks that field.
-
-That means:
-
-- OAuth email may exist (`user.email`)
-- Public contact email is `authors.email`
-- Publish validates `authors.email`
-- These are not automatically synced in the current implementation
-
-So the assistant should still handle the `email_required` error path for now.
 
 ---
 
@@ -185,8 +166,6 @@ For this guide, set runtime type to:
 
 - `claude`
 
-Do not offer `openclaw`, `codex`, or `gemini` as Agent runtime choices in this onboarding flow.
-
 ### A2. Create the Agent
 
 Create with CLI (runtime fixed to `claude`).
@@ -264,24 +243,6 @@ Publish:
 ```bash
 agent-mesh agents publish <name-or-id>
 ```
-
-#### Common Blocker: `email_required`
-
-If publish fails with `email_required`, explain the current behavior clearly:
-
-- the bound GitHub/Google login email is not automatically used as public contact email
-- publish requires the profile contact email in Agents Hot settings (`authors.email`)
-
-Then ask the developer to:
-
-1. Open `https://agents.hot/settings?tab=profile` (or `/settings`)
-2. Fill/save the public contact email in profile
-3. Run publish again
-
-You can also suggest (optional):
-
-- If they want users to contact them at the same address, they can copy their login email into the public contact email field
-- If they prefer privacy separation, they can use a different public contact email
 
 ### A7. Validate the Network Path (Do Not Skip)
 
@@ -369,10 +330,6 @@ Likely causes:
 - missing `--project`
 - missing `CLAUDE.md`
 - skill files not in the agent folder
-
-### Publish fails with `email_required`
-
-This is still expected in current code if the author's public contact email (`authors.email`) is empty in profile settings.
 
 ---
 

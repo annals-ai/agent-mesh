@@ -19,7 +19,6 @@ const ERROR_HINTS: Record<string, string> = {
   forbidden: 'You don\'t own this agent.',
   not_found: 'Agent not found.',
   agent_offline: 'Agent must be online for first publish. Run `agent-mesh connect` first.',
-  email_required: 'Public contact email required. Run `agent-mesh profile copy-login-email` to copy your login email (public), or `agent-mesh profile open` to set one manually.',
   github_required: 'GitHub account required. Visit https://agents.hot/settings to link one.',
   validation_error: 'Invalid input. Check your SKILL.md frontmatter or command flags.',
   permission_denied: 'You don\'t have permission to modify this skill.',

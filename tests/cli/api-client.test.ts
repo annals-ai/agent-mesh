@@ -222,11 +222,11 @@ describe('PlatformClient error handling', () => {
     ).rejects.toThrow(/online/i);
   });
 
-  it('should map email_required error', async () => {
+  it('should pass through unknown backend errors', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 400,
-      json: () => Promise.resolve({ error: 'email_required', message: 'Email required' }),
+      json: () => Promise.resolve({ error: 'publish_blocked', message: 'Publish blocked' }),
     });
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
@@ -234,7 +234,7 @@ describe('PlatformClient error handling', () => {
 
     await expect(
       client.put('/api/developer/agents/abc', { is_published: true }),
-    ).rejects.toThrow(/email/i);
+    ).rejects.toThrow(/publish blocked/i);
   });
 
   it('should handle network errors', async () => {
