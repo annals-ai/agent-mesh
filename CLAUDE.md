@@ -272,6 +272,25 @@ git tag v<x.y.z> && git push origin v<x.y.z>
 # → GitHub Actions: build → test → npm publish → GitHub Release
 ```
 
+### CLI 发布后远端验证（Mac Mini）
+
+CLI 发版后，必须在 Mac Mini 上做最少两项回归：`A2A` + `Bridge E2E`（Claude 或 OpenClaw 至少一条通路）。
+
+**要求**
+- 直接在 Mac Mini 的仓库工作树运行（推荐路径：`/Users/yan/agents-hot/agent-mesh`）
+- **不要**把测试脚本临时拷到 `/tmp` 或其他临时目录执行
+- 非交互 SSH 运行 `agent-mesh` 时使用 `zsh -lc`（确保 `node` / `agent-mesh` PATH 可用）
+
+示例命令（按需替换 agent 名称与 agent_id）：
+
+```bash
+ssh yan@yandemac-mini.local 'zsh -lc "cd /Users/yan/agents-hot/agent-mesh && node scripts/e2e-a2a-call.mjs"'
+
+ssh yan@yandemac-mini.local 'zsh -lc "cd /Users/yan/agents-hot/agent-mesh && BRIDGE_PLATFORM_SECRET=<secret> TEST_AGENT_ID=<agent-uuid> TEST_AGENT_TYPE=claude node scripts/e2e-bridge-claude.mjs"'
+```
+
+如果 `/Users/yan/agents-hot` 不存在，先在 Mac Mini 上 clone 正式仓库到该路径，再执行测试（不要改用临时目录）。
+
 ## Sandbox（srt 编程 API）
 
 用 `@anthropic-ai/sandbox-runtime` 的编程 API 在 macOS 上隔离 Agent 子进程。
@@ -306,6 +325,9 @@ wrapWithSandbox(command, filesystemOverride?)
 
 | 脚本 | 用途 | 在哪跑 |
 |------|------|--------|
+| `scripts/e2e-a2a-call.mjs` | A2A 调用链路回归（发现在线 Agent + call） | Mac Mini |
+| `scripts/e2e-bridge-claude.mjs` | Bridge → Claude CLI 端到端回归 | Mac Mini |
+| `scripts/e2e-bridge-openclaw.mjs` | Bridge → OpenClaw Gateway 端到端回归 | Mac Mini |
 | `scripts/e2e-sandbox-claude.mjs` | 10 项 E2E 测试（含 Claude 回复、文件隔离、session 隔离） | Mac Mini |
 | `scripts/audit-sandbox-credentials.mjs` | 凭据泄漏审计（验证所有敏感路径被阻止 + skills 可读） | Mac Mini |
 | `scripts/test-srt-programmatic.mjs` | srt 编程 API 烟雾测试 | Mac Mini |

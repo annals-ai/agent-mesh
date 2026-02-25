@@ -3,6 +3,14 @@ import { BridgeErrorCode } from '@annals/bridge-protocol';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { SessionPool } from './session-pool.js';
+import { loadConfig, resolveRuntimeConfig } from '../utils/config.js';
+import {
+  createLocalRuntimeQueue,
+  LocalRuntimeQueueError,
+  type QueueAcquireInput,
+  type QueueLease,
+  type RuntimeQueueController,
+} from '../utils/local-runtime-queue.js';
 import { log } from '../utils/logger.js';
 
 const DUPLICATE_REQUEST_TTL_MS = 10 * 60_000;
@@ -15,6 +23,15 @@ type RequestStatus = 'active' | 'done' | 'error' | 'cancelled';
 interface RequestTrackerEntry {
   status: RequestStatus;
   expiresAt: number;
+}
+
+interface RequestDispatchState {
+  queueInput: QueueAcquireInput;
+  abortController: AbortController;
+  lease?: QueueLease;
+  stopLeaseHeartbeat?: () => void;
+  cancelled: boolean;
+  cleaned: boolean;
 }
 
 function resolveSessionIdleTtlMs(): number {
@@ -37,6 +54,7 @@ export interface BridgeManagerOptions {
   wsClient: BridgeWSClient;
   adapter: AgentAdapter;
   adapterConfig: AdapterConfig;
+  runtimeQueue?: RuntimeQueueController;
 }
 
 export class BridgeManager {
@@ -52,12 +70,16 @@ export class BridgeManager {
   private requestTracker = new Map<string, RequestTrackerEntry>();
   /** Last activity timestamp per session for idle cleanup */
   private sessionLastSeenAt = new Map<string, number>();
+  /** Request lifecycle state for local queueing (queued/running) */
+  private requestDispatches = new Map<string, RequestDispatchState>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private runtimeQueue: RuntimeQueueController;
 
   constructor(opts: BridgeManagerOptions) {
     this.wsClient = opts.wsClient;
     this.adapter = opts.adapter;
     this.adapterConfig = opts.adapterConfig;
+    this.runtimeQueue = opts.runtimeQueue || createLocalRuntimeQueue(resolveRuntimeConfig(loadConfig()));
   }
 
   start(): void {
@@ -83,6 +105,7 @@ export class BridgeManager {
     this.activeRequests.clear();
     this.wiredSessions.clear();
     this.sessionLastSeenAt.clear();
+    this.cleanupRequestDispatches('shutdown');
     log.info('Bridge manager stopped');
   }
 
@@ -100,6 +123,7 @@ export class BridgeManager {
     this.activeRequests.clear();
     this.wiredSessions.clear();
     this.sessionLastSeenAt.clear();
+    this.cleanupRequestDispatches('shutdown');
     log.info('Bridge manager reconnected');
   }
 
@@ -124,7 +148,7 @@ export class BridgeManager {
   }
 
   private handleMessage(msg: Message): void {
-    const { session_id, request_id, content, attachments, upload_url, upload_token, client_id } = msg;
+    const { session_id, request_id } = msg;
     const now = Date.now();
 
     this.pruneExpiredRequests(now);
@@ -179,17 +203,93 @@ export class BridgeManager {
       this.wiredSessions.add(session_id);
     }
 
-    // Send the message to the adapter (with upload credentials if provided)
-    const uploadCredentials = upload_url && upload_token
-      ? { uploadUrl: upload_url, uploadToken: upload_token }
-      : undefined;
+    const requestKey = this.requestKey(session_id, request_id);
+    const queueInput: QueueAcquireInput = {
+      agentId: this.adapterConfig.agentId || 'unknown-agent',
+      sessionId: session_id,
+      requestId: request_id,
+      pid: process.pid,
+    };
+    this.requestDispatches.set(requestKey, {
+      queueInput,
+      abortController: new AbortController(),
+      cancelled: false,
+      cleaned: false,
+    });
+
+    void this.dispatchWithLocalQueue({
+      msg,
+      handle,
+      requestKey,
+    });
+  }
+
+  private async dispatchWithLocalQueue(opts: { msg: Message; handle: SessionHandle; requestKey: string }): Promise<void> {
+    const { msg, handle, requestKey } = opts;
+    const { session_id, request_id, content, attachments, upload_url, upload_token, client_id } = msg;
+    const state = this.requestDispatches.get(requestKey);
+    if (!state) return;
+
     try {
-      handle.send(content, attachments, uploadCredentials, client_id);
-      this.sessionLastSeenAt.set(session_id, Date.now());
+      const lease = await this.runtimeQueue.acquire(state.queueInput, {
+        signal: state.abortController.signal,
+      });
+
+      if (state.cleaned) {
+        await lease.release('shutdown');
+        return;
+      }
+
+      state.lease = lease;
+      state.stopLeaseHeartbeat = lease.startHeartbeat();
+
+      if (state.cancelled) {
+        this.trackRequest(session_id, request_id, 'cancelled');
+        this.sendError(session_id, request_id, BridgeErrorCode.SESSION_NOT_FOUND, 'Request cancelled before execution');
+        await this.releaseRequestLease(session_id, request_id, 'cancel');
+        return;
+      }
+
+      const uploadCredentials = upload_url && upload_token
+        ? { uploadUrl: upload_url, uploadToken: upload_token }
+        : undefined;
+
+      try {
+        handle.send(content, attachments, uploadCredentials, client_id);
+        this.sessionLastSeenAt.set(session_id, Date.now());
+      } catch (err) {
+        log.error(`Failed to send to adapter: ${err}`);
+        this.trackRequest(session_id, request_id, 'error');
+        this.sendError(session_id, request_id, BridgeErrorCode.ADAPTER_CRASH, `Adapter send failed: ${err}`);
+        await this.releaseRequestLease(session_id, request_id, 'error');
+      }
     } catch (err) {
-      log.error(`Failed to send to adapter: ${err}`);
+      if (state.cleaned) return;
+
+      if (state.cancelled && err instanceof LocalRuntimeQueueError && (err.code === 'queue_aborted' || err.code === 'queue_cancelled')) {
+        this.sendError(session_id, request_id, BridgeErrorCode.SESSION_NOT_FOUND, 'Request cancelled before execution');
+        this.cleanupRequestDispatchState(requestKey);
+        return;
+      }
+
+      if (err instanceof LocalRuntimeQueueError && (err.code === 'queue_full' || err.code === 'queue_timeout')) {
+        log.warn(`Local queue rejected request: ${err.message}`);
+        this.trackRequest(session_id, request_id, 'error');
+        this.sendError(session_id, request_id, BridgeErrorCode.AGENT_BUSY, err.message);
+        this.cleanupRequestDispatchState(requestKey);
+        return;
+      }
+
+      if (err instanceof LocalRuntimeQueueError && (err.code === 'queue_aborted' || err.code === 'queue_cancelled')) {
+        // Request removed by local cleanup/reconnect; keep silent to avoid duplicate errors.
+        this.cleanupRequestDispatchState(requestKey);
+        return;
+      }
+
+      log.error(`Local queue error: ${err}`);
       this.trackRequest(session_id, request_id, 'error');
-      this.sendError(session_id, request_id, BridgeErrorCode.ADAPTER_CRASH, `Adapter send failed: ${err}`);
+      this.sendError(session_id, request_id, BridgeErrorCode.INTERNAL_ERROR, 'Local runtime queue failure');
+      this.cleanupRequestDispatchState(requestKey);
     }
   }
 
@@ -224,6 +324,7 @@ export class BridgeManager {
     });
 
     handle.onDone((attachments) => {
+      void this.releaseRequestLease(sessionId, requestRef.requestId, 'done');
       const done: Done = {
         type: 'done',
         session_id: sessionId,
@@ -241,6 +342,7 @@ export class BridgeManager {
 
     handle.onError((err) => {
       log.error(`Adapter error (session=${sessionId.slice(0, 8)}...): ${err.message}`);
+      void this.releaseRequestLease(sessionId, requestRef.requestId, 'error');
       this.trackRequest(sessionId, requestRef.requestId, 'error');
       this.sendError(sessionId, requestRef.requestId, BridgeErrorCode.ADAPTER_CRASH, err.message);
       this.sessionLastSeenAt.set(sessionId, Date.now());
@@ -252,10 +354,27 @@ export class BridgeManager {
     log.info(`Cancel received: session=${session_id.slice(0, 8)}...`);
 
     this.trackRequest(session_id, request_id, 'cancelled');
+    const requestKey = this.requestKey(session_id, request_id);
+    const state = this.requestDispatches.get(requestKey);
+
+    if (state && !state.lease) {
+      state.cancelled = true;
+      state.abortController.abort();
+      void this.runtimeQueue.cancelQueued(state.queueInput).catch((err) => {
+        log.warn(`Failed to cancel local queue entry: ${err}`);
+      });
+      return;
+    }
+
     this.destroySession(session_id, 'cancel_signal');
   }
 
   private destroySession(sessionId: string, reason: string): void {
+    const requestRef = this.activeRequests.get(sessionId);
+    if (requestRef) {
+      void this.releaseRequestLease(sessionId, requestRef.requestId, reason === 'cancel_signal' ? 'cancel' : 'shutdown');
+    }
+
     const handle = this.pool.get(sessionId);
     if (!handle) {
       this.sessionLastSeenAt.delete(sessionId);
@@ -335,6 +454,75 @@ export class BridgeManager {
 
   private requestKey(sessionId: string, requestId: string): string {
     return `${sessionId}:${requestId}`;
+  }
+
+  private async releaseRequestLease(
+    sessionId: string,
+    requestId: string,
+    reason: 'done' | 'error' | 'cancel' | 'shutdown',
+  ): Promise<void> {
+    const key = this.requestKey(sessionId, requestId);
+    const state = this.requestDispatches.get(key);
+    if (!state || state.cleaned) {
+      return;
+    }
+    state.cleaned = true;
+
+    if (state.stopLeaseHeartbeat) {
+      try { state.stopLeaseHeartbeat(); } catch {}
+      state.stopLeaseHeartbeat = undefined;
+    }
+
+    if (state.lease) {
+      try {
+        await state.lease.release(reason);
+      } catch (err) {
+        log.warn(`Failed to release local queue lease: ${err}`);
+      }
+    } else {
+      state.abortController.abort();
+      try {
+        await this.runtimeQueue.cancelQueued(state.queueInput);
+      } catch (err) {
+        log.warn(`Failed to remove local queue entry: ${err}`);
+      }
+    }
+
+    this.requestDispatches.delete(key);
+  }
+
+  private cleanupRequestDispatchState(requestKey: string): void {
+    const state = this.requestDispatches.get(requestKey);
+    if (!state) return;
+    state.cleaned = true;
+    if (state.stopLeaseHeartbeat) {
+      try { state.stopLeaseHeartbeat(); } catch {}
+      state.stopLeaseHeartbeat = undefined;
+    }
+    this.requestDispatches.delete(requestKey);
+  }
+
+  private cleanupRequestDispatches(reason: 'shutdown' | 'cancel'): void {
+    for (const [requestKey, state] of Array.from(this.requestDispatches.entries())) {
+      if (state.cleaned) continue;
+      state.cleaned = true;
+      state.cancelled = true;
+      state.abortController.abort();
+      if (state.stopLeaseHeartbeat) {
+        try { state.stopLeaseHeartbeat(); } catch {}
+        state.stopLeaseHeartbeat = undefined;
+      }
+      if (state.lease) {
+        void state.lease.release(reason).catch((err) => {
+          log.warn(`Failed to release local queue lease during cleanup: ${err}`);
+        });
+      } else {
+        void this.runtimeQueue.cancelQueued(state.queueInput).catch((err) => {
+          log.warn(`Failed to cancel queued request during cleanup: ${err}`);
+        });
+      }
+      this.requestDispatches.delete(requestKey);
+    }
   }
 
   private trackRequest(sessionId: string, requestId: string, status: RequestStatus): void {

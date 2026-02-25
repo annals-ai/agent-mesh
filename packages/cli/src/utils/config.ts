@@ -18,7 +18,26 @@ export interface AgentEntry {
 export interface BridgeConfig {
   token?: string;                          // platform auth token (login writes)
   agents: Record<string, AgentEntry>;      // key = agent alias (slug)
+  runtime?: RuntimeConfig;
 }
+
+export interface RuntimeConfig {
+  max_active_requests?: number;
+  queue_wait_timeout_ms?: number;
+  queue_max_length?: number;
+}
+
+export interface ResolvedRuntimeConfig {
+  max_active_requests: number;
+  queue_wait_timeout_ms: number;
+  queue_max_length: number;
+}
+
+export const DEFAULT_RUNTIME_CONFIG: ResolvedRuntimeConfig = {
+  max_active_requests: 100,
+  queue_wait_timeout_ms: 10 * 60_000,
+  queue_max_length: 1000,
+};
 
 const CONFIG_DIR = join(homedir(), '.agent-mesh');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
@@ -50,6 +69,40 @@ export function saveConfig(config: BridgeConfig): void {
 export function updateConfig(partial: Partial<BridgeConfig>): void {
   const existing = loadConfig();
   saveConfig({ ...existing, ...partial });
+}
+
+function parsePositiveInt(raw: unknown): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  const n = Math.floor(raw);
+  return n > 0 ? n : undefined;
+}
+
+export function resolveRuntimeConfig(config?: BridgeConfig): ResolvedRuntimeConfig {
+  const runtime = (config || loadConfig()).runtime || {};
+
+  return {
+    max_active_requests: parsePositiveInt(runtime.max_active_requests) ?? DEFAULT_RUNTIME_CONFIG.max_active_requests,
+    queue_wait_timeout_ms: parsePositiveInt(runtime.queue_wait_timeout_ms) ?? DEFAULT_RUNTIME_CONFIG.queue_wait_timeout_ms,
+    queue_max_length: parsePositiveInt(runtime.queue_max_length) ?? DEFAULT_RUNTIME_CONFIG.queue_max_length,
+  };
+}
+
+export function getRuntimeConfig(): ResolvedRuntimeConfig {
+  return resolveRuntimeConfig(loadConfig());
+}
+
+export function updateRuntimeConfig(partial: Partial<RuntimeConfig>): ResolvedRuntimeConfig {
+  const config = loadConfig();
+  config.runtime = { ...(config.runtime || {}), ...partial };
+  saveConfig(config);
+  return resolveRuntimeConfig(config);
+}
+
+export function resetRuntimeConfig(): ResolvedRuntimeConfig {
+  const config = loadConfig();
+  config.runtime = { ...DEFAULT_RUNTIME_CONFIG };
+  saveConfig(config);
+  return resolveRuntimeConfig(config);
 }
 
 export function getConfigPath(): string {
