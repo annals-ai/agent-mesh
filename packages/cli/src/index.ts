@@ -23,6 +23,7 @@ import { registerSubscribeCommand } from './commands/subscribe.js';
 import { registerRegisterCommand } from './commands/register.js';
 import { registerRateCommand } from './commands/rate.js';
 import { registerRuntimeCommand } from './commands/runtime.js';
+import { registerProfileCommand } from './commands/profile.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -57,5 +58,6 @@ registerSubscribeCommand(program);
 registerRegisterCommand(program);
 registerRateCommand(program);
 registerRuntimeCommand(program);
+registerProfileCommand(program);
 
 program.parse();

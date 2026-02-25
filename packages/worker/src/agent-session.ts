@@ -799,9 +799,9 @@ export class AgentSession implements DurableObject {
     this.agentId = '';
     this.cachedTokenHash = '';
     this.cachedUserId = '';
-    this.cleanupAllRelays();
+    await this.cleanupAllRelays();
     await this.state.storage.delete('agentId');
-    await this.removeKV();
+    await this.removeKV(agentId);
     if (agentId) await this.updatePlatformStatus(agentId, false);
   }
 
@@ -879,10 +879,10 @@ export class AgentSession implements DurableObject {
     } catch {}
   }
 
-  private async removeKV(): Promise<void> {
-    if (!this.agentId) return;
+  private async removeKV(agentId = this.agentId): Promise<void> {
+    if (!agentId) return;
     try {
-      await this.env.BRIDGE_KV.delete(`agent:${this.agentId}`);
+      await this.env.BRIDGE_KV.delete(`agent:${agentId}`);
     } catch {}
   }
 
@@ -976,7 +976,7 @@ export class AgentSession implements DurableObject {
     }
   }
 
-  private cleanupAllRelays(): void {
+  private async cleanupAllRelays(): Promise<void> {
     // Synchronous relays
     for (const [, pending] of this.pendingRelays) {
       clearTimeout(pending.timer);
@@ -988,7 +988,7 @@ export class AgentSession implements DurableObject {
     this.pendingRelays.clear();
 
     // Async tasks — fail all with agent_offline
-    this.cleanupAsyncTasks();
+    await this.cleanupAsyncTasks();
   }
 
   private async cleanupAsyncTasks(): Promise<void> {

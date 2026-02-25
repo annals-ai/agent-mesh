@@ -151,5 +151,34 @@ describe('AgentSession async task handling', () => {
     ]);
     expect(data.has('async:req-attachments')).toBe(false);
   });
-});
 
+  it('removes KV status entry on markOffline using captured agentId before state reset', async () => {
+    const { state, storage } = createFakeState();
+    const env = createFakeEnv();
+    const socketMeta = { promoted: true, agentId: 'agent-1' };
+    const socket = {
+      deserializeAttachment: vi.fn(() => socketMeta),
+      serializeAttachment: vi.fn((next: unknown) => {
+        Object.assign(socketMeta, next as object);
+      }),
+    } as unknown as WebSocket;
+
+    state.getWebSockets.mockReturnValue([socket]);
+
+    const session = new AgentSession(state as never, env as never) as unknown as Record<string, unknown>;
+    session['ws'] = socket;
+    session['authenticated'] = true;
+    session['agentId'] = 'agent-1';
+    session['cachedTokenHash'] = 'token-hash';
+    session['cachedUserId'] = 'user-1';
+    session['updatePlatformStatus'] = vi.fn(async () => undefined);
+
+    await (session['markOffline'] as () => Promise<void>)();
+
+    expect(env.BRIDGE_KV.delete).toHaveBeenCalledWith('agent:agent-1');
+    expect(storage.delete).toHaveBeenCalledWith('agentId');
+    expect(session['agentId']).toBe('');
+    expect(session['authenticated']).toBe(false);
+    expect(session['updatePlatformStatus']).toHaveBeenCalledWith('agent-1', false);
+  });
+});
