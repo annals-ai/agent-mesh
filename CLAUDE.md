@@ -286,7 +286,7 @@ CLI 发版后，必须在 Mac Mini 上做最少两项回归：`A2A` + `Bridge E2
 ```bash
 ssh yan@yandemac-mini.local 'zsh -lc "cd /Users/yan/agents-hot/agent-mesh && node scripts/e2e-a2a-call.mjs"'
 
-ssh yan@yandemac-mini.local 'zsh -lc "cd /Users/yan/agents-hot/agent-mesh && BRIDGE_PLATFORM_SECRET=<secret> TEST_AGENT_ID=<agent-uuid> TEST_AGENT_TYPE=claude node scripts/e2e-bridge-claude.mjs"'
+ssh yan@yandemac-mini.local 'zsh -lc "cd /Users/yan/agents-hot/agent-mesh && node scripts/e2e-bridge-claude.mjs wss://bridge.agents.hot/ws <platform-secret> <agent-uuid> <bridge-token>"'
 ```
 
 如果 `/Users/yan/agents-hot` 不存在，先在 Mac Mini 上 clone 正式仓库到该路径，再执行测试（不要改用临时目录）。
