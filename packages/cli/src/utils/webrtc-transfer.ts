@@ -137,20 +137,23 @@ export class FileSender {
       });
     }
 
-    if (signal.signal_type === 'offer' || signal.signal_type === 'answer') {
-      this.peer.setRemoteDescription(signal.payload, signal.signal_type);
-      // Apply buffered candidates
-      for (const c of this.pendingCandidates) {
-        this.peer.addRemoteCandidate(c.candidate, c.mid);
+    try {
+      if (signal.signal_type === 'offer' || signal.signal_type === 'answer') {
+        this.peer.setRemoteDescription(signal.payload, signal.signal_type);
+        for (const c of this.pendingCandidates) {
+          this.peer.addRemoteCandidate(c.candidate, c.mid);
+        }
+        this.pendingCandidates = [];
+      } else if (signal.signal_type === 'candidate') {
+        const { candidate, mid } = JSON.parse(signal.payload);
+        if (this.peer.remoteDescription()) {
+          this.peer.addRemoteCandidate(candidate, mid);
+        } else {
+          this.pendingCandidates.push({ candidate, mid });
+        }
       }
-      this.pendingCandidates = [];
-    } else if (signal.signal_type === 'candidate') {
-      const { candidate, mid } = JSON.parse(signal.payload);
-      if (this.peer.remoteDescription()) {
-        this.peer.addRemoteCandidate(candidate, mid);
-      } else {
-        this.pendingCandidates.push({ candidate, mid });
-      }
+    } catch {
+      // Ignore invalid signals (malformed SDP, bad candidates)
     }
   }
 
@@ -261,19 +264,23 @@ export class FileReceiver {
   async handleSignal(signal: SignalMessage): Promise<void> {
     if (!this.peer || this.closed) return;
 
-    if (signal.signal_type === 'answer' || signal.signal_type === 'offer') {
-      this.peer.setRemoteDescription(signal.payload, signal.signal_type);
-      for (const c of this.pendingCandidates) {
-        this.peer.addRemoteCandidate(c.candidate, c.mid);
+    try {
+      if (signal.signal_type === 'answer' || signal.signal_type === 'offer') {
+        this.peer.setRemoteDescription(signal.payload, signal.signal_type);
+        for (const c of this.pendingCandidates) {
+          this.peer.addRemoteCandidate(c.candidate, c.mid);
+        }
+        this.pendingCandidates = [];
+      } else if (signal.signal_type === 'candidate') {
+        const { candidate, mid } = JSON.parse(signal.payload);
+        if (this.peer.remoteDescription()) {
+          this.peer.addRemoteCandidate(candidate, mid);
+        } else {
+          this.pendingCandidates.push({ candidate, mid });
+        }
       }
-      this.pendingCandidates = [];
-    } else if (signal.signal_type === 'candidate') {
-      const { candidate, mid } = JSON.parse(signal.payload);
-      if (this.peer.remoteDescription()) {
-        this.peer.addRemoteCandidate(candidate, mid);
-      } else {
-        this.pendingCandidates.push({ candidate, mid });
-      }
+    } catch {
+      // Ignore invalid signals (malformed SDP, bad candidates)
     }
   }
 
@@ -509,19 +516,23 @@ export class FileUploadSender {
   async handleSignal(signal: SignalMessage): Promise<void> {
     if (!this.peer || this.closed) return;
 
-    if (signal.signal_type === 'answer' || signal.signal_type === 'offer') {
-      this.peer.setRemoteDescription(signal.payload, signal.signal_type);
-      for (const c of this.pendingCandidates) {
-        this.peer.addRemoteCandidate(c.candidate, c.mid);
+    try {
+      if (signal.signal_type === 'answer' || signal.signal_type === 'offer') {
+        this.peer.setRemoteDescription(signal.payload, signal.signal_type);
+        for (const c of this.pendingCandidates) {
+          this.peer.addRemoteCandidate(c.candidate, c.mid);
+        }
+        this.pendingCandidates = [];
+      } else if (signal.signal_type === 'candidate') {
+        const { candidate, mid } = JSON.parse(signal.payload);
+        if (this.peer.remoteDescription()) {
+          this.peer.addRemoteCandidate(candidate, mid);
+        } else {
+          this.pendingCandidates.push({ candidate, mid });
+        }
       }
-      this.pendingCandidates = [];
-    } else if (signal.signal_type === 'candidate') {
-      const { candidate, mid } = JSON.parse(signal.payload);
-      if (this.peer.remoteDescription()) {
-        this.peer.addRemoteCandidate(candidate, mid);
-      } else {
-        this.pendingCandidates.push({ candidate, mid });
-      }
+    } catch {
+      // Ignore invalid signals (malformed SDP, bad candidates)
     }
   }
 
