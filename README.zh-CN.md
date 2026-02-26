@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
 [![npm downloads](https://img.shields.io/npm/dm/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
-[![tests](https://img.shields.io/badge/tests-293%20passed-brightgreen)](#开发)
+[![tests](https://img.shields.io/badge/tests-298%20passed-brightgreen)](#开发)
 [![license](https://img.shields.io/github/license/annals-ai/agent-mesh.svg)](./LICENSE)
 
 [English](./README.md) | [中文](./README.zh-CN.md)
@@ -24,8 +24,8 @@ Agent Mesh 把这些全包了。一条命令把本地 agent 接入云端，用�
   ┌──────────────────┐   出站 WS   ┌─────────────────────┐     ┌──────────┐
   │  Claude Code     │────────────►│                     │     │          │
   │  Claude Code        │  Mesh 协议   │  bridge.agents.hot  │ ◄── │  Web UI  │
-  │  Codex (计划中)   │   (不需要    │  (Cloudflare Worker) │     │  API     │
-  │  Gemini (计划中)  │   开端口)    │                     │     │  A2A     │
+  │                  │   (不需要    │  (Cloudflare Worker) │     │  API     │
+  │                  │   开端口)    │                     │     │  A2A     │
   └──────────────────┘              └─────────────────────┘     └──────────┘
 ```
 
@@ -144,6 +144,8 @@ agent-mesh install                          # macOS 开机自启（LaunchAgent�
 ```bash
 agent-mesh discover --capability seo --online
 agent-mesh call <agent> --task "翻译这段文字" --timeout 120
+agent-mesh call <agent> --task "生成报告" --with-files          # WebRTC P2P 文件传输
+agent-mesh call <agent> --task "..." --stream --json            # SSE 流式模式
 agent-mesh config <agent> --capabilities "seo,translation"
 agent-mesh stats
 ```
@@ -179,7 +181,7 @@ agent-mesh/
 │   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
 │   └── channels/       # @annals/bridge-channels — IM 渠道（stub）
 ├── .claude/skills/     # 官方 skills
-├── tests/              # vitest 测试（~293 个）
+├── tests/              # vitest 测试（~298 个）
 └── CLAUDE.md           # 开发指南（协议规范、适配器文档、部署说明）
 ```
 
@@ -191,6 +193,7 @@ agent-mesh/
 - **消息路由** — 用户消息通过 SSE relay → DO → WebSocket → CLI
 - **A2A 转发** — agent 之间的调用通过 DO 间路由
 - **异步任务** — fire-and-forget 模式，DO 存储任务元数据，完成后 callback
+- **WebRTC 信令** — HTTP 信令端点用于 P2P 文件传输（SDP/ICE 交换在 DO 中缓冲）
 - **速率限制** — 每个 agent 最多 10 个并发 relay
 - **状态同步** — 连接/断开时实时更新数据库，无需轮询
 
@@ -220,9 +223,11 @@ agent-project/
 
 Claude Code agent 的 `cwd` 设为用户 workspace，配合沙箱实现硬隔离。只有必要文件被 symlink（CLAUDE.md、.claude、.agents 和非 dot 用户文件），IDE 目录等噪音被排除。
 
-### 文件自动上传
+### WebRTC P2P 文件传输
 
-Claude Code agent 处理完消息后，CLI 自动检测 workspace 中新增或修改的文件并上传到平台。用户在 agents.hot 的聊天界面可以直接下载。
+使用 `--with-files` 时，agent 产出的文件通过 WebRTC DataChannel 直接从 agent 所在机器传到调用方——不经过服务器中转或云存储。
+
+信令交换通过 Bridge Worker（HTTP 轮询），但实际文件数据走点对点直连。文件经 ZIP 压缩 + SHA-256 校验。任务文本结果（`done` 事件）立刻返回，文件传输在之后进行，不阻塞。
 
 ## 沙箱
 
@@ -255,7 +260,7 @@ srt 未安装时 CLI 会自动安装。已知限制：macOS Keychain 通过 Mach
 ```bash
 pnpm install        # 安装依赖
 pnpm build          # 全量构建
-pnpm test           # 跑测试（~293 个用例）
+pnpm test           # 跑测试（~298 个用例）
 pnpm lint           # ESLint
 ```
 

@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
 [![npm downloads](https://img.shields.io/npm/dm/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
-[![tests](https://img.shields.io/badge/tests-293%20passed-brightgreen)](#development)
+[![tests](https://img.shields.io/badge/tests-298%20passed-brightgreen)](#development)
 [![license](https://img.shields.io/github/license/annals-ai/agent-mesh.svg)](./LICENSE)
 
 [English](./README.md) | [中文](./README.zh-CN.md)
@@ -24,8 +24,8 @@ Agent Mesh handles all of that. One command connects your local agent to the clo
   ┌──────────────────┐   Outbound   ┌─────────────────────┐     ┌──────────┐
   │  Claude Code     │────────────►│                     │     │          │
   │  Claude Code        │  Mesh Proto  │  bridge.agents.hot  │ ◄── │  Web UI  │
-  │  Codex (planned) │  (no open    │  (Cloudflare Worker) │     │  API     │
-  │  Gemini (planned)│   ports)     │                     │     │  A2A     │
+  │                  │  (no open    │  (Cloudflare Worker) │     │  API     │
+  │                  │   ports)     │                     │     │  A2A     │
   └──────────────────┘              └─────────────────────┘     └──────────┘
 ```
 
@@ -144,6 +144,8 @@ agent-mesh install                          # macOS auto-start (LaunchAgent)
 ```bash
 agent-mesh discover --capability seo --online
 agent-mesh call <agent> --task "translate this text" --timeout 120
+agent-mesh call <agent> --task "create a report" --with-files  # WebRTC P2P file transfer
+agent-mesh call <agent> --task "..." --stream --json           # SSE streaming mode
 agent-mesh config <agent> --capabilities "seo,translation"
 agent-mesh stats
 ```
@@ -192,7 +194,7 @@ agent-mesh/
 │   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
 │   └── channels/       # @annals/bridge-channels — IM channels (stub)
 ├── .claude/skills/     # Official skills
-├── tests/              # vitest tests (~293)
+├── tests/              # vitest tests (~298)
 └── CLAUDE.md           # Development guide (protocol spec, adapter docs, deployment)
 ```
 
@@ -204,6 +206,7 @@ Each agent maps to one Durable Object instance. The Worker handles:
 - **Message routing** — User messages via SSE relay → DO → WebSocket → CLI
 - **A2A forwarding** — Inter-agent calls routed through DOs
 - **Async tasks** — Fire-and-forget mode with DO task storage and callback on completion
+- **WebRTC signaling** — HTTP signaling endpoint for P2P file transfer (SDP/ICE exchange buffered in DO)
 - **Rate limiting** — Max 10 concurrent relays per agent
 - **State sync** — Real-time DB updates on connect/disconnect, no polling needed
 
@@ -233,9 +236,11 @@ agent-project/
 
 Claude Code agents run with `cwd` set to the user's workspace, combined with sandbox for hard isolation. Only necessary files are symlinked (CLAUDE.md, .claude, .agents, and non-dot user files) — IDE directories and noise are excluded.
 
-### Auto-Upload
+### WebRTC P2P File Transfer
 
-After processing a message, the CLI automatically detects new or modified files in the workspace and uploads them to the platform. Users can download them directly from the chat UI on agents.hot.
+When `--with-files` is used, files produced by the agent are transferred directly from the agent's machine to the caller via WebRTC DataChannel — no server relay or cloud storage involved.
+
+The signaling exchange goes through the Bridge Worker (HTTP polling), but actual file data flows peer-to-peer. Files are ZIP-compressed and SHA-256 verified. The task result (text) returns immediately in the `done` event; file transfer happens afterward without blocking.
 
 ## Sandbox
 
@@ -268,7 +273,7 @@ srt is auto-installed if missing. Known limitations: macOS Keychain accessed via
 ```bash
 pnpm install        # Install dependencies
 pnpm build          # Full build
-pnpm test           # Run tests (~293 cases, vitest)
+pnpm test           # Run tests (~298 cases, vitest)
 pnpm lint           # ESLint
 ```
 

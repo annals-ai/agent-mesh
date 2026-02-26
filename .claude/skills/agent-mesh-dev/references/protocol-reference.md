@@ -17,7 +17,7 @@ Bridge Protocol v1: JSON messages over WebSocket, plus HTTP relay API.
 
 ## CLI → Worker Messages (Uplink)
 
-7 message types sent from the agent-mesh CLI to the Bridge Worker via WebSocket.
+8 message types sent from the agent-mesh CLI to the Bridge Worker via WebSocket.
 
 | Type | Purpose | Key Fields |
 |------|---------|------------|
@@ -27,7 +27,8 @@ Bridge Protocol v1: JSON messages over WebSocket, plus HTTP relay API.
 | `error` | Agent encountered an error | `session_id`, `request_id`, `code` (BridgeErrorCode), `message` |
 | `heartbeat` | Periodic keepalive (every 30s from CLI) | `active_sessions`, `uptime_ms` |
 | `discover_agents` | A2A: request agent discovery | `capability?`, `limit?` |
-| `call_agent` | A2A: call another agent | `target_agent_id`, `task_description`, `call_id?` |
+| `call_agent` | A2A: call another agent | `target_agent_id`, `task_description`, `call_id?`, `with_files?` |
+| `rtc_signal` | WebRTC signaling for P2P file transfer | `transfer_id`, `target_agent_id`, `signal_type`, `payload` |
 
 ### register
 
@@ -35,7 +36,7 @@ Bridge Protocol v1: JSON messages over WebSocket, plus HTTP relay API.
 {
   "type": "register",
   "agent_id": "uuid",
-  "token": "ah_live_xxx",
+  "token": "ah_xxx",
   "bridge_version": "1",
   "agent_type": "claude",
   "capabilities": ["code_review", "translation"]
@@ -68,27 +69,35 @@ Must be the first message sent. The DO validates the token before accepting the 
   "session_id": "uuid",
   "request_id": "uuid",
   "attachments": [{"name": "output.png", "url": "https://...", "type": "image/png"}],
+  "file_transfer_offer": {
+    "transfer_id": "uuid",
+    "zip_size": 74900,
+    "zip_sha256": "abc123...",
+    "file_count": 34
+  },
   "result": "Full response text (async mode only)"
 }
 ```
 
 `result` is populated in async mode so the Worker can forward it to the callback URL.
+`file_transfer_offer` is present when the agent has files to send via WebRTC P2P (caller must use `--with-files`).
 
 ---
 
 ## Worker → CLI Messages (Downlink)
 
-6 message types sent from the Bridge Worker to the CLI.
+8 message types sent from the Bridge Worker to the CLI.
 
 | Type | Purpose | Key Fields |
 |------|---------|------------|
 | `registered` | Registration result | `status` ('ok' or 'error'), `error?` |
-| `message` | Forward user message to agent | `session_id`, `request_id`, `content`, `attachments`, `upload_url?`, `upload_token?`, `client_id?` |
+| `message` | Forward user message to agent | `session_id`, `request_id`, `content`, `attachments`, `client_id?`, `with_files?` |
 | `cancel` | Cancel in-progress request | `session_id`, `request_id` |
 | `discover_agents_result` | A2A: discovery response | `agents[]` (id, name, agent_type, capabilities, is_online) |
 | `call_agent_chunk` | A2A: streaming chunk from called agent | `call_id`, `delta`, `kind?` |
-| `call_agent_done` | A2A: called agent finished | `call_id`, `attachments?` |
+| `call_agent_done` | A2A: called agent finished | `call_id`, `attachments?`, `file_transfer_offer?` |
 | `call_agent_error` | A2A: called agent error | `call_id`, `code`, `message` |
+| `rtc_signal_relay` | WebRTC signaling relay from another agent | `transfer_id`, `from_agent_id`, `signal_type`, `payload` |
 
 ### message
 
@@ -119,6 +128,7 @@ Platform-to-Worker communication over HTTPS. All endpoints require `X-Platform-S
 | `/api/agents/:id/status` | GET | `X-Platform-Secret` | Check agent online status |
 | `/api/disconnect` | POST | `X-Platform-Secret` | Force-disconnect an agent |
 | `/api/agents-by-token` | POST | `X-Platform-Secret` | Find online agents using a given tokenHash |
+| `/api/rtc-signal/:agentId` | POST | `X-Platform-Secret` | WebRTC signaling exchange for P2P file transfer |
 | `/health` | GET | None | Health check |
 | `/ws?agent_id=<uuid>` | GET | Protocol-level (register) | WebSocket upgrade for CLI |
 
@@ -131,9 +141,8 @@ Platform-to-Worker communication over HTTPS. All endpoints require `X-Platform-S
   "request_id": "uuid",
   "content": "User message",
   "attachments": [],
-  "upload_url": "https://...",
-  "upload_token": "xxx",
   "client_id": "client-uuid",
+  "with_files": true,
   "mode": "stream",
   "task_id": "platform-task-id",
   "callback_url": "/api/tasks/{id}/callback"
@@ -149,7 +158,7 @@ Platform-to-Worker communication over HTTPS. All endpoints require `X-Platform-S
 | Event | Fields | Description |
 |-------|--------|-------------|
 | `chunk` | `delta`, `kind?`, `tool_name?`, `tool_call_id?` | Incremental response text or tool activity |
-| `done` | `attachments?` | Agent finished |
+| `done` | `attachments?`, `file_transfer_offer?` | Agent finished |
 | `error` | `code`, `message` | Agent or system error |
 | `keepalive` | (none) | Heartbeat forwarded from agent, resets platform timeout |
 

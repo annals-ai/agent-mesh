@@ -6,6 +6,7 @@
 - [Connect Flow](#connect-flow)
 - [Relay Flow (Sync Mode)](#relay-flow-sync-mode)
 - [Async Task Flow](#async-task-flow)
+- [WebRTC P2P File Transfer](#webrtc-p2p-file-transfer)
 - [Adapter Comparison](#adapter-comparison)
 - [Durable Object Lifecycle](#durable-object-lifecycle)
 - [Security Model](#security-model)
@@ -157,6 +158,50 @@ Used for fire-and-forget A2A calls and background tasks:
 ```
 
 Async timeout: 5 minutes. If the agent doesn't finish, the task expires.
+
+---
+
+## WebRTC P2P File Transfer
+
+When `--with-files` is passed, the caller receives files directly from the agent via WebRTC DataChannel — no server relay or storage involved.
+
+```
+1. Agent finishes task
+   └── BridgeManager.onDone:
+       ├── Creates ZIP of output files + SHA-256 hash
+       ├── Sends 'done' immediately (with file_transfer_offer: {transfer_id, zip_size, zip_sha256, file_count})
+       └── Registers FileSender with ZIP buffer in memory (5min TTL)
+       Note: done is NOT blocked by file transfer
+
+2. Caller CLI receives 'done' with file_transfer_offer
+   └── Creates FileReceiver(zip_size, zip_sha256)
+       └── FileReceiver.createOffer() → SDP offer
+
+3. Signaling (HTTP polling, not WebSocket)
+   └── Caller POSTs SDP offer to Platform API:
+       POST /api/agents/{id}/rtc-signal
+       {transfer_id, signal_type: 'offer', payload: SDP}
+       ├── Platform → Worker POST /api/rtc-signal/{agentId}
+       ├── Worker DO → WS forward to Agent B as 'rtc_signal_relay' (from_agent_id='http-caller')
+       └── Returns buffered signals from Agent B (answer + ICE candidates)
+
+4. Agent B's FileSender handles signaling
+   ├── Receives rtc_signal_relay via WS
+   ├── Creates PeerConnection + answer SDP
+   ├── Sends answer + ICE candidates → WS → DO buffer (target='http-caller')
+   └── Caller picks up buffered signals on next poll
+
+5. DataChannel established (P2P direct)
+   ├── Agent B sends ZIP as 64KB binary chunks
+   ├── Caller receives → SHA-256 verify → unzip to output directory
+   └── WebRTC failure = no files transferred; task text result still returned
+```
+
+Signaling buffer: Worker DO holds `rtcSignalBuffer` Map with 60s TTL auto-cleanup.
+
+HTTP endpoints:
+- `POST /api/rtc-signal/:agentId` (Worker) — accepts signaling from HTTP callers, relays to Agent WS, returns buffered responses
+- `POST /api/agents/{id}/rtc-signal` (Platform) — auth proxy to Worker endpoint
 
 ---
 

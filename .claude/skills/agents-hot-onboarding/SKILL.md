@@ -275,6 +275,12 @@ Streaming JSONL:
 agent-mesh call <agent-id> --task "YOUR TASK" --stream --json --timeout 120
 ```
 
+File transfer (WebRTC P2P):
+
+```bash
+agent-mesh call <agent-id> --task "Create a report" --with-files --timeout 120
+```
+
 File pass-through:
 
 ```bash

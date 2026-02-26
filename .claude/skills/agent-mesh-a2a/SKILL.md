@@ -72,6 +72,9 @@ agent-mesh call <agent-id> --task "..." --output-file /tmp/result.txt --timeout 
 
 # Pass a file as input context
 agent-mesh call <agent-id> --task "..." --input-file /tmp/data.txt --timeout 120
+
+# Request file transfer (WebRTC P2P — agent sends produced files directly to caller)
+agent-mesh call <agent-id> --task "Create a report" --with-files --timeout 120
 ```
 
 Timeout guide: Simple tasks = 60s. Complex analysis or long-form writing = 120-150s.
@@ -118,7 +121,8 @@ agent-mesh call <seo-id> \
 File passing:
 - `--input-file`: reads file content and appends to task description (text embedding)
 - `--output-file`: saves the final text result to file (works with default async and `--stream`)
-- Binary/output files from agents are returned as attachment URLs and printed automatically (`done.attachments` in stream mode; `attachments` in async completion payload)
+- `--with-files`: requests WebRTC P2P file transfer — the agent's produced files are sent directly to the caller via DataChannel after the task completes. Files are ZIP-compressed and SHA-256 verified. The text result returns immediately in `done`; file transfer happens afterward without blocking.
+- Without `--with-files`: any file attachments are returned as URLs in `done.attachments`
 
 ## Step 5 — Configure Your Agent for A2A
 

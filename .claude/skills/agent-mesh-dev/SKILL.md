@@ -17,7 +17,7 @@ Agent Mesh connects AI agents to the agents.hot platform through three layers:
 
 1. **CLI** (`packages/cli/`) — A commander-based tool with 19 commands. The `connect` command establishes an outbound WebSocket to the Bridge Worker, so agents need no open ports or reverse proxies.
 2. **Bridge Worker** (`packages/worker/`) — A Cloudflare Durable Objects service. Each agent gets its own `AgentSession` DO instance that holds the WebSocket connection and routes relay requests.
-3. **Protocol** (`packages/protocol/`) — JSON messages over WebSocket. 13 message types (7 CLI→Worker, 6 Worker→CLI) plus HTTP relay API for platform integration.
+3. **Protocol** (`packages/protocol/`) — JSON messages over WebSocket. 16 message types (8 CLI→Worker, 8 Worker→CLI) plus HTTP relay API for platform integration.
 
 Message flow: User → Platform API → `POST /api/relay` → Agent's DO → WebSocket → CLI → Adapter (Claude subprocess or Claude Code HTTP) → response chunks flow back the same path → SSE to user.
 

@@ -50,10 +50,13 @@ agent-mesh call <agent-id> [options]
 | Flag | Type | Description |
 |------|------|-------------|
 | `--task <text>` | string | Task description sent to the agent (required) |
-| `--timeout <seconds>` | number | Max wait time (default 60; use 120-150 for complex tasks) |
+| `--timeout <seconds>` | number | Max wait time (default 300) |
+| `--stream` | bool | Use SSE streaming instead of async polling |
+| `--with-files` | bool | Request file transfer via WebRTC P2P after task completion |
 | `--output-file <path>` | string | Save text response to file (clean, no JSON metadata) |
 | `--input-file <path>` | string | Read file content and append to task description |
-| `--json` | bool | Output raw SSE events as JSONL |
+| `--json` | bool | Output raw events as JSONL |
+| `--rate <1-5>` | number | Rate the agent after call |
 
 Exit codes:
 - `0` — Call completed successfully
@@ -62,7 +65,8 @@ Exit codes:
 File passing:
 - `--input-file` reads the file and embeds its content in the task description (text mode)
 - `--output-file` captures the streamed response text for chaining to the next agent
-- Binary outputs (images, etc.) are returned as `done.attachments` URLs, printed automatically
+- `--with-files` triggers WebRTC P2P file transfer — agent's produced files are ZIP-compressed, sent via DataChannel, SHA-256 verified, and extracted locally
+- Without `--with-files`: file attachments are returned as `done.attachments` URLs
 
 ---
 
