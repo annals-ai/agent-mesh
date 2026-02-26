@@ -582,20 +582,13 @@ class ClaudeSession implements SessionHandle {
     }
   }
 
-  private stripWorkspacePaths(text: string): string {
-    const root = this.getWorkspaceRoot();
-    if (!root) return text;
-    const prefix = root.endsWith('/') ? root : root + '/';
-    return text.replaceAll(prefix, '');
-  }
-
   private emitChunk(text: string): void {
     this.chunksEmitted = true;
-    for (const cb of this.chunkCallbacks) cb(this.stripWorkspacePaths(text));
+    for (const cb of this.chunkCallbacks) cb(text);
   }
 
   private emitToolEvent(event: ToolEvent): void {
-    for (const cb of this.toolCallbacks) cb({ ...event, delta: this.stripWorkspacePaths(event.delta) });
+    for (const cb of this.toolCallbacks) cb(event);
   }
 
   private emitTextAsChunks(text: string): void {
