@@ -1,4 +1,4 @@
-import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment, RtcSignalRelay, RtcSignal, FileTransferOffer } from '@annals/bridge-protocol';
+import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment, RtcSignalRelay, RtcSignal, FileTransferOffer, TransferUpload, TransferUploadComplete } from '@annals/bridge-protocol';
 import { BridgeErrorCode } from '@annals/bridge-protocol';
 import { FileSender, type SignalMessage } from '../utils/webrtc-transfer.js';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
@@ -584,6 +584,39 @@ export class BridgeManager {
     timer.unref?.();
 
     this.pendingTransfers.set(offer.transfer_id, { sender, timer } as typeof this.pendingTransfers extends Map<string, infer V> ? V : never);
+
+    // Push ZIP to Worker DO via WS (HTTP relay fallback for non-WebSocket callers)
+    this.pushZipToWorker(offer.transfer_id, zipBuffer);
+  }
+
+  /** Push ZIP buffer to Worker DO via chunked transfer_upload messages */
+  private pushZipToWorker(transferId: string, zipBuffer: Buffer): void {
+    const CHUNK_SIZE = 64 * 1024; // 64KB per chunk → ~87KB base64
+    const totalChunks = Math.ceil(zipBuffer.length / CHUNK_SIZE);
+
+    log.debug(`Pushing ZIP to Worker: transfer=${transferId.slice(0, 8)}... size=${zipBuffer.length} chunks=${totalChunks}`);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, zipBuffer.length);
+      const chunk = zipBuffer.subarray(start, end);
+
+      const msg: TransferUpload = {
+        type: 'transfer_upload',
+        transfer_id: transferId,
+        chunk_index: i,
+        total_chunks: totalChunks,
+        data: chunk.toString('base64'),
+      };
+      this.wsClient.send(msg);
+    }
+
+    const complete: TransferUploadComplete = {
+      type: 'transfer_upload_complete',
+      transfer_id: transferId,
+    };
+    this.wsClient.send(complete);
+    log.info(`ZIP pushed to Worker: transfer=${transferId.slice(0, 8)}... (${totalChunks} chunks)`);
   }
 
   private handleRtcSignalRelay(msg: RtcSignalRelay): void {

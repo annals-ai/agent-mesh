@@ -30,6 +30,8 @@ import type {
   FileTransferOffer,
   RtcSignal,
   RtcSignalRelay,
+  TransferUpload,
+  TransferUploadComplete,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
@@ -52,6 +54,14 @@ interface AsyncTaskMeta {
 }
 
 const ASYNC_TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes no chunk = timeout
+const TRANSFER_TTL_MS = 5 * 60 * 1000; // 5 minutes — ZIP stays in DO memory
+
+interface PendingTransfer {
+  chunks: string[];   // base64-encoded chunks
+  totalChunks: number;
+  receivedAt: number;
+  complete: boolean;
+}
 
 interface SessionSocketAttachment {
   promoted: boolean;
@@ -79,6 +89,7 @@ export class AgentSession implements DurableObject {
   private cachedUserId = '';      // token owner's user_id
 
   private pendingRelays = new Map<string, PendingRelay>();
+  private pendingFileTransfers = new Map<string, PendingTransfer>();
   private lastPlatformSyncAt = 0;
   private static readonly PLATFORM_SYNC_INTERVAL_MS = 120_000; // 2 min
 
@@ -144,6 +155,12 @@ export class AgentSession implements DurableObject {
     // WebRTC signaling relay (incoming from another agent's DO)
     if (url.pathname === '/rtc-signal' && request.method === 'POST') {
       return this.handleIncomingRtcSignal(request);
+    }
+
+    // File transfer download — serve stored ZIP by transfer_id
+    if (url.pathname.startsWith('/transfer/') && request.method === 'GET') {
+      const transferId = url.pathname.slice('/transfer/'.length);
+      return this.handleTransferDownload(transferId);
     }
 
     // Status check
@@ -311,6 +328,14 @@ export class AgentSession implements DurableObject {
 
       case 'rtc_signal':
         this.handleRtcSignal(msg as RtcSignal);
+        break;
+
+      case 'transfer_upload':
+        this.handleTransferUpload(msg as TransferUpload);
+        break;
+
+      case 'transfer_upload_complete':
+        this.handleTransferUploadComplete(msg as TransferUploadComplete);
         break;
     }
   }
@@ -1331,6 +1356,70 @@ export class AgentSession implements DurableObject {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+      },
+    });
+  }
+
+  // ========================================================
+  // File transfer upload/download (HTTP relay)
+  // ========================================================
+
+  private handleTransferUpload(msg: TransferUpload): void {
+    let transfer = this.pendingFileTransfers.get(msg.transfer_id);
+    if (!transfer) {
+      transfer = {
+        chunks: [],
+        totalChunks: msg.total_chunks,
+        receivedAt: Date.now(),
+        complete: false,
+      };
+      this.pendingFileTransfers.set(msg.transfer_id, transfer);
+    }
+    // Store chunk at the correct index
+    transfer.chunks[msg.chunk_index] = msg.data;
+  }
+
+  private handleTransferUploadComplete(msg: TransferUploadComplete): void {
+    const transfer = this.pendingFileTransfers.get(msg.transfer_id);
+    if (!transfer) return;
+    transfer.complete = true;
+
+    // Schedule cleanup after TTL
+    setTimeout(() => {
+      this.pendingFileTransfers.delete(msg.transfer_id);
+    }, TRANSFER_TTL_MS);
+  }
+
+  private handleTransferDownload(transferId: string): Response {
+    // Prune expired transfers
+    const now = Date.now();
+    for (const [id, t] of this.pendingFileTransfers) {
+      if (now - t.receivedAt > TRANSFER_TTL_MS) {
+        this.pendingFileTransfers.delete(id);
+      }
+    }
+
+    const transfer = this.pendingFileTransfers.get(transferId);
+    if (!transfer) {
+      return json(404, { error: 'not_found', message: 'Transfer not found or expired' });
+    }
+    if (!transfer.complete) {
+      return json(202, { error: 'pending', message: 'Transfer upload in progress' });
+    }
+
+    // Concatenate base64 chunks → binary
+    const base64Data = transfer.chunks.join('');
+    const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+
+    // Clean up after serving (one-time download)
+    this.pendingFileTransfers.delete(transferId);
+
+    return new Response(binaryData, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Length': String(binaryData.byteLength),
+        'Content-Disposition': `attachment; filename="transfer-${transferId.slice(0, 8)}.zip"`,
       },
     });
   }

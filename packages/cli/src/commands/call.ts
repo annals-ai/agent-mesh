@@ -1,5 +1,8 @@
 import type { Command } from 'commander';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execSync } from 'node:child_process';
+import { join } from 'node:path';
 import { loadToken } from '../platform/auth.js';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
@@ -45,6 +48,107 @@ function handleError(err: unknown): never {
     log.error((err as Error).message);
   }
   process.exit(1);
+}
+
+interface FileTransferOfferInfo {
+  transfer_id: string;
+  zip_size: number;
+  zip_sha256: string;
+  file_count: number;
+}
+
+/**
+ * Download ZIP from Worker DO via Platform proxy, verify SHA-256, extract.
+ */
+async function downloadTransferFiles(
+  agentId: string,
+  offer: FileTransferOfferInfo,
+  token: string,
+  outputDir: string,
+  json?: boolean,
+): Promise<void> {
+  const url = `${DEFAULT_BASE_URL}/api/agents/${agentId}/transfer/${offer.transfer_id}`;
+
+  if (!json) {
+    log.info(`Downloading ${offer.file_count} file(s) (${(offer.zip_size / 1024).toFixed(1)} KB)...`);
+  }
+
+  // Small delay to let Agent push ZIP to Worker
+  await sleep(1000);
+
+  // Retry up to 5 times (Worker may still be receiving chunks)
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 202) {
+        // Upload still in progress
+        await sleep(2000);
+        continue;
+      }
+
+      if (res.status === 404) {
+        if (attempt < 4) {
+          await sleep(2000);
+          continue;
+        }
+        log.warn('Transfer expired or not found');
+        return;
+      }
+
+      if (!res.ok) {
+        log.warn(`Download failed: HTTP ${res.status}`);
+        return;
+      }
+
+      const arrayBuffer = await res.arrayBuffer();
+      const zipBuffer = Buffer.from(arrayBuffer);
+
+      // Verify SHA-256
+      const hash = createHash('sha256').update(zipBuffer).digest('hex');
+      if (hash !== offer.zip_sha256) {
+        log.warn(`SHA-256 mismatch: expected ${offer.zip_sha256.slice(0, 12)}... got ${hash.slice(0, 12)}...`);
+        return;
+      }
+
+      // Extract ZIP to output directory
+      mkdirSync(outputDir, { recursive: true });
+      const zipPath = join(outputDir, `.transfer-${offer.transfer_id.slice(0, 8)}.zip`);
+      writeFileSync(zipPath, zipBuffer);
+
+      try {
+        execSync(`unzip -o -q "${zipPath}" -d "${outputDir}"`);
+        // Remove temp zip
+        try { execSync(`rm "${zipPath}"`); } catch {}
+      } catch {
+        log.warn(`Failed to extract ZIP. Saved to: ${zipPath}`);
+        return;
+      }
+
+      if (json) {
+        console.log(JSON.stringify({
+          type: 'files_downloaded',
+          file_count: offer.file_count,
+          output_dir: outputDir,
+          zip_size: zipBuffer.length,
+          sha256_verified: true,
+        }));
+      } else {
+        log.success(`${offer.file_count} file(s) extracted to ${outputDir}`);
+      }
+      return;
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt < 4) {
+        await sleep(2000);
+      }
+    }
+  }
+
+  log.warn(`Download failed after retries: ${lastError?.message || 'unknown error'}`);
 }
 
 /**
@@ -148,6 +252,7 @@ async function asyncCall(opts: {
         process.stderr.write(` done\n`);
       }
       const result = task.result || '';
+      const offer = (task as { file_transfer_offer?: FileTransferOfferInfo }).file_transfer_offer;
       if (opts.json) {
         console.log(JSON.stringify({
           call_id,
@@ -156,9 +261,7 @@ async function asyncCall(opts: {
           status: 'completed',
           result,
           ...(task.attachments?.length ? { attachments: task.attachments } : {}),
-          ...((task as { file_transfer_offer?: unknown }).file_transfer_offer
-            ? { file_transfer_offer: (task as { file_transfer_offer: unknown }).file_transfer_offer }
-            : {}),
+          ...(offer ? { file_transfer_offer: offer } : {}),
           rate_hint: `POST /api/agents/${opts.id}/rate  body: { call_id: "${call_id}", rating: 1-5 }`,
         }));
       } else {
@@ -168,10 +271,6 @@ async function asyncCall(opts: {
             log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
           }
         }
-        const offer = (task as { file_transfer_offer?: { file_count: number } }).file_transfer_offer;
-        if (offer) {
-          log.info(`  ${GRAY}Files:${RESET} ${offer.file_count} file(s) available via WebRTC`);
-        }
         if (session_key) {
           log.info(`  ${GRAY}Session:${RESET} ${session_key}`);
         }
@@ -179,6 +278,11 @@ async function asyncCall(opts: {
       if (opts.outputFile && result) {
         writeFileSync(opts.outputFile, result);
         if (!opts.json) log.info(`Saved to ${opts.outputFile}`);
+      }
+      // Download files if offer present and --with-files was specified
+      if (offer && opts.withFiles) {
+        const outputDir = opts.outputFile ? join(opts.outputFile, '..', 'files') : join(process.cwd(), 'agent-output');
+        await downloadTransferFiles(opts.id, offer, opts.token, outputDir, opts.json);
       }
       if (!opts.json) {
         log.info(`${GRAY}Rate this call: agent-mesh rate ${call_id} <1-5> --agent ${opts.id}${RESET}`);
@@ -290,6 +394,7 @@ async function streamCall(opts: {
   let inThinkingBlock = false;
   let callId = res.headers.get('X-Call-Id') || '';
   let sessionKey = res.headers.get('X-Session-Key') || '';
+  let fileOffer: FileTransferOfferInfo | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -334,7 +439,7 @@ async function streamCall(opts: {
               }
             }
             if (event.file_transfer_offer) {
-              log.info(`  ${GRAY}Files:${RESET} ${event.file_transfer_offer.file_count} file(s) available via WebRTC`);
+              fileOffer = event.file_transfer_offer as FileTransferOfferInfo;
             }
           } else if (event.type === 'error') {
             process.stderr.write(`\nError: ${event.message}\n`);
@@ -362,6 +467,9 @@ async function streamCall(opts: {
             }
           }
         }
+        if (event.type === 'done' && event.file_transfer_offer) {
+          fileOffer = event.file_transfer_offer as FileTransferOfferInfo;
+        }
       } catch { /* ignore */ }
     }
   }
@@ -369,6 +477,13 @@ async function streamCall(opts: {
   if (opts.outputFile && outputBuffer) {
     writeFileSync(opts.outputFile, outputBuffer);
     if (!opts.json) log.info(`Saved to ${opts.outputFile}`);
+  }
+
+  // Download files if offer present and --with-files was specified
+  if (fileOffer && opts.withFiles) {
+    console.log('');
+    const outputDir = opts.outputFile ? join(opts.outputFile, '..', 'files') : join(process.cwd(), 'agent-output');
+    await downloadTransferFiles(opts.id, fileOffer, opts.token, outputDir, opts.json);
   }
 
   if (!opts.json) {

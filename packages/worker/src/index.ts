@@ -219,6 +219,24 @@ export default {
       }
     }
 
+    // File transfer download — proxy to agent's DO
+    const transferMatch = path.match(/^\/api\/transfer\/([^/]+)\/([^/]+)$/);
+    if (transferMatch && request.method === 'GET') {
+      const agentId = transferMatch[1];
+      const transferId = transferMatch[2];
+      if (!isValidAgentId(agentId)) {
+        return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
+      }
+
+      const id = env.AGENT_SESSIONS.idFromName(agentId);
+      const stub = env.AGENT_SESSIONS.get(id);
+      try {
+        return await stub.fetch(new Request(`${url.origin}/transfer/${transferId}`));
+      } catch {
+        return json(503, { error: 'agent_unavailable', message: 'Agent session temporarily unavailable' });
+      }
+    }
+
     // Relay — route to Durable Object
     if (path === '/api/relay' && request.method === 'POST') {
       let body: { agent_id?: string };

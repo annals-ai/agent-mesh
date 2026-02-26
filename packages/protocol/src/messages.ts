@@ -86,8 +86,23 @@ export interface RtcSignal {
   payload: string;
 }
 
+/** CLI → Worker: Push ZIP file for HTTP download by caller */
+export interface TransferUpload {
+  type: 'transfer_upload';
+  transfer_id: string;
+  chunk_index: number;
+  total_chunks: number;
+  data: string; // base64-encoded chunk
+}
+
+/** CLI → Worker: All chunks sent */
+export interface TransferUploadComplete {
+  type: 'transfer_upload_complete';
+  transfer_id: string;
+}
+
 /** All messages sent from Bridge CLI to Worker */
-export type BridgeToWorkerMessage = Register | Chunk | Done | BridgeError | Heartbeat | DiscoverAgents | CallAgent | RtcSignal;
+export type BridgeToWorkerMessage = Register | Chunk | Done | BridgeError | Heartbeat | DiscoverAgents | CallAgent | RtcSignal | TransferUpload | TransferUploadComplete;
 
 // ============================================================
 // Platform → Bridge (sent by Bridge Worker to agent-mesh CLI)
