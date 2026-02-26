@@ -8,9 +8,18 @@
 
 set -euo pipefail
 
-# Read actual installed version (not the semver range from package.json)
-NDC_VERSION=$(node -e "const m=require.resolve('node-datachannel');const r=m.substring(0,m.indexOf('node-datachannel')+16);const p=JSON.parse(require('fs').readFileSync(r+'/package.json','utf8'));console.log(p.version)")
-echo "node-datachannel target version: $NDC_VERSION"
+# Read the resolved version from pnpm-lock.yaml
+NDC_VERSION=$(node -e "
+  const fs = require('fs');
+  const lock = fs.readFileSync('pnpm-lock.yaml', 'utf8');
+  // Match: node-datachannel@X.Y.Z: (the resolved package entry)
+  const match = lock.match(/node-datachannel@(\\d+\\.\\d+\\.\\d+):/);
+  if (match) { console.log(match[1]); process.exit(0); }
+  // Fallback: strip semver range from package.json
+  const pkg = JSON.parse(fs.readFileSync('packages/cli/package.json', 'utf8'));
+  console.log(pkg.dependencies['node-datachannel'].replace(/[\\^~>=<]/g, ''));
+")
+echo "node-datachannel version: $NDC_VERSION"
 
 PREBUILDS_DIR="./packages/cli/prebuilds"
 PLATFORMS=("darwin-arm64" "darwin-x64" "linux-arm64" "linux-x64")
