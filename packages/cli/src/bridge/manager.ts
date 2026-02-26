@@ -12,6 +12,10 @@ import {
   type QueueLease,
   type RuntimeQueueController,
 } from '../utils/local-runtime-queue.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { log } from '../utils/logger.js';
 
 const DUPLICATE_REQUEST_TTL_MS = 10 * 60_000;
@@ -658,9 +662,6 @@ export class BridgeManager {
       // Extract to session workspace
       const workspaceDir = this.resolveUploadWorkspace(_sessionId);
       try {
-        const { mkdirSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
-        const { join } = require('node:path') as typeof import('node:path');
-        const { execSync } = require('node:child_process') as typeof import('node:child_process');
         mkdirSync(workspaceDir, { recursive: true });
         const zipPath = join(workspaceDir, '.upload.zip');
         writeFileSync(zipPath, zipBuffer);
@@ -683,9 +684,6 @@ export class BridgeManager {
   }
 
   private resolveUploadWorkspace(sessionId: string): string {
-    const { join } = require('node:path') as typeof import('node:path');
-    const { homedir } = require('node:os') as typeof import('node:os');
-    // Use a stable upload directory under the agent workspace
     const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_:-]/g, '_').slice(0, 64);
     return join(homedir(), '.agent-mesh', 'uploads', safeSessionId);
   }

@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, basename } from 'node:path';
@@ -714,7 +714,6 @@ export function registerCallCommand(program: Command): void {
         let uploadOffer: FileTransferOfferInfo | undefined;
         let uploadZipBuffer: Buffer | undefined;
         if (opts.uploadFile) {
-          const { existsSync } = require('node:fs') as typeof import('node:fs');
           if (!existsSync(opts.uploadFile)) {
             log.error(`File not found: ${opts.uploadFile}`);
             process.exit(1);
