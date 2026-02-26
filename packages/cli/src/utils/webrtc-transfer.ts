@@ -201,7 +201,7 @@ export class FileReceiver {
   private receivedBytes = 0;
   private resolveComplete: ((buf: Buffer) => void) | null = null;
   private rejectComplete: ((err: Error) => void) | null = null;
-  private signalCallback: ((signal: SignalMessage) => void) | null = null;
+  private signalCallback: ((signal: SignalMessage) => void | Promise<void>) | null = null;
   private pendingCandidates: Array<{ candidate: string; mid: string }> = [];
   private closed = false;
 
@@ -210,7 +210,7 @@ export class FileReceiver {
     this.expectedSha256 = expectedSha256;
   }
 
-  onSignal(cb: (signal: SignalMessage) => void): void {
+  onSignal(cb: (signal: SignalMessage) => void | Promise<void>): void {
     this.signalCallback = cb;
   }
 

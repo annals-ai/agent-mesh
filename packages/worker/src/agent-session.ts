@@ -30,8 +30,6 @@ import type {
   FileTransferOffer,
   RtcSignal,
   RtcSignalRelay,
-  TransferUpload,
-  TransferUploadComplete,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
@@ -54,14 +52,7 @@ interface AsyncTaskMeta {
 }
 
 const ASYNC_TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes no chunk = timeout
-const TRANSFER_TTL_MS = 5 * 60 * 1000; // 5 minutes — ZIP stays in DO memory
-
-interface PendingTransfer {
-  chunks: string[];   // base64-encoded chunks
-  totalChunks: number;
-  receivedAt: number;
-  complete: boolean;
-}
+const RTC_SIGNAL_BUFFER_TTL_MS = 60_000; // 60 seconds — auto-clean signal buffers
 
 interface SessionSocketAttachment {
   promoted: boolean;
@@ -89,7 +80,8 @@ export class AgentSession implements DurableObject {
   private cachedUserId = '';      // token owner's user_id
 
   private pendingRelays = new Map<string, PendingRelay>();
-  private pendingFileTransfers = new Map<string, PendingTransfer>();
+  /** Buffer for Agent B's RTC signals destined for HTTP callers */
+  private rtcSignalBuffer = new Map<string, Array<{ signal_type: string; payload: string }>>();
   private lastPlatformSyncAt = 0;
   private static readonly PLATFORM_SYNC_INTERVAL_MS = 120_000; // 2 min
 
@@ -157,10 +149,9 @@ export class AgentSession implements DurableObject {
       return this.handleIncomingRtcSignal(request);
     }
 
-    // File transfer download — serve stored ZIP by transfer_id
-    if (url.pathname.startsWith('/transfer/') && request.method === 'GET') {
-      const transferId = url.pathname.slice('/transfer/'.length);
-      return this.handleTransferDownload(transferId);
+    // WebRTC signal exchange — HTTP caller posts signals, gets buffered responses
+    if (url.pathname === '/rtc-signal-exchange' && request.method === 'POST') {
+      return this.handleRtcSignalExchange(request);
     }
 
     // Status check
@@ -328,14 +319,6 @@ export class AgentSession implements DurableObject {
 
       case 'rtc_signal':
         this.handleRtcSignal(msg as RtcSignal);
-        break;
-
-      case 'transfer_upload':
-        this.handleTransferUpload(msg as TransferUpload);
-        break;
-
-      case 'transfer_upload_complete':
-        this.handleTransferUploadComplete(msg as TransferUploadComplete);
         break;
     }
   }
@@ -1361,75 +1344,19 @@ export class AgentSession implements DurableObject {
   }
 
   // ========================================================
-  // File transfer upload/download (HTTP relay)
-  // ========================================================
-
-  private handleTransferUpload(msg: TransferUpload): void {
-    let transfer = this.pendingFileTransfers.get(msg.transfer_id);
-    if (!transfer) {
-      transfer = {
-        chunks: [],
-        totalChunks: msg.total_chunks,
-        receivedAt: Date.now(),
-        complete: false,
-      };
-      this.pendingFileTransfers.set(msg.transfer_id, transfer);
-    }
-    // Store chunk at the correct index
-    transfer.chunks[msg.chunk_index] = msg.data;
-  }
-
-  private handleTransferUploadComplete(msg: TransferUploadComplete): void {
-    const transfer = this.pendingFileTransfers.get(msg.transfer_id);
-    if (!transfer) return;
-    transfer.complete = true;
-
-    // Schedule cleanup after TTL
-    setTimeout(() => {
-      this.pendingFileTransfers.delete(msg.transfer_id);
-    }, TRANSFER_TTL_MS);
-  }
-
-  private handleTransferDownload(transferId: string): Response {
-    // Prune expired transfers
-    const now = Date.now();
-    for (const [id, t] of this.pendingFileTransfers) {
-      if (now - t.receivedAt > TRANSFER_TTL_MS) {
-        this.pendingFileTransfers.delete(id);
-      }
-    }
-
-    const transfer = this.pendingFileTransfers.get(transferId);
-    if (!transfer) {
-      return json(404, { error: 'not_found', message: 'Transfer not found or expired' });
-    }
-    if (!transfer.complete) {
-      return json(202, { error: 'pending', message: 'Transfer upload in progress' });
-    }
-
-    // Concatenate base64 chunks → binary
-    const base64Data = transfer.chunks.join('');
-    const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-
-    // Clean up after serving (one-time download)
-    this.pendingFileTransfers.delete(transferId);
-
-    return new Response(binaryData, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Length': String(binaryData.byteLength),
-        'Content-Disposition': `attachment; filename="transfer-${transferId.slice(0, 8)}.zip"`,
-      },
-    });
-  }
-
-  // ========================================================
   // WebRTC signaling relay (P2P file transfer)
   // ========================================================
 
-  /** CLI sends rtc_signal → route to target agent's DO */
+  /** CLI sends rtc_signal → route to target agent's DO (or buffer for http-caller) */
   private async handleRtcSignal(msg: RtcSignal): Promise<void> {
+    // If target is 'http-caller', buffer signals for HTTP polling retrieval
+    if (msg.target_agent_id === 'http-caller') {
+      const buf = this.rtcSignalBuffer.get(msg.transfer_id) || [];
+      buf.push({ signal_type: msg.signal_type, payload: msg.payload });
+      this.rtcSignalBuffer.set(msg.transfer_id, buf);
+      return;
+    }
+
     try {
       const targetId = this.env.AGENT_SESSIONS.idFromName(msg.target_agent_id);
       const targetStub = this.env.AGENT_SESSIONS.get(targetId);
@@ -1477,6 +1404,55 @@ export class AgentSession implements DurableObject {
     }
 
     return json(200, { ok: true });
+  }
+
+  /**
+   * POST /rtc-signal-exchange — HTTP caller posts SDP/ICE signals, gets buffered Agent B responses.
+   * Body: { transfer_id, signal_type, payload }
+   * signal_type='poll' → only returns buffered signals, no forwarding.
+   */
+  private async handleRtcSignalExchange(request: Request): Promise<Response> {
+    let body: { transfer_id: string; signal_type: string; payload: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+    }
+
+    const { transfer_id, signal_type, payload } = body;
+
+    // Forward caller's signal to Agent B via WS (unless it's a poll-only request)
+    if (signal_type !== 'poll') {
+      const ws = this.getPrimarySocket();
+      if (!ws || !this.authenticated) {
+        return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
+      }
+
+      const relay: RtcSignalRelay = {
+        type: 'rtc_signal_relay',
+        transfer_id,
+        from_agent_id: 'http-caller',
+        signal_type: signal_type as RtcSignalRelay['signal_type'],
+        payload,
+      };
+
+      try {
+        ws.send(JSON.stringify(relay));
+      } catch {
+        return json(502, { error: 'agent_offline', message: 'Failed to send signal to agent' });
+      }
+    }
+
+    // Drain buffered signals from Agent B → return to HTTP caller
+    const signals = this.rtcSignalBuffer.get(transfer_id) || [];
+    this.rtcSignalBuffer.delete(transfer_id);
+
+    // Schedule cleanup for this transfer_id's buffer after TTL
+    setTimeout(() => {
+      this.rtcSignalBuffer.delete(transfer_id);
+    }, RTC_SIGNAL_BUFFER_TTL_MS);
+
+    return json(200, { ok: true, signals });
   }
 
   // ========================================================

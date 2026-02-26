@@ -219,11 +219,10 @@ export default {
       }
     }
 
-    // File transfer download — proxy to agent's DO
-    const transferMatch = path.match(/^\/api\/transfer\/([^/]+)\/([^/]+)$/);
-    if (transferMatch && request.method === 'GET') {
-      const agentId = transferMatch[1];
-      const transferId = transferMatch[2];
+    // WebRTC signal exchange — proxy to agent's DO
+    const rtcMatch = path.match(/^\/api\/rtc-signal\/([^/]+)$/);
+    if (rtcMatch && request.method === 'POST') {
+      const agentId = rtcMatch[1];
       if (!isValidAgentId(agentId)) {
         return json(400, { error: 'invalid_agent_id', message: 'agent_id must be a valid UUID' });
       }
@@ -231,7 +230,11 @@ export default {
       const id = env.AGENT_SESSIONS.idFromName(agentId);
       const stub = env.AGENT_SESSIONS.get(id);
       try {
-        return await stub.fetch(new Request(`${url.origin}/transfer/${transferId}`));
+        return await stub.fetch(new Request(`${url.origin}/rtc-signal-exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: request.body,
+        }));
       } catch {
         return json(503, { error: 'agent_unavailable', message: 'Agent session temporarily unavailable' });
       }

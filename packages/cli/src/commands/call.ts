@@ -1,11 +1,11 @@
 import type { Command } from 'commander';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { loadToken } from '../platform/auth.js';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
+import { FileReceiver, type SignalMessage } from '../utils/webrtc-transfer.js';
 import { parseSseChunk } from '../utils/sse-parser.js';
 import { log } from '../utils/logger.js';
 import { GRAY, RESET, BOLD } from '../utils/table.js';
@@ -58,97 +58,121 @@ interface FileTransferOfferInfo {
 }
 
 /**
- * Download ZIP from Worker DO via Platform proxy, verify SHA-256, extract.
+ * Download files via WebRTC P2P from Agent B.
+ * Signals are exchanged through Platform → Worker DO → Agent B WS.
  */
-async function downloadTransferFiles(
+async function webrtcDownload(
   agentId: string,
   offer: FileTransferOfferInfo,
   token: string,
   outputDir: string,
   json?: boolean,
 ): Promise<void> {
-  const url = `${DEFAULT_BASE_URL}/api/agents/${agentId}/transfer/${offer.transfer_id}`;
-
   if (!json) {
-    log.info(`Downloading ${offer.file_count} file(s) (${(offer.zip_size / 1024).toFixed(1)} KB)...`);
+    log.info(`[WebRTC] Downloading ${offer.file_count} file(s) (${(offer.zip_size / 1024).toFixed(1)} KB)...`);
   }
 
-  // Small delay to let Agent push ZIP to Worker
-  await sleep(1000);
+  const receiver = new FileReceiver(offer.zip_size, offer.zip_sha256);
 
-  // Retry up to 5 times (Worker may still be receiving chunks)
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  // Signal callback → POST to Platform API, process buffered responses
+  const exchangeSignals = async (signal: SignalMessage) => {
     try {
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${agentId}/rtc-signal`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transfer_id: offer.transfer_id,
+          signal_type: signal.signal_type,
+          payload: signal.payload,
+        }),
       });
-
-      if (res.status === 202) {
-        // Upload still in progress
-        await sleep(2000);
-        continue;
-      }
-
-      if (res.status === 404) {
-        if (attempt < 4) {
-          await sleep(2000);
-          continue;
+      if (res.ok) {
+        const { signals } = await res.json() as { signals: SignalMessage[] };
+        for (const s of signals) {
+          await receiver.handleSignal(s);
         }
-        log.warn('Transfer expired or not found');
-        return;
       }
+    } catch {
+      // Best-effort signaling
+    }
+  };
 
-      if (!res.ok) {
-        log.warn(`Download failed: HTTP ${res.status}`);
-        return;
-      }
+  receiver.onSignal(exchangeSignals);
 
-      const arrayBuffer = await res.arrayBuffer();
-      const zipBuffer = Buffer.from(arrayBuffer);
+  await receiver.createOffer();
 
-      // Verify SHA-256
-      const hash = createHash('sha256').update(zipBuffer).digest('hex');
-      if (hash !== offer.zip_sha256) {
-        log.warn(`SHA-256 mismatch: expected ${offer.zip_sha256.slice(0, 12)}... got ${hash.slice(0, 12)}...`);
-        return;
-      }
-
-      // Extract ZIP to output directory
-      mkdirSync(outputDir, { recursive: true });
-      const zipPath = join(outputDir, `.transfer-${offer.transfer_id.slice(0, 8)}.zip`);
-      writeFileSync(zipPath, zipBuffer);
-
+  // Poll for Agent B's buffered signals (answer + ICE candidates)
+  const poll = async () => {
+    for (let i = 0; i < 20; i++) {
+      await sleep(500);
       try {
-        execSync(`unzip -o -q "${zipPath}" -d "${outputDir}"`);
-        // Remove temp zip
-        try { execSync(`rm "${zipPath}"`); } catch {}
+        const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${agentId}/rtc-signal`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            transfer_id: offer.transfer_id,
+            signal_type: 'poll',
+            payload: '',
+          }),
+        });
+        if (res.ok) {
+          const { signals } = await res.json() as { signals: SignalMessage[] };
+          for (const s of signals) {
+            await receiver.handleSignal(s);
+          }
+        }
       } catch {
-        log.warn(`Failed to extract ZIP. Saved to: ${zipPath}`);
-        return;
-      }
-
-      if (json) {
-        console.log(JSON.stringify({
-          type: 'files_downloaded',
-          file_count: offer.file_count,
-          output_dir: outputDir,
-          zip_size: zipBuffer.length,
-          sha256_verified: true,
-        }));
-      } else {
-        log.success(`${offer.file_count} file(s) extracted to ${outputDir}`);
-      }
-      return;
-    } catch (err) {
-      lastError = err as Error;
-      if (attempt < 4) {
-        await sleep(2000);
+        // Best-effort polling
       }
     }
-  }
+  };
 
-  log.warn(`Download failed after retries: ${lastError?.message || 'unknown error'}`);
+  try {
+    const [zipBuffer] = await Promise.all([
+      receiver.waitForCompletion(30_000),
+      poll(),
+    ]);
+
+    // Extract ZIP
+    mkdirSync(outputDir, { recursive: true });
+    const zipPath = join(outputDir, '.transfer.zip');
+    writeFileSync(zipPath, zipBuffer);
+
+    try {
+      execSync(`unzip -o -q "${zipPath}" -d "${outputDir}"`);
+      try { execSync(`rm "${zipPath}"`); } catch {}
+    } catch {
+      log.warn(`Failed to extract ZIP. Saved to: ${zipPath}`);
+      return;
+    }
+
+    if (json) {
+      console.log(JSON.stringify({
+        type: 'files_downloaded',
+        file_count: offer.file_count,
+        output_dir: outputDir,
+        zip_size: zipBuffer.length,
+        sha256_verified: true,
+      }));
+    } else {
+      log.success(`[WebRTC] ${offer.file_count} file(s) extracted to ${outputDir}`);
+    }
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (json) {
+      console.log(JSON.stringify({ type: 'file_transfer_failed', error: msg }));
+    } else {
+      log.warn(`[WebRTC] File transfer failed: ${msg}`);
+    }
+  } finally {
+    receiver.close();
+  }
 }
 
 /**
@@ -282,7 +306,7 @@ async function asyncCall(opts: {
       // Download files if offer present and --with-files was specified
       if (offer && opts.withFiles) {
         const outputDir = opts.outputFile ? join(opts.outputFile, '..', 'files') : join(process.cwd(), 'agent-output');
-        await downloadTransferFiles(opts.id, offer, opts.token, outputDir, opts.json);
+        await webrtcDownload(opts.id, offer, opts.token, outputDir, opts.json);
       }
       if (!opts.json) {
         log.info(`${GRAY}Rate this call: agent-mesh rate ${call_id} <1-5> --agent ${opts.id}${RESET}`);

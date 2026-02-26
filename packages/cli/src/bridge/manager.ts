@@ -1,4 +1,4 @@
-import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment, RtcSignalRelay, RtcSignal, FileTransferOffer, TransferUpload, TransferUploadComplete } from '@annals/bridge-protocol';
+import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment, RtcSignalRelay, RtcSignal, FileTransferOffer } from '@annals/bridge-protocol';
 import { BridgeErrorCode } from '@annals/bridge-protocol';
 import { FileSender, type SignalMessage } from '../utils/webrtc-transfer.js';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
@@ -332,11 +332,7 @@ export class BridgeManager {
       const fileTransferOffer = payload?.fileTransferOffer;
       const zipBuffer = payload?.zipBuffer;
 
-      // Store ZIP buffer for WebRTC P2P transfer if offer present
-      if (fileTransferOffer && zipBuffer) {
-        this.registerPendingTransfer(fileTransferOffer, zipBuffer);
-      }
-
+      // Send done FIRST (not blocked by file transfer)
       const done: Done = {
         type: 'done',
         session_id: sessionId,
@@ -349,6 +345,12 @@ export class BridgeManager {
       this.wsClient.send(done);
       fullResponseBuffer = '';
       this.sessionLastSeenAt.set(sessionId, Date.now());
+
+      // Register FileSender AFTER done — ZIP stays in memory for WebRTC P2P pickup
+      if (fileTransferOffer && zipBuffer) {
+        this.registerPendingTransfer(fileTransferOffer, zipBuffer);
+      }
+
       const fileInfo = fileTransferOffer ? ` (${fileTransferOffer.file_count} files, transfer=${fileTransferOffer.transfer_id.slice(0, 8)}...)` : '';
       log.info(`Request done: session=${sessionId.slice(0, 8)}... request=${requestRef.requestId.slice(0, 8)}...${fileInfo}`);
     });
@@ -562,7 +564,6 @@ export class BridgeManager {
 
     // Wire outgoing signals through Bridge WS
     sender.onSignal((signal: SignalMessage) => {
-      // We need the target agent ID from the incoming signal — stored when first relay arrives
       const entry = this.pendingTransfers.get(offer.transfer_id);
       if (!entry) return;
       const rtcSignal: RtcSignal = {
@@ -584,39 +585,7 @@ export class BridgeManager {
     timer.unref?.();
 
     this.pendingTransfers.set(offer.transfer_id, { sender, timer } as typeof this.pendingTransfers extends Map<string, infer V> ? V : never);
-
-    // Push ZIP to Worker DO via WS (HTTP relay fallback for non-WebSocket callers)
-    this.pushZipToWorker(offer.transfer_id, zipBuffer);
-  }
-
-  /** Push ZIP buffer to Worker DO via chunked transfer_upload messages */
-  private pushZipToWorker(transferId: string, zipBuffer: Buffer): void {
-    const CHUNK_SIZE = 64 * 1024; // 64KB per chunk → ~87KB base64
-    const totalChunks = Math.ceil(zipBuffer.length / CHUNK_SIZE);
-
-    log.debug(`Pushing ZIP to Worker: transfer=${transferId.slice(0, 8)}... size=${zipBuffer.length} chunks=${totalChunks}`);
-
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, zipBuffer.length);
-      const chunk = zipBuffer.subarray(start, end);
-
-      const msg: TransferUpload = {
-        type: 'transfer_upload',
-        transfer_id: transferId,
-        chunk_index: i,
-        total_chunks: totalChunks,
-        data: chunk.toString('base64'),
-      };
-      this.wsClient.send(msg);
-    }
-
-    const complete: TransferUploadComplete = {
-      type: 'transfer_upload_complete',
-      transfer_id: transferId,
-    };
-    this.wsClient.send(complete);
-    log.info(`ZIP pushed to Worker: transfer=${transferId.slice(0, 8)}... (${totalChunks} chunks)`);
+    log.info(`WebRTC transfer registered: transfer=${offer.transfer_id.slice(0, 8)}... (${(zipBuffer.length / 1024).toFixed(1)} KB in memory)`);
   }
 
   private handleRtcSignalRelay(msg: RtcSignalRelay): void {
