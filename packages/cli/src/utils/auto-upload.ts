@@ -24,14 +24,27 @@ export const MIME_MAP: Record<string, string> = {
 };
 
 /**
- * Recursively collect real (non-symlink) files from a directory.
- * Skips common build/vcs directories and symlinks (which point to original project files).
+ * Recursively collect files from a directory.
+ * Follows directory symlinks (so agent files inside symlinked output/ are found)
+ * but skips file-level symlinks (which point to original project files).
  */
 export async function collectRealFiles(dir: string, maxFiles = Infinity): Promise<string[]> {
   const files: string[] = [];
+  const visited = new Set<string>();
 
   const walk = async (d: string): Promise<void> => {
     if (files.length >= maxFiles) return;
+
+    // Resolve to real path to detect cycles from symlinks
+    let realDir: string;
+    try {
+      const { realpath } = await import('node:fs/promises');
+      realDir = await realpath(d);
+    } catch {
+      return;
+    }
+    if (visited.has(realDir)) return;
+    visited.add(realDir);
 
     let entries: Awaited<ReturnType<typeof readdir>>;
     try {
@@ -42,12 +55,23 @@ export async function collectRealFiles(dir: string, maxFiles = Infinity): Promis
 
     for (const entry of entries) {
       if (files.length >= maxFiles) return;
-      if (entry.isSymbolicLink()) continue;
-
       const fullPath = join(d, entry.name);
+
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name)) continue;
         await walk(fullPath);
+      } else if (entry.isSymbolicLink()) {
+        // Check if symlink points to a directory — follow it
+        try {
+          const s = await stat(fullPath); // stat follows symlinks
+          if (s.isDirectory()) {
+            if (SKIP_DIRS.has(entry.name)) continue;
+            await walk(fullPath);
+          }
+          // Skip file symlinks (original project files, not agent output)
+        } catch {
+          // Broken symlink — skip
+        }
       } else if (entry.isFile()) {
         files.push(fullPath);
       }
