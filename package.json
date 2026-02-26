@@ -6,6 +6,9 @@
     "test": "vitest run",
     "lint": "eslint packages/*/src/**/*.ts"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "node-datachannel", "sharp", "workerd"]
+  },
   "devDependencies": {
     "commander": "^13.0.0",
     "eslint": "^9.0.0",
