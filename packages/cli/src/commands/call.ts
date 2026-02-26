@@ -507,7 +507,7 @@ async function streamCall(opts: {
   if (fileOffer && opts.withFiles) {
     console.log('');
     const outputDir = opts.outputFile ? join(opts.outputFile, '..', 'files') : join(process.cwd(), 'agent-output');
-    await downloadTransferFiles(opts.id, fileOffer, opts.token, outputDir, opts.json);
+    await webrtcDownload(opts.id, fileOffer, opts.token, outputDir, opts.json);
   }
 
   if (!opts.json) {
