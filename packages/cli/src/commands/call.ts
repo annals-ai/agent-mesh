@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { loadToken } from '../platform/auth.js';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
-import { FileReceiver, type SignalMessage } from '../utils/webrtc-transfer.js';
+import { FileReceiver, FileUploadSender, sha256Hex, type SignalMessage } from '../utils/webrtc-transfer.js';
 import { parseSseChunk } from '../utils/sse-parser.js';
 import { log } from '../utils/logger.js';
 import { GRAY, RESET, BOLD } from '../utils/table.js';
@@ -176,6 +176,153 @@ async function webrtcDownload(
 }
 
 /**
+ * Prepare a file for upload: read → ZIP → SHA-256 → FileTransferOffer
+ */
+function prepareFileForUpload(filePath: string): {
+  offer: FileTransferOfferInfo;
+  zipBuffer: Buffer;
+} {
+  const { readFileSync: _readFileSync } = require('node:fs') as typeof import('node:fs');
+  const { basename } = require('node:path') as typeof import('node:path');
+  const { execSync: _execSync } = require('node:child_process') as typeof import('node:child_process');
+  const { createHash } = require('node:crypto') as typeof import('node:crypto');
+  const { tmpdir } = require('node:os') as typeof import('node:os');
+
+  const fileName = basename(filePath);
+  const tempDir = join(tmpdir(), `upload-${Date.now()}`);
+  const { mkdirSync: _mkdirSync } = require('node:fs') as typeof import('node:fs');
+  _mkdirSync(tempDir, { recursive: true });
+
+  // Copy file to temp dir and ZIP it
+  const tempFile = join(tempDir, fileName);
+  const { copyFileSync: _copyFileSync } = require('node:fs') as typeof import('node:fs');
+  _copyFileSync(filePath, tempFile);
+
+  const zipPath = join(tempDir, 'upload.zip');
+  _execSync(`cd "${tempDir}" && zip -q "${zipPath}" "${fileName}"`);
+  const zipBuffer = _readFileSync(zipPath);
+
+  // Cleanup temp
+  try { _execSync(`rm -rf "${tempDir}"`); } catch {}
+
+  const zipSha256 = createHash('sha256').update(zipBuffer).digest('hex');
+  const transferId = require('node:crypto').randomUUID();
+
+  return {
+    offer: {
+      transfer_id: transferId,
+      zip_size: zipBuffer.length,
+      zip_sha256: zipSha256,
+      file_count: 1,
+    },
+    zipBuffer: Buffer.from(zipBuffer),
+  };
+}
+
+/**
+ * Upload files via WebRTC P2P to Agent.
+ * Caller creates offer + DataChannel, sends ZIP chunks.
+ */
+async function webrtcUpload(
+  agentId: string,
+  offer: FileTransferOfferInfo,
+  zipBuffer: Buffer,
+  token: string,
+  json?: boolean,
+): Promise<void> {
+  if (!json) {
+    log.info(`[WebRTC] Uploading file (${(offer.zip_size / 1024).toFixed(1)} KB)...`);
+  }
+
+  const sender = new FileUploadSender(offer.transfer_id, zipBuffer);
+
+  const exchangeSignals = async (signal: SignalMessage) => {
+    try {
+      const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${agentId}/rtc-signal`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transfer_id: offer.transfer_id,
+          signal_type: signal.signal_type,
+          payload: signal.payload,
+        }),
+      });
+      if (res.ok) {
+        const { signals } = await res.json() as { signals: SignalMessage[] };
+        for (const s of signals) {
+          await sender.handleSignal(s);
+        }
+      }
+    } catch {
+      // Best-effort signaling
+    }
+  };
+
+  sender.onSignal(exchangeSignals);
+
+  await sender.createOffer();
+
+  // Poll for Agent's buffered signals (answer + ICE candidates)
+  const poll = async () => {
+    for (let i = 0; i < 20; i++) {
+      await sleep(500);
+      try {
+        const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${agentId}/rtc-signal`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            transfer_id: offer.transfer_id,
+            signal_type: 'poll',
+            payload: '',
+          }),
+        });
+        if (res.ok) {
+          const { signals } = await res.json() as { signals: SignalMessage[] };
+          for (const s of signals) {
+            await sender.handleSignal(s);
+          }
+        }
+      } catch {
+        // Best-effort polling
+      }
+    }
+  };
+
+  try {
+    await Promise.all([
+      sender.waitForCompletion(30_000),
+      poll(),
+    ]);
+
+    if (json) {
+      console.log(JSON.stringify({
+        type: 'files_uploaded',
+        file_count: offer.file_count,
+        zip_size: offer.zip_size,
+        sha256: offer.zip_sha256,
+      }));
+    } else {
+      log.success(`[WebRTC] File uploaded successfully`);
+    }
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (json) {
+      console.log(JSON.stringify({ type: 'file_upload_failed', error: msg }));
+    } else {
+      log.warn(`[WebRTC] File upload failed: ${msg}`);
+    }
+  } finally {
+    sender.close();
+  }
+}
+
+/**
  * Async call: POST mode=async → poll for result
  */
 async function asyncCall(opts: {
@@ -188,6 +335,7 @@ async function asyncCall(opts: {
   outputFile?: string;
   signal?: AbortSignal;
   withFiles?: boolean;
+  uploadOffer?: FileTransferOfferInfo;
 }): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
@@ -202,6 +350,7 @@ async function asyncCall(opts: {
       task_description: opts.taskDescription,
       mode: 'async',
       ...(opts.withFiles ? { with_files: true } : {}),
+      ...(opts.uploadOffer ? { file_upload_offer: opts.uploadOffer } : {}),
     }),
     signal: opts.signal,
   });
@@ -347,6 +496,7 @@ async function streamCall(opts: {
   outputFile?: string;
   signal?: AbortSignal;
   withFiles?: boolean;
+  uploadOffer?: FileTransferOfferInfo;
 }): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
@@ -361,6 +511,7 @@ async function streamCall(opts: {
     body: JSON.stringify({
       task_description: opts.taskDescription,
       ...(opts.withFiles ? { with_files: true } : {}),
+      ...(opts.uploadOffer ? { file_upload_offer: opts.uploadOffer } : {}),
     }),
     signal: opts.signal,
   });
@@ -530,6 +681,7 @@ export function registerCallCommand(program: Command): void {
     .description('Call an agent on the A2A network (default: async polling)')
     .requiredOption('--task <description>', 'Task description')
     .option('--input-file <path>', 'Read file and append to task description')
+    .option('--upload-file <path>', 'Upload file to agent via WebRTC P2P')
     .option('--output-file <path>', 'Save response text to file')
     .option('--stream', 'Use SSE streaming instead of async polling')
     .option('--with-files', 'Request file transfer via WebRTC after task completion')
@@ -539,6 +691,7 @@ export function registerCallCommand(program: Command): void {
     .action(async (agentInput: string, opts: {
       task: string;
       inputFile?: string;
+      uploadFile?: string;
       outputFile?: string;
       stream?: boolean;
       withFiles?: boolean;
@@ -563,6 +716,20 @@ export function registerCallCommand(program: Command): void {
           taskDescription = `${taskDescription}\n\n---\n\n${content}`;
         }
 
+        // Prepare file upload if --upload-file specified
+        let uploadOffer: FileTransferOfferInfo | undefined;
+        let uploadZipBuffer: Buffer | undefined;
+        if (opts.uploadFile) {
+          const { existsSync } = require('node:fs') as typeof import('node:fs');
+          if (!existsSync(opts.uploadFile)) {
+            log.error(`File not found: ${opts.uploadFile}`);
+            process.exit(1);
+          }
+          const prepared = prepareFileForUpload(opts.uploadFile);
+          uploadOffer = prepared.offer;
+          uploadZipBuffer = prepared.zipBuffer;
+        }
+
         const timeoutMs = parseInt(opts.timeout || '300', 10) * 1000;
         const abortController = new AbortController();
         const timer = setTimeout(() => abortController.abort(), timeoutMs);
@@ -577,13 +744,22 @@ export function registerCallCommand(program: Command): void {
           outputFile: opts.outputFile,
           signal: abortController.signal,
           withFiles: opts.withFiles,
+          uploadOffer,
         };
 
         let result: { callId: string; sessionKey?: string };
         if (opts.stream) {
+          // For stream mode with upload, start WebRTC upload in parallel
+          if (uploadOffer && uploadZipBuffer) {
+            void webrtcUpload(id, uploadOffer, uploadZipBuffer, token, opts.json);
+          }
           result = await streamCall(callOpts);
         } else {
+          // For async mode, upload happens after the call is posted
           result = await asyncCall(callOpts);
+          if (uploadOffer && uploadZipBuffer) {
+            await webrtcUpload(id, uploadOffer, uploadZipBuffer, token, opts.json);
+          }
         }
 
         clearTimeout(timer);

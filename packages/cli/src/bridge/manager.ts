@@ -1,6 +1,6 @@
 import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment, RtcSignalRelay, RtcSignal, FileTransferOffer } from '@annals/bridge-protocol';
 import { BridgeErrorCode } from '@annals/bridge-protocol';
-import { FileSender, type SignalMessage } from '../utils/webrtc-transfer.js';
+import { FileSender, FileUploadReceiver, type SignalMessage } from '../utils/webrtc-transfer.js';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { SessionPool } from './session-pool.js';
@@ -75,8 +75,10 @@ export class BridgeManager {
   private requestDispatches = new Map<string, RequestDispatchState>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private runtimeQueue: RuntimeQueueController;
-  /** Pending WebRTC file transfers: transfer_id → FileSender + cleanup timer */
+  /** Pending WebRTC file transfers (download): transfer_id → FileSender + cleanup timer */
   private pendingTransfers = new Map<string, { sender: FileSender; timer: ReturnType<typeof setTimeout> }>();
+  /** Pending WebRTC file uploads (caller→agent): transfer_id → FileUploadReceiver + cleanup timer */
+  private pendingUploads = new Map<string, { receiver: FileUploadReceiver; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(opts: BridgeManagerOptions) {
     this.wsClient = opts.wsClient;
@@ -110,6 +112,7 @@ export class BridgeManager {
     this.sessionLastSeenAt.clear();
     this.cleanupRequestDispatches('shutdown');
     this.cleanupPendingTransfers();
+    this.cleanupPendingUploads();
     log.info('Bridge manager stopped');
   }
 
@@ -233,7 +236,12 @@ export class BridgeManager {
 
   private async dispatchWithLocalQueue(opts: { msg: Message; handle: SessionHandle; requestKey: string }): Promise<void> {
     const { msg, handle, requestKey } = opts;
-    const { session_id, request_id, content, attachments, client_id, with_files } = msg;
+    const { session_id, request_id, content, attachments, client_id, with_files, file_upload_offer } = msg;
+
+    // Register upload receiver if caller is sending files
+    if (file_upload_offer) {
+      this.registerPendingUpload(file_upload_offer, session_id, request_id);
+    }
     const state = this.requestDispatches.get(requestKey);
     if (!state) return;
 
@@ -589,23 +597,109 @@ export class BridgeManager {
   }
 
   private handleRtcSignalRelay(msg: RtcSignalRelay): void {
-    const entry = this.pendingTransfers.get(msg.transfer_id);
-    if (!entry) {
-      log.debug(`No pending transfer for ${msg.transfer_id.slice(0, 8)}...`);
+    // Check download transfers (Agent → Caller)
+    const downloadEntry = this.pendingTransfers.get(msg.transfer_id);
+    if (downloadEntry) {
+      (downloadEntry as { targetAgentId?: string }).targetAgentId = msg.from_agent_id;
+      void downloadEntry.sender.handleSignal({
+        signal_type: msg.signal_type,
+        payload: msg.payload,
+      });
       return;
     }
 
-    // Store the from_agent_id so sender can route responses back
-    (entry as { targetAgentId?: string }).targetAgentId = msg.from_agent_id;
+    // Check upload transfers (Caller → Agent)
+    const uploadEntry = this.pendingUploads.get(msg.transfer_id);
+    if (uploadEntry) {
+      void uploadEntry.receiver.handleSignal({
+        signal_type: msg.signal_type,
+        payload: msg.payload,
+      });
+      return;
+    }
 
-    void entry.sender.handleSignal({
-      signal_type: msg.signal_type,
-      payload: msg.payload,
+    log.debug(`No pending transfer for ${msg.transfer_id.slice(0, 8)}...`);
+  }
+
+  // ========================================================
+  // Upload (Caller → Agent) WebRTC signaling
+  // ========================================================
+
+  private registerPendingUpload(offer: FileTransferOffer, _sessionId: string, _requestId: string): void {
+    const receiver = new FileUploadReceiver(offer.zip_size, offer.zip_sha256);
+
+    // Wire outgoing signals through Bridge WS
+    receiver.onSignal((signal: SignalMessage) => {
+      const rtcSignal: RtcSignal = {
+        type: 'rtc_signal',
+        transfer_id: offer.transfer_id,
+        target_agent_id: 'http-caller',
+        signal_type: signal.signal_type,
+        payload: signal.payload,
+      };
+      this.wsClient.send(rtcSignal);
     });
+
+    // Auto-cleanup after 5 minutes
+    const timer = setTimeout(() => {
+      receiver.close();
+      this.pendingUploads.delete(offer.transfer_id);
+      log.debug(`Upload transfer ${offer.transfer_id.slice(0, 8)}... expired`);
+    }, 5 * 60_000);
+    timer.unref?.();
+
+    this.pendingUploads.set(offer.transfer_id, { receiver, timer });
+
+    // Wait for upload completion (non-blocking)
+    void receiver.waitForCompletion(5 * 60_000).then((zipBuffer) => {
+      clearTimeout(timer);
+      this.pendingUploads.delete(offer.transfer_id);
+
+      // Extract to session workspace
+      const workspaceDir = this.resolveUploadWorkspace(_sessionId);
+      try {
+        const { mkdirSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
+        const { join } = require('node:path') as typeof import('node:path');
+        const { execSync } = require('node:child_process') as typeof import('node:child_process');
+        mkdirSync(workspaceDir, { recursive: true });
+        const zipPath = join(workspaceDir, '.upload.zip');
+        writeFileSync(zipPath, zipBuffer);
+        try {
+          execSync(`unzip -o -q "${zipPath}" -d "${workspaceDir}"`);
+          try { execSync(`rm "${zipPath}"`); } catch {}
+          log.info(`[WebRTC] Upload: ${offer.file_count} file(s) extracted to ${workspaceDir}`);
+        } catch {
+          log.warn(`[WebRTC] Upload: Failed to extract ZIP. Saved to: ${zipPath}`);
+        }
+      } catch (err) {
+        log.error(`[WebRTC] Upload extraction failed: ${err}`);
+      }
+    }).catch((err) => {
+      log.warn(`[WebRTC] Upload receive failed: ${(err as Error).message}`);
+      this.pendingUploads.delete(offer.transfer_id);
+    });
+
+    log.info(`[WebRTC] Upload registered: transfer=${offer.transfer_id.slice(0, 8)}... (${offer.file_count} files, ${(offer.zip_size / 1024).toFixed(1)} KB)`);
+  }
+
+  private resolveUploadWorkspace(sessionId: string): string {
+    const { join } = require('node:path') as typeof import('node:path');
+    const { homedir } = require('node:os') as typeof import('node:os');
+    // Use a stable upload directory under the agent workspace
+    const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_:-]/g, '_').slice(0, 64);
+    return join(homedir(), '.agent-mesh', 'uploads', safeSessionId);
+  }
+
+  private cleanupPendingUploads(): void {
+    for (const [, entry] of this.pendingUploads) {
+      clearTimeout(entry.timer);
+      entry.receiver.close();
+    }
+    this.pendingUploads.clear();
   }
 
   private cleanupPendingTransfers(): void {
-    for (const [id, entry] of this.pendingTransfers) {
+    for (const [, entry] of this.pendingTransfers) {
       clearTimeout(entry.timer);
       entry.sender.close();
     }

@@ -1,13 +1,133 @@
 import type { Command } from 'commander';
 import { createInterface } from 'node:readline';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { execSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { loadToken } from '../platform/auth.js';
 import { createClient } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
+import { FileUploadSender, type SignalMessage } from '../utils/webrtc-transfer.js';
 import { parseSseChunk } from '../utils/sse-parser.js';
 import { log } from '../utils/logger.js';
 import { BOLD, GRAY, GREEN, RESET, YELLOW } from '../utils/table.js';
 
 const DEFAULT_BASE_URL = 'https://agents.hot';
+
+interface FileUploadOfferInfo {
+  transfer_id: string;
+  zip_size: number;
+  zip_sha256: string;
+  file_count: number;
+}
+
+function prepareUploadFile(filePath: string): { offer: FileUploadOfferInfo; zipBuffer: Buffer } {
+  const fileName = basename(filePath);
+  const tempDir = join(tmpdir(), `chat-upload-${Date.now()}`);
+  const { mkdirSync } = require('node:fs') as typeof import('node:fs');
+  mkdirSync(tempDir, { recursive: true });
+
+  const tempFile = join(tempDir, fileName);
+  const { copyFileSync } = require('node:fs') as typeof import('node:fs');
+  copyFileSync(filePath, tempFile);
+
+  const zipPath = join(tempDir, 'upload.zip');
+  execSync(`cd "${tempDir}" && zip -q "${zipPath}" "${fileName}"`);
+  const zipBuffer = readFileSync(zipPath);
+
+  try { execSync(`rm -rf "${tempDir}"`); } catch {}
+
+  const zipSha256 = createHash('sha256').update(zipBuffer).digest('hex');
+  const transferId = randomUUID();
+
+  return {
+    offer: {
+      transfer_id: transferId,
+      zip_size: zipBuffer.length,
+      zip_sha256: zipSha256,
+      file_count: 1,
+    },
+    zipBuffer: Buffer.from(zipBuffer),
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function chatWebrtcUpload(
+  agentId: string,
+  offer: FileUploadOfferInfo,
+  zipBuffer: Buffer,
+  token: string,
+  baseUrl: string,
+): Promise<void> {
+  log.info(`[WebRTC] Uploading file (${(offer.zip_size / 1024).toFixed(1)} KB)...`);
+
+  const sender = new FileUploadSender(offer.transfer_id, zipBuffer);
+
+  const exchangeSignals = async (signal: SignalMessage) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/agents/${agentId}/rtc-signal`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transfer_id: offer.transfer_id,
+          signal_type: signal.signal_type,
+          payload: signal.payload,
+        }),
+      });
+      if (res.ok) {
+        const { signals } = await res.json() as { signals: SignalMessage[] };
+        for (const s of signals) {
+          await sender.handleSignal(s);
+        }
+      }
+    } catch {}
+  };
+
+  sender.onSignal(exchangeSignals);
+  await sender.createOffer();
+
+  const poll = async () => {
+    for (let i = 0; i < 20; i++) {
+      await sleep(500);
+      try {
+        const res = await fetch(`${baseUrl}/api/agents/${agentId}/rtc-signal`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            transfer_id: offer.transfer_id,
+            signal_type: 'poll',
+            payload: '',
+          }),
+        });
+        if (res.ok) {
+          const { signals } = await res.json() as { signals: SignalMessage[] };
+          for (const s of signals) {
+            await sender.handleSignal(s);
+          }
+        }
+      } catch {}
+    }
+  };
+
+  try {
+    await Promise.all([sender.waitForCompletion(30_000), poll()]);
+    log.success(`[WebRTC] File uploaded successfully`);
+  } catch (err) {
+    log.warn(`[WebRTC] Upload failed: ${(err as Error).message}`);
+  } finally {
+    sender.close();
+  }
+}
 
 // --- Stream a single message ---
 
@@ -19,10 +139,7 @@ export interface ChatOptions {
   showThinking?: boolean;
   signal?: AbortSignal;
   mode?: 'stream' | 'async';
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  fileUploadOffer?: FileUploadOfferInfo;
 }
 
 /**
@@ -35,7 +152,11 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
       Authorization: `Bearer ${opts.token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message: opts.message, mode: 'async' }),
+    body: JSON.stringify({
+      message: opts.message,
+      mode: 'async',
+      ...(opts.fileUploadOffer ? { file_upload_offer: opts.fileUploadOffer } : {}),
+    }),
     signal: opts.signal,
   });
 
@@ -130,7 +251,10 @@ export async function streamChat(opts: ChatOptions): Promise<void> {
       Authorization: `Bearer ${opts.token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ message: opts.message }),
+    body: JSON.stringify({
+      message: opts.message,
+      ...(opts.fileUploadOffer ? { file_upload_offer: opts.fileUploadOffer } : {}),
+    }),
     signal: opts.signal,
   });
 
@@ -299,7 +423,10 @@ export function registerChatCommand(program: Command): void {
       }
 
       log.banner(`Chat with ${agentName}`);
-      console.log(`${GRAY}Type your message and press Enter. Use /quit or Ctrl+C to exit.${RESET}\n`);
+      console.log(`${GRAY}Type your message and press Enter. /upload <path> to send a file. /quit to exit.${RESET}\n`);
+
+      let pendingUploadOffer: FileUploadOfferInfo | undefined;
+      let pendingUploadZipBuffer: Buffer | undefined;
 
       const rl = createInterface({
         input: process.stdin,
@@ -330,8 +457,41 @@ export function registerChatCommand(program: Command): void {
           return;
         }
 
+        // /upload <path> — prepare file for upload with next message
+        if (trimmed.startsWith('/upload ')) {
+          const filePath = trimmed.slice(8).trim();
+          if (!filePath) {
+            log.error('Usage: /upload <path>');
+            rl.prompt();
+            return;
+          }
+          if (!existsSync(filePath)) {
+            log.error(`File not found: ${filePath}`);
+            rl.prompt();
+            return;
+          }
+          try {
+            const prepared = prepareUploadFile(filePath);
+            pendingUploadOffer = prepared.offer;
+            pendingUploadZipBuffer = prepared.zipBuffer;
+            log.info(`File staged: ${basename(filePath)} (${(prepared.offer.zip_size / 1024).toFixed(1)} KB). Type a message to send with the file.`);
+          } catch (err) {
+            log.error(`Failed to prepare file: ${(err as Error).message}`);
+          }
+          rl.prompt();
+          return;
+        }
+
         console.log('');
+
+        // If there's a pending upload, send the offer with the message and start upload
+        const uploadOffer = pendingUploadOffer;
+        const uploadZipBuffer = pendingUploadZipBuffer;
+        pendingUploadOffer = undefined;
+        pendingUploadZipBuffer = undefined;
+
         try {
+          // TODO: pass file_upload_offer to chat API when upload is pending
           await streamChat({
             agentId,
             message: trimmed,
@@ -339,7 +499,13 @@ export function registerChatCommand(program: Command): void {
             baseUrl: opts.baseUrl,
             showThinking: opts.thinking,
             mode,
+            fileUploadOffer: uploadOffer,
           });
+
+          // Start WebRTC upload after message is sent
+          if (uploadOffer && uploadZipBuffer) {
+            await chatWebrtcUpload(agentId, uploadOffer, uploadZipBuffer, token, opts.baseUrl);
+          }
         } catch (err) {
           if (abortController.signal.aborted) return;
           log.error((err as Error).message);

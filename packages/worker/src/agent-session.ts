@@ -413,6 +413,7 @@ export class AgentSession implements DurableObject {
       attachments?: Attachment[];
       client_id?: string;
       with_files?: boolean;
+      file_upload_offer?: { transfer_id: string; zip_size: number; zip_sha256: string; file_count: number };
       mode?: string;
       callback_url?: string;
       session_title?: string;
@@ -441,6 +442,7 @@ export class AgentSession implements DurableObject {
       attachments: body.attachments ?? [],
       ...(body.client_id && { client_id: body.client_id }),
       ...(body.with_files && { with_files: true }),
+      ...(body.file_upload_offer && { file_upload_offer: body.file_upload_offer }),
     };
 
     const isAsync = body.mode === 'async' && !!body.callback_url;

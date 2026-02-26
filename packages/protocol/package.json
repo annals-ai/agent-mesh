@@ -1,6 +1,6 @@
 {
   "name": "@annals/bridge-protocol",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Bridge Protocol type definitions for agent-mesh",
   "type": "module",
   "main": "./dist/index.js",

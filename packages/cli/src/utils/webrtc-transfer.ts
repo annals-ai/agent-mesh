@@ -325,6 +325,261 @@ export class FileReceiver {
   }
 }
 
+// ============================================================
+// FileUploadReceiver — Agent (passive peer, receives upload from caller)
+// ============================================================
+
+export class FileUploadReceiver {
+  private peer: InstanceType<NodeDataChannel['PeerConnection']> | null = null;
+  private expectedSize: number;
+  private expectedSha256: string;
+  private chunks: Buffer[] = [];
+  private receivedBytes = 0;
+  private resolveComplete: ((buf: Buffer) => void) | null = null;
+  private rejectComplete: ((err: Error) => void) | null = null;
+  private signalCallback: ((signal: SignalMessage) => void) | null = null;
+  private pendingCandidates: Array<{ candidate: string; mid: string }> = [];
+  private closed = false;
+
+  constructor(expectedSize: number, expectedSha256: string) {
+    this.expectedSize = expectedSize;
+    this.expectedSha256 = expectedSha256;
+  }
+
+  onSignal(cb: (signal: SignalMessage) => void): void {
+    this.signalCallback = cb;
+  }
+
+  async handleSignal(signal: SignalMessage): Promise<void> {
+    const ndc = await loadNdc();
+    if (!ndc || this.closed) return;
+
+    if (!this.peer) {
+      this.peer = new ndc.PeerConnection(`upload-receiver-${Date.now()}`, {
+        iceServers: ICE_SERVERS,
+      });
+
+      this.peer.onLocalDescription((sdp: string, type: string) => {
+        this.signalCallback?.({ signal_type: type as 'offer' | 'answer', payload: sdp });
+      });
+
+      this.peer.onLocalCandidate((candidate: string, mid: string) => {
+        this.signalCallback?.({
+          signal_type: 'candidate',
+          payload: JSON.stringify({ candidate, mid }),
+        });
+      });
+
+      // Passive peer — receive DataChannel created by caller
+      this.peer.onDataChannel((dc: InstanceType<NodeDataChannel['DataChannel']>) => {
+        dc.onMessage((msg: Buffer | string) => {
+          if (typeof msg === 'string') {
+            try {
+              const ctrl = JSON.parse(msg);
+              if (ctrl.type === 'complete') {
+                this.finalizeReceive();
+              }
+            } catch {}
+            return;
+          }
+          const buf = Buffer.isBuffer(msg) ? msg : Buffer.from(msg);
+          this.chunks.push(buf);
+          this.receivedBytes += buf.length;
+        });
+      });
+    }
+
+    if (signal.signal_type === 'offer' || signal.signal_type === 'answer') {
+      this.peer.setRemoteDescription(signal.payload, signal.signal_type);
+      for (const c of this.pendingCandidates) {
+        this.peer.addRemoteCandidate(c.candidate, c.mid);
+      }
+      this.pendingCandidates = [];
+    } else if (signal.signal_type === 'candidate') {
+      const { candidate, mid } = JSON.parse(signal.payload);
+      if (this.peer.remoteDescription()) {
+        this.peer.addRemoteCandidate(candidate, mid);
+      } else {
+        this.pendingCandidates.push({ candidate, mid });
+      }
+    }
+  }
+
+  waitForCompletion(timeoutMs = 30_000): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      this.resolveComplete = resolve;
+      this.rejectComplete = reject;
+
+      setTimeout(() => {
+        if (!this.closed) {
+          reject(new Error(`Upload receive timed out after ${timeoutMs}ms`));
+          this.close();
+        }
+      }, timeoutMs);
+    });
+  }
+
+  private finalizeReceive(): void {
+    const zipBuffer = Buffer.concat(this.chunks);
+    const actualSha256 = createHash('sha256').update(zipBuffer).digest('hex');
+
+    if (zipBuffer.length !== this.expectedSize) {
+      this.rejectComplete?.(
+        new Error(`Size mismatch: expected ${this.expectedSize}, got ${zipBuffer.length}`)
+      );
+      this.close();
+      return;
+    }
+
+    if (actualSha256 !== this.expectedSha256) {
+      this.rejectComplete?.(
+        new Error(`SHA-256 mismatch: expected ${this.expectedSha256}, got ${actualSha256}`)
+      );
+      this.close();
+      return;
+    }
+
+    log.info(`[WebRTC] Upload received ${zipBuffer.length} bytes, SHA-256 verified`);
+    this.resolveComplete?.(zipBuffer);
+    this.close();
+  }
+
+  close(): void {
+    this.closed = true;
+    try { this.peer?.close(); } catch {}
+    this.peer = null;
+  }
+}
+
+// ============================================================
+// FileUploadSender — Caller (active peer, sends files to agent)
+// ============================================================
+
+export class FileUploadSender {
+  private peer: InstanceType<NodeDataChannel['PeerConnection']> | null = null;
+  private dc: InstanceType<NodeDataChannel['DataChannel']> | null = null;
+  private transferId: string;
+  private zipBuffer: Buffer;
+  private signalCallback: ((signal: SignalMessage) => void | Promise<void>) | null = null;
+  private pendingCandidates: Array<{ candidate: string; mid: string }> = [];
+  private resolveComplete: (() => void) | null = null;
+  private rejectComplete: ((err: Error) => void) | null = null;
+  private closed = false;
+
+  constructor(transferId: string, zipBuffer: Buffer) {
+    this.transferId = transferId;
+    this.zipBuffer = zipBuffer;
+  }
+
+  onSignal(cb: (signal: SignalMessage) => void | Promise<void>): void {
+    this.signalCallback = cb;
+  }
+
+  async createOffer(): Promise<string | null> {
+    const ndc = await loadNdc();
+    if (!ndc) return null;
+
+    this.peer = new ndc.PeerConnection('upload-sender', {
+      iceServers: ICE_SERVERS,
+    });
+
+    return new Promise<string>((resolve) => {
+      this.peer.onLocalDescription((sdp: string, type: string) => {
+        if (type === 'offer') {
+          resolve(sdp);
+        }
+        this.signalCallback?.({ signal_type: type as 'offer' | 'answer', payload: sdp });
+      });
+
+      this.peer.onLocalCandidate((candidate: string, mid: string) => {
+        this.signalCallback?.({
+          signal_type: 'candidate',
+          payload: JSON.stringify({ candidate, mid }),
+        });
+      });
+
+      this.dc = this.peer.createDataChannel('file-transfer');
+
+      this.dc.onOpen(() => {
+        void this.sendZip();
+      });
+    });
+  }
+
+  async handleSignal(signal: SignalMessage): Promise<void> {
+    if (!this.peer || this.closed) return;
+
+    if (signal.signal_type === 'answer' || signal.signal_type === 'offer') {
+      this.peer.setRemoteDescription(signal.payload, signal.signal_type);
+      for (const c of this.pendingCandidates) {
+        this.peer.addRemoteCandidate(c.candidate, c.mid);
+      }
+      this.pendingCandidates = [];
+    } else if (signal.signal_type === 'candidate') {
+      const { candidate, mid } = JSON.parse(signal.payload);
+      if (this.peer.remoteDescription()) {
+        this.peer.addRemoteCandidate(candidate, mid);
+      } else {
+        this.pendingCandidates.push({ candidate, mid });
+      }
+    }
+  }
+
+  waitForCompletion(timeoutMs = 30_000): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.resolveComplete = resolve;
+      this.rejectComplete = reject;
+
+      setTimeout(() => {
+        if (!this.closed) {
+          reject(new Error(`Upload send timed out after ${timeoutMs}ms`));
+          this.close();
+        }
+      }, timeoutMs);
+    });
+  }
+
+  private async sendZip(): Promise<void> {
+    if (!this.dc) return;
+    try {
+      // Send header
+      this.dc.sendMessage(JSON.stringify({
+        type: 'header',
+        transfer_id: this.transferId,
+        zip_size: this.zipBuffer.length,
+      }));
+
+      // Send binary chunks
+      let offset = 0;
+      while (offset < this.zipBuffer.length) {
+        const end = Math.min(offset + CHUNK_SIZE, this.zipBuffer.length);
+        const chunk = this.zipBuffer.subarray(offset, end);
+        this.dc.sendMessageBinary(chunk);
+        offset = end;
+      }
+
+      // Send completion marker
+      this.dc.sendMessage(JSON.stringify({ type: 'complete' }));
+
+      log.info(`[WebRTC] Upload sent ${this.zipBuffer.length} bytes in ${Math.ceil(this.zipBuffer.length / CHUNK_SIZE)} chunks`);
+      this.resolveComplete?.();
+      this.close();
+    } catch (err) {
+      log.error(`[WebRTC] Upload send failed: ${err}`);
+      this.rejectComplete?.(err instanceof Error ? err : new Error(String(err)));
+      this.close();
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    try { this.dc?.close(); } catch {}
+    try { this.peer?.close(); } catch {}
+    this.peer = null;
+    this.dc = null;
+  }
+}
+
 /**
  * Compute SHA-256 hex digest of a buffer.
  */
