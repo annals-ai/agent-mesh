@@ -124,8 +124,8 @@ import { MyAgentAdapter } from '../adapters/my-agent.js';
 
 function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
   switch (type) {
-    case 'openclaw':
-      return new OpenClawAdapter(config);
+    case 'claude':
+      return new Claude CodeAdapter(config);
     case 'claude':
       return new ClaudeAdapter(config);
     case 'my-agent':                          // Add your case
@@ -180,7 +180,7 @@ These values come from CLI flags and the user's config file. Use them as appropr
 
 ## Tips
 
-- **Deltas, not full text.** The `onChunk` callback should receive incremental text deltas, not the full accumulated text. If your agent provides cumulative text (like OpenClaw), compute the delta yourself.
+- **Deltas, not full text.** The `onChunk` callback should receive incremental text deltas, not the full accumulated text. If your agent provides cumulative text (like Claude Code), compute the delta yourself.
 - **Clean up resources.** Make sure `kill()` properly terminates all processes and closes all connections. The bridge manager calls `kill()` on cancel and shutdown.
 - **Handle errors gracefully.** If the agent crashes or becomes unresponsive, emit an error via `onError` rather than throwing. The bridge manager will forward it to the platform.
 - **Idle timeout.** Consider implementing an idle timeout for long-running sessions (see the Claude adapter for an example).

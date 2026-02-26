@@ -105,7 +105,7 @@ describe('register command', () => {
   });
 
   it('should validate agent type', () => {
-    const validTypes = ['openclaw', 'claude-code', 'cursor', 'windsurf', 'custom'];
+    const validTypes = ['claude', 'claude-code', 'cursor', 'windsurf', 'custom'];
     expect(validTypes.includes('claude-code')).toBe(true);
     expect(validTypes.includes('invalid')).toBe(false);
   });

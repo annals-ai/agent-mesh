@@ -48,13 +48,13 @@ describe('PlatformClient', () => {
 
     const { PlatformClient } = await import('../../packages/cli/src/platform/api-client.js');
     const client = new PlatformClient('ah_test-token');
-    await client.post('/api/developer/agents', { name: 'test', agent_type: 'openclaw' });
+    await client.post('/api/developer/agents', { name: 'test', agent_type: 'claude' });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://agents.hot/api/developer/agents',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ name: 'test', agent_type: 'openclaw' }),
+        body: JSON.stringify({ name: 'test', agent_type: 'claude' }),
       }),
     );
   });

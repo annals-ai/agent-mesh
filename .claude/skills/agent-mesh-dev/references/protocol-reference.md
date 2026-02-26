@@ -185,7 +185,7 @@ Returns SSE stream with the same event types as relay (chunk/done/error/keepaliv
 | Code | Meaning | Typical Cause |
 |------|---------|---------------|
 | `timeout` | Request timed out | Agent didn't respond within 120s (sync) or 5min (async) |
-| `adapter_crash` | Adapter subprocess died | Claude process crashed, OpenClaw gateway down |
+| `adapter_crash` | Adapter subprocess died | Claude process crashed, Claude Code gateway down |
 | `agent_busy` | Too many concurrent requests | Agent processing too many requests simultaneously |
 | `auth_failed` | Token validation failed | Expired, revoked, or wrong-agent token |
 | `agent_offline` | Agent not connected | No active WebSocket in the DO |

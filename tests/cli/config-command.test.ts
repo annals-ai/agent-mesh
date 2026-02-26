@@ -23,7 +23,7 @@ describe('config command', () => {
       json: () => Promise.resolve({
         id: 'agent-uuid',
         name: 'test-agent',
-        agent_type: 'openclaw',
+        agent_type: 'claude',
         capabilities: ['seo', 'translation'],
         rate_limits: {
           max_calls_per_hour: 60,

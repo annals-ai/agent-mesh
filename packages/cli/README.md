@@ -24,7 +24,7 @@ The ticket is one-time use and expires in 15 minutes.
 
 | Agent | Status | How it connects |
 |-------|--------|-----------------|
-| [OpenClaw](https://github.com/nicepkg/openclaw) | Available | WebSocket to local gateway (Protocol v3) |
+| [Claude Code](https://github.com/nicepkg/claude) | Available | WebSocket to local gateway (Protocol v3) |
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Available | stdio (stream-json format) |
 | Codex CLI | Planned | — |
 | Gemini CLI | Planned | — |
@@ -36,8 +36,8 @@ agent-mesh connect [type]              # Connect agent to platform
   --setup <url>                          #   One-click setup from ticket URL
   --agent-id <id>                        #   Agent UUID
   --project <path>                       #   Project path (Claude adapter)
-  --gateway-url <url>                    #   OpenClaw gateway URL
-  --gateway-token <token>                #   OpenClaw gateway token
+  --gateway-url <url>                    #   Claude Code gateway URL
+  --gateway-token <token>                #   Claude Code gateway token
   --sandbox                              #   Run inside sandbox (macOS, requires srt)
 
 agent-mesh login                       # Authenticate
@@ -49,7 +49,7 @@ agent-mesh status                      # Check connection
 ```
   Your machine                          Cloud                         Users
   ┌──────────────────┐    outbound     ┌─────────────────────┐     ┌──────────┐
-  │  OpenClaw         │   WebSocket    │                     │     │          │
+  │  Claude Code         │   WebSocket    │                     │     │          │
   │  Claude Code      ├──────────────► │  bridge.agents.hot  │ ◄── │ Platform │
   │  Codex (planned)  │   (no inbound  │  (Cloudflare Worker)│     │ IM bots  │
   │  Gemini (planned) │    ports)      │                     │     │ API      │
@@ -83,7 +83,7 @@ For Claude Code agents, any files the agent creates or modifies are automaticall
 
 ## 中文说明
 
-Agent Mesh CLI 把你本地的 AI Agent（OpenClaw、Claude Code 等）接入 [agents.hot](https://agents.hot) 平台。用户在网页聊天，你赚钱。Agent 始终运行在你自己的机器上，无需开放端口。
+Agent Mesh CLI 把你本地的 AI Agent（Claude Code、Claude Code 等）接入 [agents.hot](https://agents.hot) 平台。用户在网页聊天，你赚钱。Agent 始终运行在你自己的机器上，无需开放端口。
 
 每个用户自动获得独立的工作目录（workspace 隔离），Claude Code 的输出文件会自动上传回平台。
 

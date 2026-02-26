@@ -46,7 +46,7 @@
 │              │                          │              │
 │ ┌──────────┐ │                          │ ┌──────────┐ │
 │ │ Adapter  │ │                          │ │ Adapter  │ │
-│ │ (Claude) │ │                          │ │(OpenClaw)│ │
+│ │ (Claude) │ │                          │ │(Claude Code)│ │
 │ └──────────┘ │                          │ └──────────┘ │
 └──────────────┘                          └──────────────┘
 ```
@@ -87,7 +87,7 @@ What happens when you run `agent-mesh connect`:
 
 6. CLI creates adapter
    ├── claude → ClaudeAdapter (spawns claude -p per message)
-   └── openclaw → OpenClawAdapter (connects to local gateway WebSocket)
+   └── claude → Claude CodeAdapter (connects to local gateway WebSocket)
 
 7. CLI starts BridgeManager
    └── routes incoming WS messages to adapter sessions
@@ -118,7 +118,7 @@ When a user sends a chat message:
 3. CLI: BridgeManager receives 'message'
    └── Creates adapter session (or reuses existing)
        ├── Claude: spawns `claude -p <content> --output-format stream-json --verbose --max-turns 1`
-       └── OpenClaw: sends agent request via WS JSON-RPC to local gateway
+       └── Claude Code: sends agent request via WS JSON-RPC to local gateway
 
 4. Adapter streams response chunks
    └── Each chunk → CLI sends {type: 'chunk', session_id, request_id, delta, kind}
@@ -162,9 +162,9 @@ Async timeout: 5 minutes. If the agent doesn't finish, the task expires.
 
 ## Adapter Comparison
 
-| Aspect | Claude Code | OpenClaw |
+| Aspect | Claude Code | Claude Code |
 |--------|-------------|----------|
-| Protocol | CLI subprocess (`claude -p`) | WebSocket JSON-RPC (OpenClaw Gateway Protocol v3) |
+| Protocol | CLI subprocess (`claude -p`) | WebSocket JSON-RPC (Claude Code Gateway Protocol v3) |
 | Session model | New process per message | Persistent WS connection, idempotencyKey per request |
 | Streaming | stdout stream-json events | `event(agent)` → incremental delta extraction |
 | Key events | `assistant/text_delta` → `result` or `assistant/end` | `assistant` stream accumulate → `lifecycle end` |
@@ -246,11 +246,11 @@ When a user starts a chat, the Bridge creates a symlink-based workspace under `.
 | `agent_busy` error | Agent is processing too many requests | Reduce concurrent callers or wait |
 | Relay timeout (120s) | Agent adapter took too long to respond | Check adapter logs; increase adapter timeout or simplify the task |
 | Async task never completes | 5-minute async timeout exceeded | Agent may have crashed. Check CLI logs. Verify callback URL is reachable |
-| `adapter_crash` error | Claude/OpenClaw subprocess died unexpectedly | Check agent's CLAUDE.md for errors. Run `agent-mesh chat` to reproduce |
+| `adapter_crash` error | Claude/Claude Code subprocess died unexpectedly | Check agent's CLAUDE.md for errors. Run `agent-mesh chat` to reproduce |
 | Sandbox errors or "srt not found" | macOS only; srt not installed | Run `npm install -g @anthropic-ai/sandbox-runtime`, or use `--no-sandbox` |
 | Agent runs without personality | CLAUDE.md not in workspace root | Ensure `connect` was run from agent folder or with `--project` flag |
 | Skills not activating | SKILL.md missing YAML frontmatter or wrong folder | Each SKILL.md must start with `---` fences. Must be in agent's `.claude/skills/` |
 | KV shows online but relay fails | KV cache stale (TTL 300s) | Wait for cache to expire, or check if DO alarm is running |
-| `connect: ECONNREFUSED` (OpenClaw) | OpenClaw gateway not running | Start the gateway daemon before connecting |
+| `connect: ECONNREFUSED` (Claude Code) | Claude Code gateway not running | Start the gateway daemon before connecting |
 | `session_not_found` error | Request references a session the DO doesn't know about | Session may have expired. Start a new conversation |
 | Ticket expired (404 on connect) | Connect ticket is one-time use, 15-minute expiry | Generate a new ticket from the platform |

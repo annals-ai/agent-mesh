@@ -46,12 +46,6 @@ describe('getSandboxPreset', () => {
     expect(preset.denyWrite).toContain('.env');
   });
 
-  it('should return openclaw preset without . in allowWrite', () => {
-    const preset = sandboxModule.getSandboxPreset('openclaw');
-    expect(preset.allowWrite).not.toContain('.');
-    expect(preset.allowWrite).toContain('/tmp');
-  });
-
   it('should fallback to claude preset for unknown types', () => {
     const preset = sandboxModule.getSandboxPreset('unknown-agent');
     expect(preset.denyRead).toContain('~/.ssh');
@@ -67,7 +61,7 @@ describe('getSandboxPreset', () => {
     const preset = sandboxModule.getSandboxPreset('claude');
     const criticalPaths = [
       '~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud',
-      '~/.openclaw', '~/.claude/projects',
+      '~/.claude/projects',
       '~/.claude/history.jsonl',
       '~/.agent-mesh/config.json', '~/.docker', '~/.npmrc', '~/.gitconfig',
       '~/.netrc', '~/Library/Keychains',

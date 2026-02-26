@@ -14,39 +14,9 @@ vi.mock('../../packages/cli/src/utils/which.js', () => ({
 describe('AgentAdapter base', () => {
   it('should be a class that concrete adapters extend', async () => {
     const { AgentAdapter } = await import('../../packages/cli/src/adapters/base.js');
-    const { OpenClawAdapter } = await import('../../packages/cli/src/adapters/openclaw.js');
+    const { ClaudeAdapter } = await import('../../packages/cli/src/adapters/claude.js');
     expect(AgentAdapter).toBeDefined();
-    expect(new OpenClawAdapter()).toBeInstanceOf(AgentAdapter);
-  });
-});
-
-describe('OpenClawAdapter', () => {
-  it('should have correct type and display name', async () => {
-    const { OpenClawAdapter } = await import('../../packages/cli/src/adapters/openclaw.js');
-    const adapter = new OpenClawAdapter();
-    expect(adapter.type).toBe('openclaw');
-    expect(adapter.displayName).toBe('OpenClaw Gateway');
-  });
-
-  it('should create and destroy sessions', async () => {
-    const { OpenClawAdapter } = await import('../../packages/cli/src/adapters/openclaw.js');
-    const adapter = new OpenClawAdapter({
-      gatewayUrl: 'ws://localhost:18789',
-      gatewayToken: 'test-token',
-    });
-
-    const session = adapter.createSession('session-1', {});
-    expect(session).toBeDefined();
-    expect(typeof session.send).toBe('function');
-    expect(typeof session.onChunk).toBe('function');
-    expect(typeof session.onDone).toBe('function');
-    expect(typeof session.onError).toBe('function');
-    expect(typeof session.kill).toBe('function');
-
-    // Destroy should not throw
-    adapter.destroySession('session-1');
-    // Destroying non-existent session should not throw
-    adapter.destroySession('non-existent');
+    expect(new ClaudeAdapter()).toBeInstanceOf(AgentAdapter);
   });
 });
 

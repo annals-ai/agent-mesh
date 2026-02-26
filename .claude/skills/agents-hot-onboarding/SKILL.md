@@ -143,7 +143,7 @@ Layout by runtime:
 | Runtime | Role file | Skills directory |
 | --- | --- | --- |
 | `claude` | `CLAUDE.md` | `.claude/skills/` |
-| `openclaw` | `AGENTS.md` | `.agents/skills/` |
+| `claude` | `AGENTS.md` | `.agents/skills/` |
 
 Rules:
 

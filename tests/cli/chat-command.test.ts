@@ -10,7 +10,7 @@ vi.mock('../../packages/cli/src/platform/auth.js', () => ({
 // Mock config (for resolveAgentId)
 vi.mock('../../packages/cli/src/utils/config.js', () => ({
   listAgents: vi.fn(() => ({
-    'my-agent': { agentId: 'aaaa-bbbb-cccc-dddd-eeeeeeeeeeee', agentType: 'openclaw' },
+    'my-agent': { agentId: 'aaaa-bbbb-cccc-dddd-eeeeeeeeeeee', agentType: 'claude' },
   })),
   findAgentByAgentId: vi.fn(() => null),
 }));

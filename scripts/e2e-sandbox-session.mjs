@@ -204,7 +204,7 @@ function generatePreset(type) {
     network: { allowedDomains: [...COMMON_DOMAINS], deniedDomains: [] },
     filesystem: { denyRead: ['~/.ssh', '~/.aws', '~/.gnupg', '~/.config/gcloud'], allowWrite: ['.', '/tmp'], denyWrite: ['.env', '.env.*'] },
   };
-  if (type === 'openclaw') {
+  if (type === 'claude') {
     return { ...base, network: { ...base.network, allowLocalBinding: true }, filesystem: { ...base.filesystem, allowWrite: ['/tmp'] } };
   }
   return base;
@@ -221,7 +221,7 @@ await test('sandbox presets contain correct domains', () => {
     claude: ['api.anthropic.com'],
     codex: ['api.openai.com'],
     gemini: ['generativelanguage.googleapis.com'],
-    openclaw: ['api.anthropic.com', 'api.openai.com'],
+    claude: ['api.anthropic.com', 'api.openai.com'],
   };
 
   for (const [type, expectedDomains] of Object.entries(presets)) {

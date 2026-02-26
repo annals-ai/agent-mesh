@@ -15,7 +15,7 @@ npm install -g @annals/agent-mesh
 
 ## What Problem It Solves
 
-Locally running AI agents (Claude Code, OpenClaw, etc.) can't be directly used by external users. You'd need to set up servers, handle auth, manage WebSocket connections, and route messages.
+Locally running AI agents (Claude Code, Claude Code, etc.) can't be directly used by external users. You'd need to set up servers, handle auth, manage WebSocket connections, and route messages.
 
 Agent Mesh handles all of that. One command connects your local agent to the cloud. Users interact through the web UI or API. Agents can also call each other (A2A network).
 
@@ -23,7 +23,7 @@ Agent Mesh handles all of that. One command connects your local agent to the clo
   Local Machine                       Cloud                           Users
   ┌──────────────────┐   Outbound   ┌─────────────────────┐     ┌──────────┐
   │  Claude Code     │────────────►│                     │     │          │
-  │  OpenClaw        │  Mesh Proto  │  bridge.agents.hot  │ ◄── │  Web UI  │
+  │  Claude Code        │  Mesh Proto  │  bridge.agents.hot  │ ◄── │  Web UI  │
   │  Codex (planned) │  (no open    │  (Cloudflare Worker) │     │  API     │
   │  Gemini (planned)│   ports)     │                     │     │  A2A     │
   └──────────────────┘              └─────────────────────┘     └──────────┘
@@ -59,7 +59,7 @@ This single command handles login, config, and connection. Tickets are one-time 
 | Runtime | Status | Connection |
 |---------|--------|-----------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Available | stdio (stream-json) |
-| [OpenClaw](https://github.com/nicepkg/openclaw) | Available | WebSocket to local Gateway (Protocol v3) |
+| [Claude Code](https://github.com/nicepkg/claude) | Available | WebSocket to local Gateway (Protocol v3) |
 | [Codex CLI](https://github.com/openai/codex) | Removed | Historical docs may mention it; adapter removed |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Removed | Historical docs may mention it; adapter removed |
 
@@ -98,7 +98,7 @@ Raw URL (for copy-paste prompts):
 1. CLI opens an **outbound** connection to `bridge.agents.hot` (WebSocket — no ports to open)
 2. User sends a message on agents.hot — the platform relays it through the Bridge Worker
 3. Bridge Worker pushes the message down the WebSocket to your CLI
-4. CLI hands the message to the local agent (Claude Code spawns a subprocess, OpenClaw talks to the Gateway)
+4. CLI hands the message to the local agent (Claude Code spawns a subprocess, Claude Code talks to the Gateway)
 5. Agent streams its response — CLI sends text chunks back through the bridge
 6. User sees the response in real time
 
@@ -211,7 +211,7 @@ Each agent maps to one Durable Object instance. The Worker handles:
 
 All adapters implement the `AgentAdapter` interface: `isAvailable()`, `createSession()`, `destroySession()`.
 
-The Claude Code adapter spawns a subprocess per message (`claude -p`), reading stdout stream events. The OpenClaw adapter connects to the local Gateway via WebSocket using JSON-RPC.
+The Claude Code adapter spawns a subprocess per message (`claude -p`), reading stdout stream events. The Claude Code adapter connects to the local Gateway via WebSocket using JSON-RPC.
 
 ### Per-User Isolation
 
@@ -251,7 +251,7 @@ After processing a message, the CLI automatically detects new or modified files 
 agent-mesh connect claude --sandbox
 ```
 
-srt is auto-installed if missing. Known limitations: macOS Keychain accessed via Mach port IPC is not blocked by file sandbox; OpenClaw runs as a separate daemon outside this sandbox.
+srt is auto-installed if missing. Known limitations: macOS Keychain accessed via Mach port IPC is not blocked by file sandbox; Claude Code runs as a separate daemon outside this sandbox.
 
 ## Security
 

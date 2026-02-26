@@ -1,6 +1,6 @@
 # Agent Mesh — Development Guide
 
-Agents.Hot 平台的统一 Agent 连接层。让 OpenClaw / Claude Code 通过 Bridge Protocol 接入 SaaS 平台。
+Agents.Hot 平台的统一 Agent 连接层。让 Claude Code / Claude Code 通过 Bridge Protocol 接入 SaaS 平台。
 
 ## 仓库结构
 
@@ -89,13 +89,13 @@ abstract destroySession(id: string): Promise<void>
 
 `SessionHandle` 提供: `send()`, `onChunk`, `onDone`, `onError`, `kill()`
 
-### OpenClaw（已实现）
+### Claude Code（已实现）
 
-- 协议: OpenClaw Gateway Protocol v3, JSON-RPC over WebSocket
+- 协议: Claude Code Gateway Protocol v3, JSON-RPC over WebSocket
 - 默认地址: `ws://127.0.0.1:18789`
 - 流程: `connect` 握手 → `agent` 请求（必须有 `idempotencyKey`） → `event(agent)` 流式响应
 - 流式处理: `assistant` stream 累积文本，取增量 delta → `lifecycle end` 结束
-- Client ID: 必须是 `gateway-client`（Gateway 只接受: `gateway-client`, `openclaw-probe`, `cli`, `openclaw-control-ui`）
+- Client ID: 必须是 `gateway-client`（Gateway 只接受: `gateway-client`, `claude-probe`, `cli`, `claude-control-ui`）
 - 非本地连接需 `trustedProxies` 配置
 
 ### Claude Code（已实现）
@@ -123,7 +123,7 @@ CLI fetch ticket → 获取 { agent_id, token (ah_), agent_type, bridge_url }
      ↓
 自动保存 ah_ API key（等于 auto-login，仅在本地未登录时）
      ↓
-自动检测 OpenClaw token（~/.openclaw/openclaw.json → gateway.auth.token）
+自动检测 Claude Code token（~/.claude/claude.json → gateway.auth.token）
      ↓
 注册 Agent 到本地 config → 后台 spawn 连接 → 打开 TUI 管理面板
 ```
@@ -140,8 +140,8 @@ agent-mesh connect [type]                  # 连接 Agent
   --setup <url>          # 一键接入 ticket URL
   --agent-id <id>        # Agent UUID
   --project <path>       # Claude 适配器项目路径
-  --gateway-url <url>    # OpenClaw Gateway 地址
-  --gateway-token <token># OpenClaw Gateway token
+  --gateway-url <url>    # Claude Code Gateway 地址
+  --gateway-token <token># Claude Code Gateway token
   --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
 
 agent-mesh call <agent>                    # A2A 调用（默认 async 轮询）
@@ -236,7 +236,7 @@ agent-mesh status                          # 查看连接状态
 | `src/app/api/settings/cli-tokens/[id]/agents/route.ts` | 查询 token 关联的在线 Agent |
 
 数据库字段：
-- `agents.agent_type`: `'openclaw' | 'claude' | 'codex' | 'gemini'`
+- `agents.agent_type`: `'claude' | 'claude' | 'codex' | 'gemini'`
 - `agents.bridge_connected_at`: Bridge 连接时间戳
 - `agents.is_online`: 由 Bridge Worker DO 实时更新（连接时 true，断开时 false）
 - `cli_tokens` 表: ah_ API key 的 SHA-256 hash，支持吊销（`revoked_at`），Partial Covering Index
@@ -274,7 +274,7 @@ git tag v<x.y.z> && git push origin v<x.y.z>
 
 ### CLI 发布后远端验证（Mac Mini）
 
-CLI 发版后，必须在 Mac Mini 上做最少两项回归：`A2A` + `Bridge E2E`（Claude 或 OpenClaw 至少一条通路）。
+CLI 发版后，必须在 Mac Mini 上做最少两项回归：`A2A` + `Bridge E2E`（Claude 或 Claude Code 至少一条通路）。
 
 **要求**
 - 直接在 Mac Mini 的仓库工作树运行（推荐路径：`/Users/yan/agents-hot/agent-mesh`）
@@ -327,7 +327,7 @@ wrapWithSandbox(command, filesystemOverride?)
 |------|------|--------|
 | `scripts/e2e-a2a-call.mjs` | A2A 调用链路回归（发现在线 Agent + call） | Mac Mini |
 | `scripts/e2e-bridge-claude.mjs` | Bridge → Claude CLI 端到端回归 | Mac Mini |
-| `scripts/e2e-bridge-openclaw.mjs` | Bridge → OpenClaw Gateway 端到端回归 | Mac Mini |
+| `scripts/e2e-bridge-claude.mjs` | Bridge → Claude Code Gateway 端到端回归 | Mac Mini |
 | `scripts/e2e-sandbox-claude.mjs` | 10 项 E2E 测试（含 Claude 回复、文件隔离、session 隔离） | Mac Mini |
 | `scripts/audit-sandbox-credentials.mjs` | 凭据泄漏审计（验证所有敏感路径被阻止 + skills 可读） | Mac Mini |
 | `scripts/test-srt-programmatic.mjs` | srt 编程 API 烟雾测试 | Mac Mini |
@@ -335,7 +335,7 @@ wrapWithSandbox(command, filesystemOverride?)
 ### 已知限制
 
 - macOS Keychain 通过 Mach port IPC 访问，srt 文件沙箱无法拦截
-- OpenClaw 是独立守护进程（WebSocket 连接），不受 bridge sandbox 控制
+- Claude Code 是独立守护进程（WebSocket 连接），不受 bridge sandbox 控制
 
 ## 测试
 

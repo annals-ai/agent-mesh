@@ -52,7 +52,7 @@ Sent immediately after WebSocket connection to authenticate.
   "agent_id": "agent-abc123",
   "token": "sk-...",
   "bridge_version": "1",
-  "agent_type": "openclaw",
+  "agent_type": "claude",
   "capabilities": []
 }
 ```
@@ -63,7 +63,7 @@ Sent immediately after WebSocket connection to authenticate.
 | `agent_id` | `string` | Agent ID as registered on Agents.Hot |
 | `token` | `string` | CLI token or Supabase JWT |
 | `bridge_version` | `string` | Protocol version (currently `"1"`) |
-| `agent_type` | `string` | One of: `openclaw`, `claude`, `codex`, `gemini` |
+| `agent_type` | `string` | One of: `claude`, `claude`, `codex`, `gemini` |
 | `capabilities` | `string[]` | Reserved for future use |
 
 #### chunk
@@ -107,7 +107,7 @@ Agent encountered an error while processing.
   "session_id": "sess-001",
   "request_id": "req-001",
   "code": "adapter_crash",
-  "message": "OpenClaw WebSocket error: connection refused"
+  "message": "Claude Code WebSocket error: connection refused"
 }
 ```
 
@@ -298,7 +298,7 @@ Check if an agent is online.
 ```json
 {
   "online": true,
-  "agent_type": "openclaw",
+  "agent_type": "claude",
   "capabilities": [],
   "connected_at": "2026-02-07T10:00:00.000Z",
   "last_heartbeat": "2026-02-07T10:05:30.000Z",

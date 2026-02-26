@@ -81,7 +81,7 @@ describe('A2A Protocol Messages', () => {
           {
             id: 'agent-2',
             name: 'Translator',
-            agent_type: 'openclaw',
+            agent_type: 'claude',
             capabilities: ['translation'],
             is_online: false,
           },

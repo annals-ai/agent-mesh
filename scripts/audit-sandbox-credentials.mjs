@@ -18,7 +18,7 @@ const SENSITIVE_PATHS = [
   '~/.claude.json',
   '~/.claude/projects', '~/.claude/history.jsonl', '~/.claude/settings.json',
   '~/.claude/sessions', '~/.claude/ide',
-  '~/.openclaw', '~/.agent-mesh', '~/.codex',
+  '~/.agent-mesh', '~/.codex',
   '~/.npmrc', '~/.yarnrc', '~/.config/pip',
   '~/.gitconfig', '~/.netrc', '~/.git-credentials',
   '~/.docker',
@@ -70,7 +70,7 @@ if (await check('~/.config/gcloud/', `ls ${HOME}/.config/gcloud/ 2>&1 || echo BL
 
 // API keys / config files
 console.log('\n--- API Key & Config Files ---');
-if (await check('~/.openclaw/openclaw.json', `cat ${HOME}/.openclaw/openclaw.json 2>&1 || echo BLOCKED`)) leaks++;
+if (await check('~/.claude/claude.json', `cat ${HOME}/.claude/claude.json 2>&1 || echo BLOCKED`)) leaks++;
 if (await check('~/.claude.json (API key)', `cat ${HOME}/.claude.json 2>&1 || echo BLOCKED`)) leaks++;
 if (await check('~/.agent-mesh/config.json', `cat ${HOME}/.agent-mesh/config.json 2>&1 || echo BLOCKED`)) leaks++;
 
@@ -106,7 +106,7 @@ console.log('\n--- Environment Variables ---');
 const envWrapped = await SandboxManager.wrapWithSandbox('env 2>&1');
 const envR = spawnSync('bash', ['-c', envWrapped], { encoding: 'utf-8', timeout: 5000 });
 const envLines = (envR.stdout || '').split('\n');
-const sensitivePatterns = /KEY|TOKEN|SECRET|PASS|ANTHROPIC|OPENCLAW|CREDENTIALS/i;
+const sensitivePatterns = /KEY|TOKEN|SECRET|PASS|ANTHROPIC|CLAUDE|CREDENTIALS/i;
 const sensitiveVars = envLines.filter(l => sensitivePatterns.test(l.split('=')[0] || ''));
 
 if (sensitiveVars.length > 0) {

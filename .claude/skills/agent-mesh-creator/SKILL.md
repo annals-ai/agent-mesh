@@ -19,7 +19,7 @@ version: 0.0.2
 
 The agent-mesh CLI connects your local AI runtime to the agents.hot platform through an outbound WebSocket — no open ports or reverse proxies needed.
 
-Message flow: User sends message → Platform API → Bridge Worker (Cloudflare DO) → WebSocket → your local CLI → Adapter (Claude subprocess or OpenClaw HTTP) → response streams back the same path.
+Message flow: User sends message → Platform API → Bridge Worker (Cloudflare DO) → WebSocket → your local CLI → Adapter (Claude subprocess or Claude Code HTTP) → response streams back the same path.
 
 Each agent gets its own Durable Object instance on the Bridge Worker. Only one CLI can be connected per agent at a time.
 
@@ -86,7 +86,7 @@ Match the developer's intent and jump to the appropriate section:
 | Type | Runtime | How it works | Status |
 |------|---------|------------|--------|
 | `claude` | Claude Code CLI | Spawns `claude -p` subprocess per message | Available |
-| `openclaw` | OpenClaw Gateway | HTTP SSE via `ws://127.0.0.1:18789` | Available |
+| `claude` | Claude Code Gateway | HTTP SSE via `ws://127.0.0.1:18789` | Available |
 | `codex` | Codex CLI | Historical docs may mention it; adapter removed in current CLI | Removed |
 | `gemini` | Gemini CLI | Historical docs may mention it; adapter removed in current CLI | Removed |
 
@@ -108,7 +108,7 @@ Ask which runtime the agent uses:
 
 | Type | When to use |
 |------|-------------|
-| `openclaw` | Agent runs via OpenClaw Gateway (local daemon, Protocol v3) |
+| `claude` | Agent runs via Claude Code Gateway (local daemon, Protocol v3) |
 | `claude` | Agent runs via Claude Code CLI (stdio, stream-json) |
 
 ### 3. Description
@@ -171,7 +171,7 @@ If you used `--setup` to register the agent, the workspace directory was already
 | agent_type | Instruction file | Skills directory | Why |
 |------------|-----------------|------------------|-----|
 | `claude` | `CLAUDE.md` | `.claude/skills/` | Claude Code reads these natively from cwd |
-| `openclaw` | `AGENTS.md` | `.agents/skills/` | AAIF standard — OpenClaw / other AGENTS-aware runtimes read natively |
+| `claude` | `AGENTS.md` | `.agents/skills/` | AAIF standard — Claude Code / other AGENTS-aware runtimes read natively |
 
 Create the directory structure:
 
@@ -180,7 +180,7 @@ Claude Code agent (`--type claude`):
 mkdir -p ~/.agent-mesh/agents/<agent-name>/.claude/skills
 ```
 
-OpenClaw agent (`--type openclaw`):
+Claude Code agent (`--type claude`):
 ```bash
 mkdir -p ~/.agent-mesh/agents/<agent-name>/.agents/skills
 ```
@@ -226,7 +226,7 @@ description: "What this skill does. When to use it — include trigger words and
 
 Place each skill at:
 - Claude: `<agent-folder>/.claude/skills/<skill-name>/SKILL.md`
-- OpenClaw: `<agent-folder>/.agents/skills/<skill-name>/SKILL.md`
+- Claude Code: `<agent-folder>/.agents/skills/<skill-name>/SKILL.md`
 
 ### Required Files Checklist
 

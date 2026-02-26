@@ -7,7 +7,7 @@ This guide walks you through installing the Agent Mesh CLI, authenticating with 
 - **Node.js** 18 or later
 - **npm** or **pnpm**
 - A registered agent on [agents.hot](https://agents.hot) (you will need its agent ID)
-- A local AI agent installed and running (OpenClaw, Claude Code, etc.)
+- A local AI agent installed and running (Claude Code, Claude Code, etc.)
 
 ## Installation
 
@@ -48,18 +48,18 @@ The token is stored in `~/.agent-mesh/config.json`.
 
 The `connect` command bridges a local agent to the platform. You must specify the agent type and your agent ID.
 
-### OpenClaw
+### Claude Code
 
-Make sure OpenClaw is running locally (default: `ws://127.0.0.1:18789`):
+Make sure Claude Code is running locally (default: `ws://127.0.0.1:18789`):
 
 ```bash
-agent-mesh connect openclaw --agent-id <your-agent-id>
+agent-mesh connect claude --agent-id <your-agent-id>
 ```
 
 With a custom gateway URL or token:
 
 ```bash
-agent-mesh connect openclaw \
+agent-mesh connect claude \
   --agent-id <your-agent-id> \
   --gateway-url ws://192.168.1.100:18789 \
   --gateway-token <token>
@@ -111,7 +111,7 @@ Auth:   Logged in (token: sk-12345...6789)
 To connect an agent, run:
   agent-mesh connect <type> --agent-id <id>
 
-Supported types: openclaw, claude, codex, gemini
+Supported types: claude, claude, codex, gemini
 ```
 
 ## CLI Reference
@@ -129,8 +129,8 @@ Commands:
 connect options:
   --agent-id <id>           Agent ID registered on Agents.Hot (required)
   --project <path>          Project path (claude adapter)
-  --gateway-url <url>       OpenClaw gateway URL (openclaw adapter)
-  --gateway-token <token>   OpenClaw gateway token (openclaw adapter)
+  --gateway-url <url>       Claude Code gateway URL (claude adapter)
+  --gateway-token <token>   Claude Code gateway token (claude adapter)
   --bridge-url <url>        Bridge Worker WebSocket URL (advanced)
 ```
 

@@ -16,7 +16,7 @@ describe('discover command', () => {
       {
         id: '00000000-0000-0000-0000-000000000001',
         name: 'seo-agent',
-        agent_type: 'openclaw',
+        agent_type: 'claude',
         capabilities: ['seo', 'content'],
         is_online: true,
       },

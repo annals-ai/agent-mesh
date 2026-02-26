@@ -25,7 +25,7 @@ const mockAgentList = {
       id: AGENT_UUID,
       name: 'code-review-pro',
       description: 'AI code reviewer',
-      agent_type: 'openclaw',
+      agent_type: 'claude',
       capabilities: ['code-review', 'refactoring'],
       is_online: true,
       is_published: true,
@@ -51,7 +51,7 @@ const mockAgentDetail = {
   id: AGENT_UUID,
   name: 'code-review-pro',
   description: 'AI code reviewer',
-  agent_type: 'openclaw',
+  agent_type: 'claude',
   capabilities: ['code-review', 'refactoring'],
   is_online: true,
   is_published: true,
@@ -116,7 +116,7 @@ describe('resolveAgentId', () => {
     vi.mocked(config.listAgents).mockReturnValueOnce({
       'my-agent': {
         agentId: AGENT_UUID,
-        agentType: 'openclaw',
+        agentType: 'claude',
         bridgeUrl: 'wss://bridge.agents.hot/ws',
         bridgeToken: 'bt_xxx',
         addedAt: '2026-01-01',
@@ -251,7 +251,7 @@ describe('agents create', () => {
 
     const result = await client.post<{ success: boolean; agent: { id: string; name: string } }>(
       '/api/developer/agents',
-      { name: 'new-agent', agent_type: 'openclaw' },
+      { name: 'new-agent', agent_type: 'claude' },
     );
 
     expect(result.success).toBe(true);
@@ -359,7 +359,7 @@ describe('agents show', () => {
     expect(detail.bridge_token).toBe('bt_abc123def456');
     expect(detail.is_online).toBe(true);
     expect(detail.is_published).toBe(true);
-    expect(detail.agent_type).toBe('openclaw');
+    expect(detail.agent_type).toBe('claude');
   });
 
   it('should work with --json flag (raw JSON output)', async () => {
@@ -372,7 +372,7 @@ describe('agents show', () => {
     const json = JSON.stringify(detail, null, 2);
 
     expect(json).toContain('"bridge_token": "bt_abc123def456"');
-    expect(json).toContain('"agent_type": "openclaw"');
+    expect(json).toContain('"agent_type": "claude"');
   });
 });
 

@@ -18,9 +18,9 @@ Agent Mesh connects AI agents to the agents.hot platform through three layers:
 2. **Bridge Worker** (`packages/worker/`) — A Cloudflare Durable Objects service. Each agent gets its own `AgentSession` DO instance that holds the WebSocket connection and routes relay requests.
 3. **Protocol** (`packages/protocol/`) — JSON messages over WebSocket. 13 message types (7 CLI→Worker, 6 Worker→CLI) plus HTTP relay API for platform integration.
 
-Message flow: User → Platform API → `POST /api/relay` → Agent's DO → WebSocket → CLI → Adapter (Claude subprocess or OpenClaw HTTP) → response chunks flow back the same path → SSE to user.
+Message flow: User → Platform API → `POST /api/relay` → Agent's DO → WebSocket → CLI → Adapter (Claude subprocess or Claude Code HTTP) → response chunks flow back the same path → SSE to user.
 
-Two adapters are implemented: **Claude Code** (spawns `claude -p` per message, stream-json output) and **OpenClaw** (HTTP SSE to local gateway at `ws://127.0.0.1:18789`). Codex and Gemini adapters were removed in `v0.15.1` (historical docs may still mention stubs).
+Two adapters are implemented: **Claude Code** (spawns `claude -p` per message, stream-json output) and **Claude Code** (HTTP SSE to local gateway at `ws://127.0.0.1:18789`). Codex and Gemini adapters were removed in `v0.15.1` (historical docs may still mention stubs).
 
 For the complete architecture, message flow diagrams, and troubleshooting, see `references/architecture.md` and `references/protocol-reference.md` in this skill directory.
 

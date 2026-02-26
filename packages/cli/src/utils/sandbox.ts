@@ -41,7 +41,6 @@ const SENSITIVE_PATHS: string[] = [
   '~/.claude/sessions',          // session data
   '~/.claude/ide',               // IDE integration data
   // Other AI agent configs (contain API keys / tokens)
-  '~/.openclaw',
   // ~/.agent-mesh — fine-grained: block tokens/config, allow agent workspaces
   // NOT blocked: ~/.agent-mesh/agents/ (per-agent project workspaces used as cwd)
   '~/.agent-mesh/config.json',   // contains ah_ platform token
@@ -65,11 +64,6 @@ const SANDBOX_PRESETS: Record<string, SandboxFilesystemConfig> = {
   claude: {
     denyRead: [...SENSITIVE_PATHS],
     allowWrite: ['.', '/tmp'],
-    denyWrite: ['.env', '.env.*'],
-  },
-  openclaw: {
-    denyRead: [...SENSITIVE_PATHS],
-    allowWrite: ['/tmp'],
     denyWrite: ['.env', '.env.*'],
   },
 };

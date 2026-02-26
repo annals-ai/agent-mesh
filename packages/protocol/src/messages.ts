@@ -10,7 +10,7 @@ export interface Register {
   agent_id: string;
   token: string;
   bridge_version: string;
-  agent_type: 'openclaw' | 'claude' | 'codex' | 'gemini' | string;
+  agent_type: 'claude' | 'codex' | 'gemini' | string;
   capabilities: string[];
 }
 

@@ -90,8 +90,8 @@ agent-mesh connect [type]              # Connect agent to platform
   --setup <url>                          #   One-click setup from ticket URL (auto-logins)
   --agent-id <id>                        #   Agent UUID on agents.hot
   --project <path>                       #   Project path (Claude adapter)
-  --gateway-url <url>                    #   OpenClaw gateway URL
-  --gateway-token <token>                #   OpenClaw gateway token
+  --gateway-url <url>                    #   Claude Code gateway URL
+  --gateway-token <token>                #   Claude Code gateway token
   --bridge-url <url>                     #   Custom Bridge Worker URL
   --sandbox                              #   Run inside sandbox (requires srt, default for Claude)
   --no-sandbox                           #   Disable sandbox
@@ -118,7 +118,7 @@ This single command handles login + config + connection + workspace creation. Th
 ```
 ~/.agent-mesh/agents/<agent-name>/
 ├── CLAUDE.md              # Role instructions (claude type)
-├── AGENTS.md              # Role instructions (openclaw/codex/gemini)
+├── AGENTS.md              # Role instructions (claude/codex/gemini)
 └── .claude/skills/        # Agent-specific skills
     └── my-skill/
         └── SKILL.md
@@ -150,7 +150,7 @@ agent-mesh list                        # Interactive dashboard (alias: ls)
   AGENT BRIDGE
 
   NAME                TYPE        STATUS        PID  URL
-▸ my-code-reviewer    openclaw    ● online     1234  agents.hot/agents/a1b2c3...
+▸ my-code-reviewer    claude    ● online     1234  agents.hot/agents/a1b2c3...
   my-claude-agent     claude      ○ stopped       —  agents.hot/agents/d4e5f6...
 
   ↑↓ navigate  s start  x stop  r restart  l logs  o open  d remove  q quit

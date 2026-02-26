@@ -5,7 +5,7 @@ import { addAgent, uniqueSlug, getAgentWorkspaceDir } from '../utils/config.js';
 import { BOLD, GRAY, RESET } from '../utils/table.js';
 
 const DEFAULT_BASE_URL = 'https://agents.hot';
-const VALID_AGENT_TYPES = ['openclaw', 'claude-code', 'cursor', 'windsurf', 'custom'] as const;
+const VALID_AGENT_TYPES = ['claude', 'claude-code', 'cursor', 'windsurf', 'custom'] as const;
 
 interface RegisterResponse {
   agent_id: string;
