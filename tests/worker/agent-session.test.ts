@@ -86,7 +86,7 @@ describe('AgentSession class', () => {
 describe('Protocol Version', () => {
   it('should export BRIDGE_PROTOCOL_VERSION', async () => {
     const { BRIDGE_PROTOCOL_VERSION } = await import('../../packages/protocol/src/version.js');
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(1);
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(2);
     expect(typeof BRIDGE_PROTOCOL_VERSION).toBe('number');
   });
 });

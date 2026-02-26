@@ -27,8 +27,9 @@ import type {
   CallAgentDone,
   CallAgentError,
   ChunkKind,
-  FileManifestEntry,
-  PlatformTask,
+  FileTransferOffer,
+  RtcSignal,
+  RtcSignalRelay,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
@@ -138,6 +139,11 @@ export class AgentSession implements DurableObject {
         return json(400, { error: 'invalid_request', message: 'Missing request_id' });
       }
       return this.handleTaskStatus(requestId);
+    }
+
+    // WebRTC signaling relay (incoming from another agent's DO)
+    if (url.pathname === '/rtc-signal' && request.method === 'POST') {
+      return this.handleIncomingRtcSignal(request);
     }
 
     // Status check
@@ -302,6 +308,10 @@ export class AgentSession implements DurableObject {
       case 'call_agent':
         this.handleCallAgentWs(msg as CallAgent, ws);
         break;
+
+      case 'rtc_signal':
+        this.handleRtcSignal(msg as RtcSignal);
+        break;
     }
   }
 
@@ -393,10 +403,8 @@ export class AgentSession implements DurableObject {
       request_id: string;
       content: string;
       attachments?: Attachment[];
-      platform_task?: PlatformTask;
-      upload_url?: string;
-      upload_token?: string;
       client_id?: string;
+      with_files?: boolean;
       mode?: string;
       callback_url?: string;
       session_title?: string;
@@ -416,17 +424,15 @@ export class AgentSession implements DurableObject {
       return json(429, { error: 'too_many_requests', message: 'Agent has too many pending requests' });
     }
 
-    // Send message to agent via WebSocket (include upload creds if provided)
+    // Send message to agent via WebSocket
     const message: Message = {
       type: 'message',
       session_id: body.session_id,
       request_id: body.request_id,
       content: body.content,
       attachments: body.attachments ?? [],
-      ...(body.platform_task && { platform_task: body.platform_task }),
-      ...(body.upload_url && { upload_url: body.upload_url }),
-      ...(body.upload_token && { upload_token: body.upload_token }),
       ...(body.client_id && { client_id: body.client_id }),
+      ...(body.with_files && { with_files: true }),
     };
 
     const isAsync = body.mode === 'async' && !!body.callback_url;
@@ -558,7 +564,7 @@ export class AgentSession implements DurableObject {
           task,
           doneMsg.result || '',
           doneMsg.attachments,
-          doneMsg.file_manifest
+          doneMsg.file_transfer_offer
         );
         return;
       }
@@ -599,7 +605,7 @@ export class AgentSession implements DurableObject {
         const doneEvent = {
           type: 'done',
           ...(doneMsg.attachments && doneMsg.attachments.length > 0 ? { attachments: doneMsg.attachments } : {}),
-          ...(doneMsg.file_manifest && doneMsg.file_manifest.length > 0 ? { file_manifest: doneMsg.file_manifest } : {}),
+          ...(doneMsg.file_transfer_offer ? { file_transfer_offer: doneMsg.file_transfer_offer } : {}),
         };
         controller.enqueue(`data: ${JSON.stringify(doneEvent)}\n\n`);
         clearTimeout(timer);
@@ -626,17 +632,16 @@ export class AgentSession implements DurableObject {
     task: AsyncTaskMeta,
     result: string,
     attachments?: Attachment[],
-    fileManifest?: FileManifestEntry[],
+    fileTransferOffer?: FileTransferOffer,
   ): Promise<void> {
     const normalizedAttachments = attachments && attachments.length > 0 ? attachments : undefined;
-    const normalizedManifest = fileManifest && fileManifest.length > 0 ? fileManifest : undefined;
 
     // Store result in DO for polling (24h TTL via alarm)
     await this.state.storage.put(`result:${requestId}`, JSON.stringify({
       status: 'completed',
       result,
       ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
-      ...(normalizedManifest ? { file_manifest: normalizedManifest } : {}),
+      ...(fileTransferOffer ? { file_transfer_offer: fileTransferOffer } : {}),
       duration_ms: Date.now() - task.startedAt,
       completed_at: new Date().toISOString(),
     }));
@@ -655,7 +660,7 @@ export class AgentSession implements DurableObject {
           status: 'completed',
           result,
           ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
-          ...(normalizedManifest ? { file_manifest: normalizedManifest } : {}),
+          ...(fileTransferOffer ? { file_transfer_offer: fileTransferOffer } : {}),
           duration_ms: Date.now() - task.startedAt,
           session_key: task.sessionKey,
           session_title: task.sessionTitle,
@@ -1188,7 +1193,7 @@ export class AgentSession implements DurableObject {
                 code?: string;
                 message?: string;
                 attachments?: Attachment[];
-                file_manifest?: FileManifestEntry[];
+                file_transfer_offer?: FileTransferOffer;
               };
               if (event.type === 'chunk') {
                 ws.send(JSON.stringify({
@@ -1203,7 +1208,7 @@ export class AgentSession implements DurableObject {
                   type: 'call_agent_done',
                   call_id: callId,
                   ...(event.attachments && { attachments: event.attachments }),
-                  ...(event.file_manifest && { file_manifest: event.file_manifest }),
+                  ...(event.file_transfer_offer && { file_transfer_offer: event.file_transfer_offer }),
                 } satisfies CallAgentDone));
               } else if (event.type === 'error') {
                 await this.updateCallStatus(callRecordId, 'failed');
@@ -1328,6 +1333,61 @@ export class AgentSession implements DurableObject {
         'Connection': 'keep-alive',
       },
     });
+  }
+
+  // ========================================================
+  // WebRTC signaling relay (P2P file transfer)
+  // ========================================================
+
+  /** CLI sends rtc_signal → route to target agent's DO */
+  private async handleRtcSignal(msg: RtcSignal): Promise<void> {
+    try {
+      const targetId = this.env.AGENT_SESSIONS.idFromName(msg.target_agent_id);
+      const targetStub = this.env.AGENT_SESSIONS.get(targetId);
+      await targetStub.fetch(new Request('https://internal/rtc-signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from_agent_id: this.agentId,
+          transfer_id: msg.transfer_id,
+          signal_type: msg.signal_type,
+          payload: msg.payload,
+        }),
+      }));
+    } catch {
+      // Best-effort signaling
+    }
+  }
+
+  /** Incoming RTC signal from another agent's DO → forward to CLI via WS */
+  private async handleIncomingRtcSignal(request: Request): Promise<Response> {
+    const ws = this.getPrimarySocket();
+    if (!ws || !this.authenticated) {
+      return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
+    }
+
+    let body: { from_agent_id: string; transfer_id: string; signal_type: string; payload: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return json(400, { error: 'invalid_message', message: 'Invalid JSON body' });
+    }
+
+    const relay: RtcSignalRelay = {
+      type: 'rtc_signal_relay',
+      transfer_id: body.transfer_id,
+      from_agent_id: body.from_agent_id,
+      signal_type: body.signal_type as RtcSignalRelay['signal_type'],
+      payload: body.payload,
+    };
+
+    try {
+      ws.send(JSON.stringify(relay));
+    } catch {
+      return json(502, { error: 'agent_offline', message: 'Failed to send signal to agent' });
+    }
+
+    return json(200, { ok: true });
   }
 
   // ========================================================

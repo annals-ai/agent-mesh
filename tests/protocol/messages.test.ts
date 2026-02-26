@@ -17,8 +17,8 @@ import {
 
 describe('Bridge Protocol', () => {
   describe('version', () => {
-    it('should be version 1', () => {
-      expect(BRIDGE_PROTOCOL_VERSION).toBe(1);
+    it('should be version 2', () => {
+      expect(BRIDGE_PROTOCOL_VERSION).toBe(2);
     });
   });
 

@@ -1,3 +1,5 @@
+import type { FileTransferOffer } from '@annals/bridge-protocol';
+
 export interface AdapterConfig {
   project?: string;
   gatewayUrl?: string;
@@ -24,41 +26,20 @@ export interface OutputAttachment {
   type: string;
 }
 
-export interface OutputFileManifestEntry {
-  path: string;
-  size: number;
-  mtime_ms: number;
-  type: string;
-}
-
-export type PlatformTask =
-  | {
-      type: 'upload_file';
-      path: string;
-    }
-  | {
-      type: 'upload_all_zip';
-      zip_name?: string;
-      max_bytes?: number;
-    };
-
 export interface SessionDonePayload {
   attachments?: OutputAttachment[];
-  fileManifest?: OutputFileManifestEntry[];
-}
-
-export interface UploadCredentials {
-  uploadUrl: string;
-  uploadToken: string;
+  /** WebRTC file transfer offer — present when agent has files and with_files was requested */
+  fileTransferOffer?: FileTransferOffer;
+  /** ZIP buffer held in memory for WebRTC P2P transfer (not serialized to protocol) */
+  zipBuffer?: Buffer;
 }
 
 export interface SessionHandle {
   send(
     message: string,
     attachments?: { name: string; url: string; type: string }[],
-    uploadCredentials?: UploadCredentials,
     clientId?: string,
-    platformTask?: PlatformTask
+    withFiles?: boolean,
   ): void;
   onChunk(cb: (delta: string) => void): void;
   onToolEvent(cb: (event: ToolEvent) => void): void;

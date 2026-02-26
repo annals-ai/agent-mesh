@@ -1,5 +1,6 @@
-import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment } from '@annals/bridge-protocol';
+import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment, RtcSignalRelay, RtcSignal, FileTransferOffer } from '@annals/bridge-protocol';
 import { BridgeErrorCode } from '@annals/bridge-protocol';
+import { FileSender, type SignalMessage } from '../utils/webrtc-transfer.js';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { SessionPool } from './session-pool.js';
@@ -74,6 +75,8 @@ export class BridgeManager {
   private requestDispatches = new Map<string, RequestDispatchState>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private runtimeQueue: RuntimeQueueController;
+  /** Pending WebRTC file transfers: transfer_id → FileSender + cleanup timer */
+  private pendingTransfers = new Map<string, { sender: FileSender; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(opts: BridgeManagerOptions) {
     this.wsClient = opts.wsClient;
@@ -106,6 +109,7 @@ export class BridgeManager {
     this.wiredSessions.clear();
     this.sessionLastSeenAt.clear();
     this.cleanupRequestDispatches('shutdown');
+    this.cleanupPendingTransfers();
     log.info('Bridge manager stopped');
   }
 
@@ -141,6 +145,9 @@ export class BridgeManager {
         break;
       case 'registered':
         // Should not arrive here (handled by ws-client), but ignore
+        break;
+      case 'rtc_signal_relay':
+        this.handleRtcSignalRelay(msg as RtcSignalRelay);
         break;
       default:
         log.warn(`Unknown message type from worker: ${(msg as { type: string }).type}`);
@@ -226,7 +233,7 @@ export class BridgeManager {
 
   private async dispatchWithLocalQueue(opts: { msg: Message; handle: SessionHandle; requestKey: string }): Promise<void> {
     const { msg, handle, requestKey } = opts;
-    const { session_id, request_id, content, attachments, upload_url, upload_token, client_id, platform_task } = msg;
+    const { session_id, request_id, content, attachments, client_id, with_files } = msg;
     const state = this.requestDispatches.get(requestKey);
     if (!state) return;
 
@@ -250,12 +257,8 @@ export class BridgeManager {
         return;
       }
 
-      const uploadCredentials = upload_url && upload_token
-        ? { uploadUrl: upload_url, uploadToken: upload_token }
-        : undefined;
-
       try {
-        handle.send(content, attachments, uploadCredentials, client_id, platform_task);
+        handle.send(content, attachments, client_id, with_files);
         this.sessionLastSeenAt.set(session_id, Date.now());
       } catch (err) {
         log.error(`Failed to send to adapter: ${err}`);
@@ -326,20 +329,27 @@ export class BridgeManager {
     handle.onDone((payload) => {
       void this.releaseRequestLease(sessionId, requestRef.requestId, 'done');
       const attachments = payload?.attachments;
-      const fileManifest = payload?.fileManifest;
+      const fileTransferOffer = payload?.fileTransferOffer;
+      const zipBuffer = payload?.zipBuffer;
+
+      // Store ZIP buffer for WebRTC P2P transfer if offer present
+      if (fileTransferOffer && zipBuffer) {
+        this.registerPendingTransfer(fileTransferOffer, zipBuffer);
+      }
+
       const done: Done = {
         type: 'done',
         session_id: sessionId,
         request_id: requestRef.requestId,
         ...(attachments && attachments.length > 0 && { attachments: attachments as Attachment[] }),
-        ...(fileManifest && fileManifest.length > 0 && { file_manifest: fileManifest }),
+        ...(fileTransferOffer && { file_transfer_offer: fileTransferOffer }),
         ...(fullResponseBuffer && { result: fullResponseBuffer }),
       };
       this.trackRequest(sessionId, requestRef.requestId, 'done');
       this.wsClient.send(done);
       fullResponseBuffer = '';
       this.sessionLastSeenAt.set(sessionId, Date.now());
-      const fileInfo = attachments && attachments.length > 0 ? ` (${attachments.length} files)` : '';
+      const fileInfo = fileTransferOffer ? ` (${fileTransferOffer.file_count} files, transfer=${fileTransferOffer.transfer_id.slice(0, 8)}...)` : '';
       log.info(`Request done: session=${sessionId.slice(0, 8)}... request=${requestRef.requestId.slice(0, 8)}...${fileInfo}`);
     });
 
@@ -541,6 +551,63 @@ export class BridgeManager {
         this.requestTracker.delete(key);
       }
     }
+  }
+
+  // ========================================================
+  // WebRTC signaling relay
+  // ========================================================
+
+  private registerPendingTransfer(offer: FileTransferOffer, zipBuffer: Buffer): void {
+    const sender = new FileSender(offer.transfer_id, zipBuffer);
+
+    // Wire outgoing signals through Bridge WS
+    sender.onSignal((signal: SignalMessage) => {
+      // We need the target agent ID from the incoming signal — stored when first relay arrives
+      const entry = this.pendingTransfers.get(offer.transfer_id);
+      if (!entry) return;
+      const rtcSignal: RtcSignal = {
+        type: 'rtc_signal',
+        transfer_id: offer.transfer_id,
+        target_agent_id: (entry as { targetAgentId?: string }).targetAgentId || '',
+        signal_type: signal.signal_type,
+        payload: signal.payload,
+      };
+      this.wsClient.send(rtcSignal);
+    });
+
+    // Auto-cleanup after 5 minutes (ZIP stays in memory until then)
+    const timer = setTimeout(() => {
+      sender.close();
+      this.pendingTransfers.delete(offer.transfer_id);
+      log.debug(`Transfer ${offer.transfer_id.slice(0, 8)}... expired`);
+    }, 5 * 60_000);
+    timer.unref?.();
+
+    this.pendingTransfers.set(offer.transfer_id, { sender, timer } as typeof this.pendingTransfers extends Map<string, infer V> ? V : never);
+  }
+
+  private handleRtcSignalRelay(msg: RtcSignalRelay): void {
+    const entry = this.pendingTransfers.get(msg.transfer_id);
+    if (!entry) {
+      log.debug(`No pending transfer for ${msg.transfer_id.slice(0, 8)}...`);
+      return;
+    }
+
+    // Store the from_agent_id so sender can route responses back
+    (entry as { targetAgentId?: string }).targetAgentId = msg.from_agent_id;
+
+    void entry.sender.handleSignal({
+      signal_type: msg.signal_type,
+      payload: msg.payload,
+    });
+  }
+
+  private cleanupPendingTransfers(): void {
+    for (const [id, entry] of this.pendingTransfers) {
+      clearTimeout(entry.timer);
+      entry.sender.close();
+    }
+    this.pendingTransfers.clear();
   }
 
   private updateSessionCount(): void {

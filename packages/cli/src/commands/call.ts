@@ -59,6 +59,7 @@ async function asyncCall(opts: {
   json?: boolean;
   outputFile?: string;
   signal?: AbortSignal;
+  withFiles?: boolean;
 }): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
@@ -69,7 +70,11 @@ async function asyncCall(opts: {
       'Content-Type': 'application/json',
       ...(selfAgentId ? { 'X-Caller-Agent-Id': selfAgentId } : {}),
     },
-    body: JSON.stringify({ task_description: opts.taskDescription, mode: 'async' }),
+    body: JSON.stringify({
+      task_description: opts.taskDescription,
+      mode: 'async',
+      ...(opts.withFiles ? { with_files: true } : {}),
+    }),
     signal: opts.signal,
   });
 
@@ -151,8 +156,8 @@ async function asyncCall(opts: {
           status: 'completed',
           result,
           ...(task.attachments?.length ? { attachments: task.attachments } : {}),
-          ...(Array.isArray((task as { file_manifest?: unknown[] }).file_manifest)
-            ? { file_manifest: (task as { file_manifest: unknown[] }).file_manifest }
+          ...((task as { file_transfer_offer?: unknown }).file_transfer_offer
+            ? { file_transfer_offer: (task as { file_transfer_offer: unknown }).file_transfer_offer }
             : {}),
           rate_hint: `POST /api/agents/${opts.id}/rate  body: { call_id: "${call_id}", rating: 1-5 }`,
         }));
@@ -163,9 +168,9 @@ async function asyncCall(opts: {
             log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
           }
         }
-        const manifest = (task as { file_manifest?: unknown[] }).file_manifest;
-        if (Array.isArray(manifest)) {
-          log.info(`  ${GRAY}Manifest:${RESET} ${manifest.length} file(s)`);
+        const offer = (task as { file_transfer_offer?: { file_count: number } }).file_transfer_offer;
+        if (offer) {
+          log.info(`  ${GRAY}Files:${RESET} ${offer.file_count} file(s) available via WebRTC`);
         }
         if (session_key) {
           log.info(`  ${GRAY}Session:${RESET} ${session_key}`);
@@ -213,6 +218,7 @@ async function streamCall(opts: {
   json?: boolean;
   outputFile?: string;
   signal?: AbortSignal;
+  withFiles?: boolean;
 }): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
@@ -224,7 +230,10 @@ async function streamCall(opts: {
       Accept: 'text/event-stream',
       ...(selfAgentId ? { 'X-Caller-Agent-Id': selfAgentId } : {}),
     },
-    body: JSON.stringify({ task_description: opts.taskDescription }),
+    body: JSON.stringify({
+      task_description: opts.taskDescription,
+      ...(opts.withFiles ? { with_files: true } : {}),
+    }),
     signal: opts.signal,
   });
 
@@ -317,13 +326,15 @@ async function streamCall(opts: {
                 outputBuffer += delta;
               }
             }
-          } else if (event.type === 'done' && event.attachments?.length) {
-            console.log('');
-            for (const att of event.attachments as { name: string; url: string }[]) {
-              log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
+          } else if (event.type === 'done') {
+            if (event.attachments?.length) {
+              console.log('');
+              for (const att of event.attachments as { name: string; url: string }[]) {
+                log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
+              }
             }
-            if (Array.isArray(event.file_manifest)) {
-              log.info(`  ${GRAY}Manifest:${RESET} ${event.file_manifest.length} file(s)`);
+            if (event.file_transfer_offer) {
+              log.info(`  ${GRAY}Files:${RESET} ${event.file_transfer_offer.file_count} file(s) available via WebRTC`);
             }
           } else if (event.type === 'error') {
             process.stderr.write(`\nError: ${event.message}\n`);
@@ -382,6 +393,7 @@ export function registerCallCommand(program: Command): void {
     .option('--input-file <path>', 'Read file and append to task description')
     .option('--output-file <path>', 'Save response text to file')
     .option('--stream', 'Use SSE streaming instead of async polling')
+    .option('--with-files', 'Request file transfer via WebRTC after task completion')
     .option('--json', 'Output JSONL events')
     .option('--timeout <seconds>', 'Timeout in seconds', '300')
     .option('--rate <rating>', 'Rate the agent after call (1-5)', parseInt)
@@ -390,6 +402,7 @@ export function registerCallCommand(program: Command): void {
       inputFile?: string;
       outputFile?: string;
       stream?: boolean;
+      withFiles?: boolean;
       json?: boolean;
       timeout?: string;
       rate?: number;
@@ -424,6 +437,7 @@ export function registerCallCommand(program: Command): void {
           json: opts.json,
           outputFile: opts.outputFile,
           signal: abortController.signal,
+          withFiles: opts.withFiles,
         };
 
         let result: { callId: string; sessionKey?: string };

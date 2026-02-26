@@ -4,11 +4,9 @@ import {
   type SessionHandle,
   type ToolEvent,
   type OutputAttachment,
-  type UploadCredentials,
   type SessionDonePayload,
-  type PlatformTask,
-  type OutputFileManifestEntry,
 } from './base.js';
+import type { FileTransferOffer } from '@annals/bridge-protocol';
 import { spawnAgent } from '../utils/process.js';
 import { log } from '../utils/logger.js';
 import { createInterface } from 'node:readline';
@@ -16,10 +14,11 @@ import { homedir } from 'node:os';
 import { which } from '../utils/which.js';
 import { createClientWorkspace } from '../utils/client-workspace.js';
 import { getSandboxPreset, type SandboxFilesystemConfig } from '../utils/sandbox.js';
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { writeFile, mkdir, stat } from 'node:fs/promises';
 import { join, relative, basename } from 'node:path';
 import { collectRealFiles, MIME_MAP } from '../utils/auto-upload.js';
 import { createZipBuffer } from '../utils/zip.js';
+import { sha256Hex } from '../utils/webrtc-transfer.js';
 
 const DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const MIN_IDLE_TIMEOUT = 60 * 1000; // 1 minute guardrail
@@ -32,8 +31,6 @@ const CLAUDE_RUNTIME_ALLOW_WRITE_PATHS = [
   `${HOME_DIR}/.local/state/claude`,
 ];
 
-
-const MAX_UPLOAD_FILE_SIZE = 200 * 1024 * 1024; // 200MB
 const MAX_COLLECT_FILES = 5000;
 const DEFAULT_ZIP_MAX_BYTES = 200 * 1024 * 1024; // 200MB
 
@@ -73,11 +70,11 @@ class ClaudeSession implements SessionHandle {
   /** Track current content block type to distinguish thinking vs text deltas */
   private currentBlockType: 'thinking' | 'text' | null = null;
 
-  /** Upload credentials provided by the platform for auto-uploading output files */
-  private uploadCredentials: UploadCredentials | null = null;
-
   /** Per-client workspace path (symlink-based), set on each send() */
   private currentWorkspace: string | undefined;
+
+  /** Whether caller requested file transfer */
+  private withFiles = false;
 
   constructor(
     private sessionId: string,
@@ -91,9 +88,8 @@ class ClaudeSession implements SessionHandle {
   send(
     message: string,
     attachments?: { name: string; url: string; type: string }[],
-    uploadCredentials?: UploadCredentials,
     clientId?: string,
-    platformTask?: PlatformTask
+    withFiles?: boolean,
   ): void {
     this.resetIdleTimer();
     this.doneFired = false;
@@ -101,22 +97,13 @@ class ClaudeSession implements SessionHandle {
     this.activeToolCallId = null;
     this.activeToolName = null;
     this.currentBlockType = null;
-
-    // Store upload credentials for auto-upload after completion
-    if (uploadCredentials) {
-      this.uploadCredentials = uploadCredentials;
-    }
+    this.withFiles = withFiles || false;
 
     // Set up per-client workspace (symlink-based isolation)
     if (clientId && this.config.project) {
       this.currentWorkspace = createClientWorkspace(this.config.project, clientId);
     } else {
       this.currentWorkspace = undefined;
-    }
-
-    if (platformTask) {
-      void this.runPlatformTask(platformTask);
-      return;
     }
 
     const args = ['-p', message, '--continue', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions'];
@@ -227,134 +214,20 @@ class ClaudeSession implements SessionHandle {
     return this.currentWorkspace || this.config.project || process.cwd();
   }
 
-  private normalizeRelativePath(inputPath: string): string | null {
-    const normalized = inputPath.replace(/\\/g, '/').replace(/^\/+/, '');
-    if (!normalized || normalized.includes('\0')) return null;
-    if (normalized.split('/').some((seg) => seg === '..')) return null;
-    return normalized;
-  }
-
-  private async runPlatformTask(task: PlatformTask): Promise<void> {
-    try {
-      if (!this.uploadCredentials) {
-        throw new Error('Missing upload credentials for platform task');
-      }
-
-      if (task.type === 'upload_file') {
-        await this.runUploadFileTask(task.path);
-      } else if (task.type === 'upload_all_zip') {
-        await this.runUploadAllZipTask(task.zip_name, task.max_bytes);
-      } else {
-        throw new Error(`Unsupported platform task: ${(task as { type?: string }).type || 'unknown'}`);
-      }
-      this.doneFired = true;
-    } catch (error) {
-      this.emitError(new Error(`Platform task failed: ${error instanceof Error ? error.message : String(error)}`));
-    }
-  }
-
-  private async runUploadFileTask(path: string): Promise<void> {
-    const workspaceRoot = this.getWorkspaceRoot();
-    const relPath = this.normalizeRelativePath(path);
-    if (!relPath) {
-      throw new Error('Invalid file path');
-    }
-
-    const absPath = join(workspaceRoot, relPath);
-    const info = await stat(absPath);
-    if (!info.isFile()) {
-      throw new Error('Path is not a regular file');
-    }
-
-    const buffer = await readFile(absPath);
-    if (buffer.length === 0 || buffer.length > MAX_UPLOAD_FILE_SIZE) {
-      throw new Error(`File size out of bounds: ${buffer.length}`);
-    }
-
-    const uploaded = await this.uploadBuffer(relPath, buffer);
-    for (const cb of this.doneCallbacks) cb({ attachments: [uploaded] });
-  }
-
-  private async runUploadAllZipTask(zipName?: string, maxBytes?: number): Promise<void> {
-    const workspaceRoot = this.getWorkspaceRoot();
-    const files = await this.collectWorkspaceFiles(workspaceRoot);
-    if (files.length === 0) {
-      throw new Error('No files found');
-    }
-
-    const maxZipBytes = typeof maxBytes === 'number' && Number.isFinite(maxBytes) && maxBytes > 0
-      ? Math.floor(maxBytes)
-      : DEFAULT_ZIP_MAX_BYTES;
-
-    const entries: Array<{ path: string; data: Buffer }> = [];
-    let totalBytes = 0;
-
-    for (const absPath of files) {
-      this.resetIdleTimer();
-      const relPath = relative(workspaceRoot, absPath).replace(/\\/g, '/');
-      if (!relPath || relPath.startsWith('..')) continue;
-
-      const buffer = await readFile(absPath);
-      if (buffer.length === 0) continue;
-      totalBytes += buffer.length;
-      if (totalBytes > maxZipBytes) {
-        throw new Error(`ZIP_TOO_LARGE:${totalBytes}`);
-      }
-      entries.push({ path: relPath, data: buffer });
-    }
-
-    const zipBuffer = createZipBuffer(entries);
-    if (zipBuffer.length > maxZipBytes) {
-      throw new Error(`ZIP_TOO_LARGE:${zipBuffer.length}`);
-    }
-
-    const safeZipName = this.normalizeRelativePath(zipName || '') || `workspace-${this.sessionId.slice(0, 8)}.zip`;
-    const uploaded = await this.uploadBuffer(safeZipName.endsWith('.zip') ? safeZipName : `${safeZipName}.zip`, zipBuffer);
-    for (const cb of this.doneCallbacks) cb({ attachments: [uploaded] });
-  }
-
-  private async uploadBuffer(filename: string, buffer: Buffer): Promise<OutputAttachment> {
-    const creds = this.uploadCredentials;
-    if (!creds) {
-      throw new Error('Upload credentials missing');
-    }
-
-    const response = await fetch(creds.uploadUrl, {
-      method: 'POST',
-      headers: {
-        'X-Upload-Token': creds.uploadToken,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        filename,
-        content: buffer.toString('base64'),
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Upload failed (${response.status}) for ${filename}`);
-    }
-
-    const payload = await response.json() as { url?: string };
-    if (typeof payload.url !== 'string' || payload.url.length === 0) {
-      throw new Error(`Upload response missing url for ${filename}`);
-    }
-
-    const ext = filename.split('.').pop()?.toLowerCase() || '';
-    return {
-      name: filename,
-      url: payload.url,
-      type: MIME_MAP[ext] || 'application/octet-stream',
-    };
-  }
-
   private async collectWorkspaceFiles(workspaceRoot: string): Promise<string[]> {
     return collectRealFiles(workspaceRoot, MAX_COLLECT_FILES);
   }
 
-  private async collectWorkspaceManifest(workspaceRoot: string): Promise<OutputFileManifestEntry[]> {
+  /**
+   * Collect workspace files into a ZIP buffer + compute SHA-256.
+   * Only called when with_files is true.
+   */
+  private async createWorkspaceZip(workspaceRoot: string): Promise<{ zipBuffer: Buffer; fileCount: number } | null> {
     const files = await this.collectWorkspaceFiles(workspaceRoot);
-    const manifest: OutputFileManifestEntry[] = [];
+    if (files.length === 0) return null;
+
+    const entries: Array<{ path: string; data: Buffer }> = [];
+    let totalBytes = 0;
 
     for (const absPath of files) {
       const relPath = relative(workspaceRoot, absPath).replace(/\\/g, '/');
@@ -362,37 +235,53 @@ class ClaudeSession implements SessionHandle {
       try {
         const fileStat = await stat(absPath);
         if (!fileStat.isFile()) continue;
-        const ext = relPath.split('.').pop()?.toLowerCase() || '';
-        manifest.push({
-          path: relPath,
-          size: fileStat.size,
-          mtime_ms: Math.floor(fileStat.mtimeMs),
-          type: MIME_MAP[ext] || 'application/octet-stream',
-        });
+
+        const { readFile } = await import('node:fs/promises');
+        const buffer = await readFile(absPath);
+        if (buffer.length === 0) continue;
+        totalBytes += buffer.length;
+        if (totalBytes > DEFAULT_ZIP_MAX_BYTES) {
+          log.warn(`Workspace exceeds ${DEFAULT_ZIP_MAX_BYTES / 1024 / 1024}MB limit, truncating`);
+          break;
+        }
+        entries.push({ path: relPath, data: buffer });
       } catch {
         // ignore transient files
       }
     }
 
-    manifest.sort((a, b) => a.path.localeCompare(b.path));
-    return manifest;
+    if (entries.length === 0) return null;
+
+    const zipBuffer = createZipBuffer(entries);
+    return { zipBuffer, fileCount: entries.length };
   }
 
   private async finalizeDone(attachments?: OutputAttachment[]): Promise<void> {
-    const workspaceRoot = this.getWorkspaceRoot();
-    let fileManifest: OutputFileManifestEntry[] | undefined;
-    try {
-      fileManifest = await this.collectWorkspaceManifest(workspaceRoot);
-    } catch (error) {
-      log.warn(`Manifest collection failed: ${error}`);
-    }
-
     const payload: SessionDonePayload = {};
     if (attachments && attachments.length > 0) {
       payload.attachments = attachments;
     }
-    if (fileManifest) {
-      payload.fileManifest = fileManifest;
+
+    // Only create ZIP when caller requested files
+    if (this.withFiles) {
+      const workspaceRoot = this.getWorkspaceRoot();
+      try {
+        const result = await this.createWorkspaceZip(workspaceRoot);
+        if (result) {
+          const transferId = crypto.randomUUID();
+          const zipSha256 = sha256Hex(result.zipBuffer);
+          payload.fileTransferOffer = {
+            transfer_id: transferId,
+            zip_size: result.zipBuffer.length,
+            zip_sha256: zipSha256,
+            file_count: result.fileCount,
+          };
+          payload.zipBuffer = result.zipBuffer;
+          log.info(`[WebRTC] ZIP ready: ${result.fileCount} files, ${result.zipBuffer.length} bytes, transfer=${transferId.slice(0, 8)}...`);
+        }
+      } catch (error) {
+        log.warn(`ZIP creation failed: ${error}`);
+      }
     }
 
     for (const cb of this.doneCallbacks) cb(payload);

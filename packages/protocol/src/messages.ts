@@ -38,8 +38,8 @@ export interface Done {
   request_id: string;
   /** Files produced by the agent during this request (auto-uploaded from workspace) */
   attachments?: Attachment[];
-  /** Workspace file manifest for this request/session */
-  file_manifest?: FileManifestEntry[];
+  /** WebRTC P2P file transfer offer — present when agent has files to send */
+  file_transfer_offer?: FileTransferOffer;
   /** Complete response text (used by async mode — Worker forwards to Platform callback) */
   result?: string;
 }
@@ -73,10 +73,21 @@ export interface CallAgent {
   target_agent_id: string;
   task_description: string;
   call_id?: string;
+  /** Request file transfer via WebRTC after task completion */
+  with_files?: boolean;
+}
+
+/** CLI → Worker: WebRTC signaling message for P2P file transfer */
+export interface RtcSignal {
+  type: 'rtc_signal';
+  transfer_id: string;
+  target_agent_id: string;
+  signal_type: 'offer' | 'answer' | 'candidate';
+  payload: string;
 }
 
 /** All messages sent from Bridge CLI to Worker */
-export type BridgeToWorkerMessage = Register | Chunk | Done | BridgeError | Heartbeat | DiscoverAgents | CallAgent;
+export type BridgeToWorkerMessage = Register | Chunk | Done | BridgeError | Heartbeat | DiscoverAgents | CallAgent | RtcSignal;
 
 // ============================================================
 // Platform → Bridge (sent by Bridge Worker to agent-mesh CLI)
@@ -96,14 +107,19 @@ export interface Message {
   request_id: string;
   content: string;
   attachments: Attachment[];
-  /** Structured platform task handled directly by adapter (without LLM parsing) */
-  platform_task?: PlatformTask;
-  /** Upload endpoint for agent to auto-upload workspace output files */
-  upload_url?: string;
-  /** One-time token for authenticating uploads */
-  upload_token?: string;
   /** Stable client identifier for per-client workspace isolation */
   client_id?: string;
+  /** Caller requests file transfer via WebRTC after task completion */
+  with_files?: boolean;
+}
+
+/** Worker → CLI: WebRTC signaling relay from another agent */
+export interface RtcSignalRelay {
+  type: 'rtc_signal_relay';
+  transfer_id: string;
+  from_agent_id: string;
+  signal_type: 'offer' | 'answer' | 'candidate';
+  payload: string;
 }
 
 /** Cancel an in-progress request */
@@ -138,7 +154,8 @@ export interface CallAgentDone {
   type: 'call_agent_done';
   call_id: string;
   attachments?: Attachment[];
-  file_manifest?: FileManifestEntry[];
+  /** WebRTC P2P file transfer offer — present when called agent has files to send */
+  file_transfer_offer?: FileTransferOffer;
 }
 
 /** A2A: Called agent error */
@@ -150,7 +167,7 @@ export interface CallAgentError {
 }
 
 /** All messages sent from Worker to Bridge CLI */
-export type WorkerToBridgeMessage = Registered | Message | Cancel | DiscoverAgentsResult | CallAgentChunk | CallAgentDone | CallAgentError;
+export type WorkerToBridgeMessage = Registered | Message | Cancel | DiscoverAgentsResult | CallAgentChunk | CallAgentDone | CallAgentError | RtcSignalRelay;
 
 // ============================================================
 // Shared types
@@ -162,23 +179,13 @@ export interface Attachment {
   type: string;
 }
 
-export interface FileManifestEntry {
-  path: string;
-  size: number;
-  mtime_ms: number;
-  type: string;
+/** WebRTC P2P file transfer offer — attached to Done/CallAgentDone when agent has files */
+export interface FileTransferOffer {
+  transfer_id: string;
+  zip_size: number;
+  zip_sha256: string;
+  file_count: number;
 }
-
-export type PlatformTask =
-  | {
-      type: 'upload_file';
-      path: string;
-    }
-  | {
-      type: 'upload_all_zip';
-      zip_name?: string;
-      max_bytes?: number;
-    };
 
 /** Any Bridge Protocol message */
 export type BridgeMessage = BridgeToWorkerMessage | WorkerToBridgeMessage;
@@ -194,14 +201,10 @@ export interface RelayRequest {
   request_id: string;
   content: string;
   attachments?: Attachment[];
-  /** Structured platform task handled directly by adapter (without LLM parsing) */
-  platform_task?: PlatformTask;
-  /** Upload endpoint for agent to auto-upload workspace output files */
-  upload_url?: string;
-  /** One-time token for authenticating uploads */
-  upload_token?: string;
   /** Stable client identifier for per-client workspace isolation */
   client_id?: string;
+  /** Caller requests file transfer via WebRTC after task completion */
+  with_files?: boolean;
   /** Async mode: Worker returns 202 immediately, calls back when done */
   mode?: 'stream' | 'async';
   /** Async mode: Platform task ID to include in callback */
@@ -223,8 +226,8 @@ export interface RelayDoneEvent {
   type: 'done';
   /** Files produced by the agent during this request */
   attachments?: Attachment[];
-  /** Workspace file manifest for this request/session */
-  file_manifest?: FileManifestEntry[];
+  /** WebRTC P2P file transfer offer — present when agent has files to send */
+  file_transfer_offer?: FileTransferOffer;
 }
 
 export interface RelayErrorEvent {
