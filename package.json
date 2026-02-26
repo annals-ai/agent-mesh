@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm -r build",
-    "test": "vitest run",
+    "test": "echo 'Tests moved to root scripts/e2e/ — run from project root'",
     "lint": "eslint packages/*/src/**/*.ts"
   },
   "pnpm": {
@@ -13,7 +13,6 @@
     "commander": "^13.0.0",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.55.0",
-    "vitest": "^3.0.0"
+    "typescript-eslint": "^8.55.0"
   }
 }

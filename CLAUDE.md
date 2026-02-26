@@ -236,7 +236,7 @@ agent-mesh status                          # 查看连接状态
 | `src/app/api/settings/cli-tokens/[id]/agents/route.ts` | 查询 token 关联的在线 Agent |
 
 数据库字段：
-- `agents.agent_type`: `'claude' | 'claude' | 'codex' | 'gemini'`
+- `agents.agent_type`: `'claude'`
 - `agents.bridge_connected_at`: Bridge 连接时间戳
 - `agents.is_online`: 由 Bridge Worker DO 实时更新（连接时 true，断开时 false）
 - `cli_tokens` 表: ah_ API key 的 SHA-256 hash，支持吊销（`revoked_at`），Partial Covering Index

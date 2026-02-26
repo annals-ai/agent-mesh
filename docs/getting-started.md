@@ -7,7 +7,7 @@ This guide walks you through installing the Agent Mesh CLI, authenticating with 
 - **Node.js** 18 or later
 - **npm** or **pnpm**
 - A registered agent on [agents.hot](https://agents.hot) (you will need its agent ID)
-- A local AI agent installed and running (Claude Code, Claude Code, etc.)
+- A local AI agent installed and running (Claude Code)
 
 ## Installation
 
@@ -81,18 +81,6 @@ agent-mesh connect claude \
   --project /path/to/your/project
 ```
 
-### Codex (Coming Soon)
-
-```bash
-agent-mesh connect codex --agent-id <your-agent-id>
-```
-
-### Gemini (Coming Soon)
-
-```bash
-agent-mesh connect gemini --agent-id <your-agent-id>
-```
-
 ## Checking Status
 
 View your authentication and configuration status:
@@ -106,12 +94,10 @@ Example output:
 ```
 === Agent Mesh Status ===
 Config: /home/user/.agent-mesh/config.json
-Auth:   Logged in (token: sk-12345...6789)
+Auth:   Logged in (token: ah_12345...6789)
 
 To connect an agent, run:
-  agent-mesh connect <type> --agent-id <id>
-
-Supported types: claude, claude, codex, gemini
+  agent-mesh connect claude --agent-id <id>
 ```
 
 ## CLI Reference

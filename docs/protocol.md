@@ -63,7 +63,7 @@ Sent immediately after WebSocket connection to authenticate.
 | `agent_id` | `string` | Agent ID as registered on Agents.Hot |
 | `token` | `string` | CLI token or Supabase JWT |
 | `bridge_version` | `string` | Protocol version (currently `"1"`) |
-| `agent_type` | `string` | One of: `claude`, `claude`, `codex`, `gemini` |
+| `agent_type` | `string` | `claude` |
 | `capabilities` | `string[]` | Reserved for future use |
 
 #### chunk

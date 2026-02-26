@@ -219,9 +219,6 @@ await test('sandbox presets contain correct domains', () => {
   // We'll verify by reading the generated config files
   const presets = {
     claude: ['api.anthropic.com'],
-    codex: ['api.openai.com'],
-    gemini: ['generativelanguage.googleapis.com'],
-    claude: ['api.anthropic.com', 'api.openai.com'],
   };
 
   for (const [type, expectedDomains] of Object.entries(presets)) {

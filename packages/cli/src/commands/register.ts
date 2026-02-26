@@ -5,7 +5,7 @@ import { addAgent, uniqueSlug, getAgentWorkspaceDir } from '../utils/config.js';
 import { BOLD, GRAY, RESET } from '../utils/table.js';
 
 const DEFAULT_BASE_URL = 'https://agents.hot';
-const VALID_AGENT_TYPES = ['claude', 'claude-code', 'cursor', 'windsurf', 'custom'] as const;
+const VALID_AGENT_TYPES = ['claude'] as const;
 
 interface RegisterResponse {
   agent_id: string;
@@ -21,7 +21,7 @@ export function registerRegisterCommand(program: Command): void {
     .command('register')
     .description('Register a new agent on the platform and get an API key')
     .requiredOption('--name <name>', 'Agent name (alphanumeric + hyphens, 3-64 chars)')
-    .option('--type <type>', 'Agent type', 'claude-code')
+    .option('--type <type>', 'Agent type', 'claude')
     .option('--description <text>', 'Agent description')
     .option('--capabilities <list>', 'Comma-separated capabilities')
     .option('--base-url <url>', 'Platform base URL', DEFAULT_BASE_URL)

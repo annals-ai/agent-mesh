@@ -46,7 +46,6 @@ type SupportedVisibility = (typeof SUPPORTED_VISIBILITIES)[number];
 function normalizeAgentType(input: string | undefined): SupportedAgentType | null {
   if (!input) return null;
   const normalized = input.trim().toLowerCase();
-  if (normalized === 'claude-code' || normalized === 'claudecode') return 'claude';
   if ((SUPPORTED_AGENT_TYPES as readonly string[]).includes(normalized)) {
     return normalized as SupportedAgentType;
   }
@@ -56,7 +55,7 @@ function normalizeAgentType(input: string | undefined): SupportedAgentType | nul
 function parseAgentTypeOrExit(input: string | undefined): SupportedAgentType {
   const agentType = normalizeAgentType(input);
   if (agentType) return agentType;
-  log.error(`Invalid agent type: ${input}. Supported: ${SUPPORTED_AGENT_TYPES.join(', ')} (alias: claude-code).`);
+  log.error(`Invalid agent type: ${input}. Supported: ${SUPPORTED_AGENT_TYPES.join(', ')}.`);
   process.exit(1);
 }
 
