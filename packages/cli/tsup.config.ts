@@ -8,6 +8,7 @@ export default defineConfig({
   shims: true,
   clean: true,
   dts: true,
+  noExternal: ['@annals/bridge-protocol'],
   banner: {
     js: '#!/usr/bin/env node',
   },

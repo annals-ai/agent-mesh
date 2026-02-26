@@ -1,6 +1,6 @@
 {
   "name": "@annals/agent-mesh",
-  "version": "0.17.4",
+  "version": "0.17.5",
   "description": "CLI bridge connecting local AI agents to the Agents.Hot platform",
   "type": "module",
   "bin": {
@@ -12,7 +12,7 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@annals/bridge-protocol": "^0.2.0",
+    "@annals/bridge-protocol": "workspace:^",
     "commander": "^13.0.0",
     "node-datachannel": "^0.32.0",
     "ws": "^8.18.0"
