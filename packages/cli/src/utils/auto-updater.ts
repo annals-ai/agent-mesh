@@ -112,8 +112,8 @@ function fetchLatestVersion(pkg: string): string | null {
   return parseLatestVersion(result.stdout ?? '');
 }
 
-function installLatest(pkg: string): boolean {
-  const result = spawnSync('npm', ['install', '-g', `${pkg}@latest`], {
+function installResolvedVersion(pkg: string, version: string): boolean {
+  const result = spawnSync('npm', ['install', '-g', `${pkg}@${version}`], {
     stdio: 'inherit',
     timeout: INSTALL_TIMEOUT_MS,
   });
@@ -150,7 +150,7 @@ export function maybeAutoUpgradeOnStartup(opts: AutoUpgradeOptions): AutoUpgrade
   if (compareSemver(latest, current) <= 0) return { relaunched: false };
 
   log.info(`New ${packageName} version found: v${current} -> v${latest}. Upgrading...`);
-  if (!installLatest(packageName)) {
+  if (!installResolvedVersion(packageName, latest)) {
     log.warn('Auto-upgrade failed. Continuing with current version.');
     return { relaunched: false };
   }

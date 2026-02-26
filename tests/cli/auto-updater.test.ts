@@ -87,6 +87,7 @@ describe('auto-updater', () => {
         return { status: 0, stdout: '"0.17.0"\n' } as unknown as ReturnType<typeof spawnSync>;
       }
       if (cmd === 'npm' && args?.[0] === 'install') {
+        expect(args).toEqual(['install', '-g', '@annals/agent-mesh@0.17.0']);
         return { status: 0 } as unknown as ReturnType<typeof spawnSync>;
       }
       if (cmd === '/usr/local/bin/node') {
@@ -118,6 +119,7 @@ describe('auto-updater', () => {
         return { status: 0, stdout: '"0.17.0"\n' } as unknown as ReturnType<typeof spawnSync>;
       }
       if (cmd === 'npm' && args?.[0] === 'install') {
+        expect(args).toEqual(['install', '-g', '@annals/agent-mesh@0.17.0']);
         return { status: 1 } as unknown as ReturnType<typeof spawnSync>;
       }
       throw new Error('unexpected call');
