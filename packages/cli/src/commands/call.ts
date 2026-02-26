@@ -1,7 +1,9 @@
 import type { Command } from 'commander';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { join, basename } from 'node:path';
+import { tmpdir } from 'node:os';
 import { loadToken } from '../platform/auth.js';
 import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
@@ -182,31 +184,23 @@ function prepareFileForUpload(filePath: string): {
   offer: FileTransferOfferInfo;
   zipBuffer: Buffer;
 } {
-  const { readFileSync: _readFileSync } = require('node:fs') as typeof import('node:fs');
-  const { basename } = require('node:path') as typeof import('node:path');
-  const { execSync: _execSync } = require('node:child_process') as typeof import('node:child_process');
-  const { createHash } = require('node:crypto') as typeof import('node:crypto');
-  const { tmpdir } = require('node:os') as typeof import('node:os');
-
   const fileName = basename(filePath);
   const tempDir = join(tmpdir(), `upload-${Date.now()}`);
-  const { mkdirSync: _mkdirSync } = require('node:fs') as typeof import('node:fs');
-  _mkdirSync(tempDir, { recursive: true });
+  mkdirSync(tempDir, { recursive: true });
 
   // Copy file to temp dir and ZIP it
   const tempFile = join(tempDir, fileName);
-  const { copyFileSync: _copyFileSync } = require('node:fs') as typeof import('node:fs');
-  _copyFileSync(filePath, tempFile);
+  copyFileSync(filePath, tempFile);
 
   const zipPath = join(tempDir, 'upload.zip');
-  _execSync(`cd "${tempDir}" && zip -q "${zipPath}" "${fileName}"`);
-  const zipBuffer = _readFileSync(zipPath);
+  execSync(`cd "${tempDir}" && zip -q "${zipPath}" "${fileName}"`);
+  const zipBuffer = readFileSync(zipPath);
 
   // Cleanup temp
-  try { _execSync(`rm -rf "${tempDir}"`); } catch {}
+  try { execSync(`rm -rf "${tempDir}"`); } catch {}
 
   const zipSha256 = createHash('sha256').update(zipBuffer).digest('hex');
-  const transferId = require('node:crypto').randomUUID();
+  const transferId = randomUUID();
 
   return {
     offer: {

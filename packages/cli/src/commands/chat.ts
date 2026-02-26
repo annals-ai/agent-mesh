@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { createInterface } from 'node:readline';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { execSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -25,11 +25,9 @@ interface FileUploadOfferInfo {
 function prepareUploadFile(filePath: string): { offer: FileUploadOfferInfo; zipBuffer: Buffer } {
   const fileName = basename(filePath);
   const tempDir = join(tmpdir(), `chat-upload-${Date.now()}`);
-  const { mkdirSync } = require('node:fs') as typeof import('node:fs');
   mkdirSync(tempDir, { recursive: true });
 
   const tempFile = join(tempDir, fileName);
-  const { copyFileSync } = require('node:fs') as typeof import('node:fs');
   copyFileSync(filePath, tempFile);
 
   const zipPath = join(tempDir, 'upload.zip');
