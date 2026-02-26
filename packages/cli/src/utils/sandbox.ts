@@ -70,22 +70,23 @@ const SANDBOX_PRESETS: Record<string, SandboxFilesystemConfig> = {
 
 // ── SandboxManager dynamic import ──────────────────────
 
-/** Minimal interface for the SandboxManager we need from srt */
+/** Minimal interface for the SandboxManager we need from srt (0.0.39+) */
 interface ISandboxManager {
   isSupportedPlatform(): boolean;
-  initialize(config: {
-    network: { allowedDomains: string[]; deniedDomains: string[] };
+  initialize(runtimeConfig: {
+    network: { allowedDomains: string[]; deniedDomains: string[]; allowLocalBinding?: boolean };
     filesystem: SandboxFilesystemConfig;
-  }): Promise<void>;
-  updateConfig(config: {
-    network?: { deniedDomains?: string[] };
-    filesystem?: SandboxFilesystemConfig;
+  }, sandboxAskCallback?: unknown, enableLogMonitor?: boolean): Promise<void>;
+  updateConfig(newConfig: {
+    network: { allowedDomains: string[]; deniedDomains: string[]; allowLocalBinding?: boolean };
+    filesystem: SandboxFilesystemConfig;
   }): void;
   getConfig(): {
-    network?: { allowedDomains?: string[]; deniedDomains?: string[] };
+    network?: { allowedDomains?: string[]; deniedDomains?: string[]; allowLocalBinding?: boolean };
     filesystem?: SandboxFilesystemConfig;
-  } | null;
-  wrapWithSandbox(command: string): Promise<string>;
+  } | undefined;
+  wrapWithSandbox(command: string, binShell?: string, customConfig?: unknown, abortSignal?: AbortSignal): Promise<string>;
+  cleanupAfterCommand?(): void;
   reset(): Promise<void>;
 }
 
@@ -176,13 +177,13 @@ export async function initSandbox(agentType: string): Promise<boolean> {
   try {
     // Step 1: initialize with a placeholder allowedDomains (srt requires it)
     await mgr.initialize({
-      network: { allowedDomains: ['placeholder.example.com'], deniedDomains: [] },
+      network: { allowedDomains: ['placeholder.example.com'], deniedDomains: [], allowLocalBinding: true },
       filesystem,
     });
 
-    // Step 2: bypass — updateConfig without allowedDomains → network unrestricted
+    // Step 2: bypass — updateConfig with empty allowedDomains → network unrestricted
     mgr.updateConfig({
-      network: { deniedDomains: [] },
+      network: { allowedDomains: [], deniedDomains: [], allowLocalBinding: true },
       filesystem,
     });
 
@@ -211,7 +212,9 @@ export async function wrapWithSandbox(
 
   // Apply per-session filesystem override if provided
   if (filesystemOverride) {
+    const currentConfig = sandboxManager.getConfig();
     sandboxManager.updateConfig({
+      network: currentConfig?.network ?? { allowedDomains: [], deniedDomains: [], allowLocalBinding: true },
       filesystem: filesystemOverride,
     });
   }
@@ -230,6 +233,7 @@ export async function wrapWithSandbox(
 export async function resetSandbox(): Promise<void> {
   if (sandboxManager) {
     try {
+      sandboxManager.cleanupAfterCommand?.();
       await sandboxManager.reset();
     } catch {
       // ignore reset errors on shutdown
