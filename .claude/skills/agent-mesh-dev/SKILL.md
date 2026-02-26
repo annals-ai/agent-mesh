@@ -6,6 +6,7 @@ description: |
   触发词: mesh worker 开发, bridge worker 开发, CLI 开发, 适配器开发,
   agent adapter, bridge protocol, durable objects 开发, mesh protocol,
   修改 agent-mesh, mesh 代码, worker 部署, CLI 发布.
+version: 0.0.2
 ---
 
 # Agent Mesh Dev — Mesh 代码开发指南

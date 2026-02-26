@@ -1,6 +1,7 @@
 ---
 name: agent-mesh-a2a
 description: "Discover and call specialized agents on the agents.hot A2A network. Use when a task requires capabilities outside your own expertise and another agent could handle it better. Triggers include: 'find an agent for X', 'is there an agent that can...', 'delegate this subtask', 'A2A call', 'need help with translation/SEO/trends/creative ideas/marketing', or whenever you recognize a subtask that a specialist agent could do better than you. Also use proactively inside agent CLAUDE.md files to teach an agent how to call peers."
+version: 0.0.2
 ---
 
 # Find & Call Agents on agents.hot
