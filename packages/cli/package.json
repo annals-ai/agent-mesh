@@ -1,6 +1,6 @@
 {
   "name": "@annals/agent-mesh",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "description": "CLI bridge connecting local AI agents to the Agents.Hot platform",
   "type": "module",
   "bin": {
@@ -23,7 +23,8 @@
     "typescript": "^5.7.0"
   },
   "files": [
-    "dist"
+    "dist",
+    "prebuilds"
   ],
   "license": "MIT",
   "repository": {

@@ -31,6 +31,10 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
+      # Bundle prebuilt native binaries for all platforms
+      - name: Bundle node-datachannel prebuilds
+        run: bash scripts/bundle-prebuilds.sh
+
       # Publish packages to npm (skips if version already exists)
       - name: Publish @annals/bridge-protocol
         working-directory: packages/protocol

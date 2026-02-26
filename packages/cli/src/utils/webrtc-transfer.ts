@@ -9,6 +9,9 @@
  */
 
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { existsSync, copyFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { log } from './logger.js';
 
 const ICE_SERVERS = ['stun:stun.l.google.com:19302'];
@@ -20,9 +23,58 @@ type NodeDataChannel = any;
 
 let ndcModule: NodeDataChannel | null | undefined;
 
+/**
+ * Ensure the correct platform-specific prebuilt binary is in place
+ * before importing node-datachannel.
+ *
+ * Our npm package ships prebuilds for all platforms under
+ * <pkg-root>/prebuilds/{platform}-{arch}/node_datachannel.node
+ * but node-datachannel loads from build/Release/node_datachannel.node.
+ * So we copy the correct one to node-datachannel's expected location.
+ */
+function ensurePrebuilt(): boolean {
+  try {
+    const require = createRequire(import.meta.url);
+
+    // Find node-datachannel's expected binary path
+    const ndcMain = require.resolve('node-datachannel');
+    // Walk up to find the package root (contains package.json)
+    let ndcRoot = dirname(ndcMain);
+    for (let i = 0; i < 5; i++) {
+      if (existsSync(join(ndcRoot, 'package.json'))) break;
+      ndcRoot = dirname(ndcRoot);
+    }
+
+    const target = join(ndcRoot, 'build', 'Release', 'node_datachannel.node');
+    if (existsSync(target)) return true;
+
+    // Our prebuilds are shipped alongside our dist/ directory
+    const platform = process.platform;
+    const arch = process.arch;
+
+    // Try: <our-package>/prebuilds/{platform}-{arch}/node_datachannel.node
+    // Our dist/ is at <pkg>/dist/index.js, so prebuilds/ is at <pkg>/prebuilds/
+    const ourPkgRoot = join(dirname(import.meta.url.replace('file://', '')), '..', '..');
+    const prebuiltSrc = join(ourPkgRoot, 'prebuilds', `${platform}-${arch}`, 'node_datachannel.node');
+
+    if (!existsSync(prebuiltSrc)) {
+      log.warn(`No prebuilt binary for ${platform}-${arch}`);
+      return false;
+    }
+
+    mkdirSync(join(ndcRoot, 'build', 'Release'), { recursive: true });
+    copyFileSync(prebuiltSrc, target);
+    log.info(`Installed node-datachannel prebuilt for ${platform}-${arch}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadNdc(): Promise<NodeDataChannel | null> {
   if (ndcModule !== undefined) return ndcModule;
   try {
+    ensurePrebuilt();
     ndcModule = await import('node-datachannel');
     return ndcModule;
   } catch {
