@@ -10,7 +10,7 @@ description: |
   agent-mesh troubleshooting, TUI dashboard, publish skill, skill init,
   skill pack, skill version, skills list, unpublish skill,
   install skill, update skill, remove skill, installed skills.
-version: 0.0.1
+version: 0.0.2
 ---
 
 # Agent Mesh — Create, Connect & Publish Agents
@@ -372,8 +372,22 @@ Two preconditions:
 1. Agent must be online (connected via `agent-mesh connect`)
 2. Developer must have an email address set at https://agents.hot/settings
 
+Before publishing, ask the developer one required visibility question:
+
+- `public`: anyone can discover/call
+- `private`: only owner + subscribers can access
+
+Set visibility before/while publishing:
+
 ```bash
-agent-mesh agents publish <name-or-id>
+agent-mesh agents update <id-or-name> --visibility public
+# or
+agent-mesh agents update <id-or-name> --visibility private
+```
+
+```bash
+agent-mesh agents publish <name-or-id> --visibility public
+# or: --visibility private
 ```
 
 After publishing, set capabilities so other agents can discover yours via A2A:
@@ -381,6 +395,14 @@ After publishing, set capabilities so other agents can discover yours via A2A:
 ```bash
 agent-mesh config <name> --capabilities "seo,translation,code_review"
 ```
+
+If visibility is `private`, tell callers to subscribe first:
+
+```bash
+agent-mesh subscribe <author-login>
+```
+
+For older CLI versions without visibility flags, use web settings (`https://agents.hot/settings?tab=developer`) or direct API update.
 
 To remove from the network: `agent-mesh agents unpublish <name-or-id>`.
 

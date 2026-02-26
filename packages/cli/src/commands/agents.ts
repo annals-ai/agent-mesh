@@ -12,6 +12,7 @@ interface Agent {
   name: string;
   description?: string;
   agent_type: string;
+  visibility?: 'public' | 'private';
   is_online: boolean;
   is_published: boolean;
   is_active: boolean;
@@ -39,6 +40,8 @@ interface AgentDeleteResponse {
 
 const SUPPORTED_AGENT_TYPES = ['claude'] as const;
 type SupportedAgentType = (typeof SUPPORTED_AGENT_TYPES)[number];
+const SUPPORTED_VISIBILITIES = ['public', 'private'] as const;
+type SupportedVisibility = (typeof SUPPORTED_VISIBILITIES)[number];
 
 function normalizeAgentType(input: string | undefined): SupportedAgentType | null {
   if (!input) return null;
@@ -54,6 +57,22 @@ function parseAgentTypeOrExit(input: string | undefined): SupportedAgentType {
   const agentType = normalizeAgentType(input);
   if (agentType) return agentType;
   log.error(`Invalid agent type: ${input}. Supported: ${SUPPORTED_AGENT_TYPES.join(', ')} (alias: claude-code).`);
+  process.exit(1);
+}
+
+function normalizeVisibility(input: string | undefined): SupportedVisibility | null {
+  if (!input) return null;
+  const normalized = input.trim().toLowerCase();
+  if ((SUPPORTED_VISIBILITIES as readonly string[]).includes(normalized)) {
+    return normalized as SupportedVisibility;
+  }
+  return null;
+}
+
+function parseVisibilityOrExit(input: string | undefined): SupportedVisibility {
+  const visibility = normalizeVisibility(input);
+  if (visibility) return visibility;
+  log.error(`Invalid visibility: ${input}. Supported: ${SUPPORTED_VISIBILITIES.join(', ')}.`);
   process.exit(1);
 }
 
@@ -115,6 +134,7 @@ export function registerAgentsCommand(program: Command): void {
           [
             { key: 'name', label: 'NAME', width: 24 },
             { key: 'type', label: 'TYPE', width: 12 },
+            { key: 'visibility', label: 'VISIBILITY', width: 12 },
             { key: 'status', label: 'STATUS', width: 14 },
             { key: 'published', label: 'PUBLISHED', width: 12 },
             { key: 'caps', label: 'CAPABILITIES', width: 14 },
@@ -122,6 +142,7 @@ export function registerAgentsCommand(program: Command): void {
           data.agents.map((a) => ({
             name: a.name,
             type: a.agent_type,
+            visibility: a.visibility ?? 'public',
             status: formatStatus(a.is_online),
             published: formatPublished(a.is_published),
             caps: (a.capabilities?.length || 0).toString(),
@@ -140,14 +161,17 @@ export function registerAgentsCommand(program: Command): void {
     .option('--name <name>', 'Agent name')
     .option('--type <type>', 'Agent type (claude)', 'claude')
     .option('--description <desc>', 'Agent description')
+    .option('--visibility <visibility>', 'Agent visibility (public|private)', 'public')
     .action(async (opts: {
       name?: string;
       type: string;
       description?: string;
+      visibility: string;
     }) => {
       try {
         let { name, description } = opts;
         const agentType = parseAgentTypeOrExit(opts.type);
+        const visibility = parseVisibilityOrExit(opts.visibility);
 
         // Interactive mode if name is missing and TTY
         if (!name && process.stdin.isTTY) {
@@ -170,6 +194,7 @@ export function registerAgentsCommand(program: Command): void {
           name,
           description: description || undefined,
           agent_type: agentType,
+          visibility,
         });
 
         const detail = await client.get<Agent>(`/api/developer/agents/${result.agent.id}`);
@@ -203,6 +228,7 @@ export function registerAgentsCommand(program: Command): void {
         console.log(`  ${BOLD}${agent.name}${RESET}`);
         console.log(`  ${GRAY}ID${RESET}            ${agent.id}`);
         console.log(`  ${GRAY}Type${RESET}          ${agent.agent_type}`);
+        console.log(`  ${GRAY}Visibility${RESET}    ${agent.visibility ?? 'public'}`);
         console.log(`  ${GRAY}Status${RESET}        ${formatStatus(agent.is_online)}`);
         console.log(`  ${GRAY}Published${RESET}     ${formatPublished(agent.is_published)}`);
         if (agent.capabilities?.length) {
@@ -229,19 +255,22 @@ export function registerAgentsCommand(program: Command): void {
     .option('--name <name>', 'New name')
     .option('--type <type>', 'Agent type (claude)')
     .option('--description <desc>', 'Agent description')
+    .option('--visibility <visibility>', 'Agent visibility (public|private)')
     .action(async (input: string, opts: {
       name?: string;
       type?: string;
       description?: string;
+      visibility?: string;
     }) => {
       try {
         const updates: Record<string, unknown> = {};
         if (opts.name !== undefined) updates.name = opts.name;
         if (opts.type !== undefined) updates.agent_type = parseAgentTypeOrExit(opts.type);
         if (opts.description !== undefined) updates.description = opts.description;
+        if (opts.visibility !== undefined) updates.visibility = parseVisibilityOrExit(opts.visibility);
 
         if (Object.keys(updates).length === 0) {
-          log.error('No fields to update. Use --name, --type, --description.');
+          log.error('No fields to update. Use --name, --type, --description, --visibility.');
           process.exit(1);
         }
 
@@ -258,12 +287,20 @@ export function registerAgentsCommand(program: Command): void {
   agents
     .command('publish <id-or-name>')
     .description('Publish agent to marketplace')
-    .action(async (input: string) => {
+    .option('--visibility <visibility>', 'Set visibility before publishing (public|private)')
+    .action(async (input: string, opts: { visibility?: string }) => {
       try {
         const client = createClient();
         const { id, name } = await resolveAgentId(input, client);
-        await client.put<AgentMutationResponse>(`/api/developer/agents/${id}`, { is_published: true });
+        const updates: Record<string, unknown> = { is_published: true };
+        if (opts.visibility !== undefined) {
+          updates.visibility = parseVisibilityOrExit(opts.visibility);
+        }
+        const result = await client.put<AgentMutationResponse>(`/api/developer/agents/${id}`, updates);
         log.success(`Agent published: ${BOLD}${name}${RESET}`);
+        if (result.agent.visibility) {
+          console.log(`  Visibility: ${result.agent.visibility}`);
+        }
         console.log(`  View at: ${GRAY}https://agents.hot${RESET}`);
       } catch (err) {
         handleError(err);

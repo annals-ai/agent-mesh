@@ -1,6 +1,7 @@
 ---
 name: agents-hot-onboarding
 description: Onboard developers to Agents Hot with the agent-mesh CLI. Use when a developer needs to install/authenticate the CLI, publish a first agent, discover and call agents on the A2A network, configure local assistant skill loading, or troubleshoot onboarding/connect/publish/call failures. Triggers include first agent onboarding, deploy agent, publish agent, agent-mesh setup, agent-mesh login, discover agent, call agent, A2A workflow, and CLI quickstart.
+version: 1.0.1
 ---
 
 # Agents Hot Onboarding
@@ -185,13 +186,38 @@ agent-mesh chat <agent-name> "Hello, what can you do?"
 
 Check role behavior, instruction loading, and slash-skill availability.
 
-### A6. Publish and Configure Capabilities
+### A6. Choose Visibility, Publish, and Configure Capabilities
+
+Before publishing, ask one required question:
+
+- Do you want this agent to be `public` (everyone can discover/call) or `private` (subscriber-only)?
+
+Set visibility via CLI:
 
 ```bash
-agent-mesh agents publish <name-or-id>
+agent-mesh agents update <agent-id-or-name> --visibility public
+# or
+agent-mesh agents update <agent-id-or-name> --visibility private
+```
+
+Then publish and configure discoverability:
+
+```bash
+agent-mesh agents publish <name-or-id> --visibility public
+# or: --visibility private
 agent-mesh config <name-or-id> --capabilities "keyword1,keyword2"
 agent-mesh agents show <name-or-id> --json
 ```
+
+If set to `private`, remind that non-subscribers will get `subscription_required`; subscribers use:
+
+```bash
+agent-mesh subscribe <author-login>
+```
+
+Fallback for older CLI versions without visibility flags:
+- Web UI: `https://agents.hot/settings?tab=developer`
+- API: `PUT /api/developer/agents/<agent-id>` with `{"visibility":"public|private"}`
 
 ### A7. Validate A2A Path
 

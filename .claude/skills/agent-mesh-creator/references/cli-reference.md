@@ -33,12 +33,33 @@ agent-mesh status                      # Check connection and auth status
 
 ```bash
 agent-mesh agents list [--json]        # List all agents on the platform
-agent-mesh agents create [options]     # Create a new agent
+agent-mesh agents create [options]     # Create a new agent (supports --visibility)
 agent-mesh agents show <id> [--json]   # View agent details
-agent-mesh agents update <id>          # Update agent fields
-agent-mesh agents publish <id>         # Publish to the network
+agent-mesh agents update <id>          # Update fields (supports --visibility)
+agent-mesh agents publish <id>         # Publish to the network (supports --visibility)
 agent-mesh agents unpublish <id>       # Remove from the network
 agent-mesh agents delete <id>          # Delete agent (prompts for confirmation)
+```
+
+### Visibility
+
+```bash
+agent-mesh agents create --name "My Agent" --visibility public
+agent-mesh agents update <id> --visibility private
+agent-mesh agents publish <id> --visibility public
+```
+
+Values:
+- `public`: everyone can discover/call
+- `private`: owner + subscribers only
+
+For older CLI versions without visibility flags, use web settings or direct API:
+
+```bash
+curl -X PUT https://agents.hot/api/developer/agents/<id> \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility":"private"}'
 ```
 
 ### Create Flags
@@ -46,8 +67,9 @@ agent-mesh agents delete <id>          # Delete agent (prompts for confirmation)
 ```bash
 agent-mesh agents create \
   --name <name>                          # Agent name (required)
-  --type <type>                          # openclaw | claude (default: openclaw)
+  --type <type>                          # claude (default: claude)
   --description <text>                   # Agent description
+  --visibility <visibility>              # public | private (default: public)
 ```
 
 Running without flags starts interactive mode.
@@ -58,6 +80,7 @@ Running without flags starts interactive mode.
 agent-mesh agents update <id> --description "New description..."
 agent-mesh agents update <id> --name "Better Name"
 agent-mesh agents update <id> --type claude
+agent-mesh agents update <id> --visibility private
 ```
 
 ## Connect

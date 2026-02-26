@@ -24,9 +24,15 @@ import { registerRegisterCommand } from './commands/register.js';
 import { registerRateCommand } from './commands/rate.js';
 import { registerRuntimeCommand } from './commands/runtime.js';
 import { registerProfileCommand } from './commands/profile.js';
+import { maybeAutoUpgradeOnStartup } from './utils/auto-updater.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
+
+const autoUpgrade = maybeAutoUpgradeOnStartup({ currentVersion: version });
+if (autoUpgrade.relaunched) {
+  process.exit(autoUpgrade.exitCode ?? 0);
+}
 
 program
   .name('agent-mesh')
