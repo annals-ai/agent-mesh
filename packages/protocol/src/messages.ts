@@ -38,6 +38,8 @@ export interface Done {
   request_id: string;
   /** Files produced by the agent during this request (auto-uploaded from workspace) */
   attachments?: Attachment[];
+  /** Workspace file manifest for this request/session */
+  file_manifest?: FileManifestEntry[];
   /** Complete response text (used by async mode — Worker forwards to Platform callback) */
   result?: string;
 }
@@ -94,6 +96,8 @@ export interface Message {
   request_id: string;
   content: string;
   attachments: Attachment[];
+  /** Structured platform task handled directly by adapter (without LLM parsing) */
+  platform_task?: PlatformTask;
   /** Upload endpoint for agent to auto-upload workspace output files */
   upload_url?: string;
   /** One-time token for authenticating uploads */
@@ -134,6 +138,7 @@ export interface CallAgentDone {
   type: 'call_agent_done';
   call_id: string;
   attachments?: Attachment[];
+  file_manifest?: FileManifestEntry[];
 }
 
 /** A2A: Called agent error */
@@ -157,6 +162,24 @@ export interface Attachment {
   type: string;
 }
 
+export interface FileManifestEntry {
+  path: string;
+  size: number;
+  mtime_ms: number;
+  type: string;
+}
+
+export type PlatformTask =
+  | {
+      type: 'upload_file';
+      path: string;
+    }
+  | {
+      type: 'upload_all_zip';
+      zip_name?: string;
+      max_bytes?: number;
+    };
+
 /** Any Bridge Protocol message */
 export type BridgeMessage = BridgeToWorkerMessage | WorkerToBridgeMessage;
 
@@ -171,6 +194,8 @@ export interface RelayRequest {
   request_id: string;
   content: string;
   attachments?: Attachment[];
+  /** Structured platform task handled directly by adapter (without LLM parsing) */
+  platform_task?: PlatformTask;
   /** Upload endpoint for agent to auto-upload workspace output files */
   upload_url?: string;
   /** One-time token for authenticating uploads */
@@ -198,6 +223,8 @@ export interface RelayDoneEvent {
   type: 'done';
   /** Files produced by the agent during this request */
   attachments?: Attachment[];
+  /** Workspace file manifest for this request/session */
+  file_manifest?: FileManifestEntry[];
 }
 
 export interface RelayErrorEvent {

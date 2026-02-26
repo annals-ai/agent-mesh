@@ -142,7 +142,7 @@ describe('ClaudeAdapter', () => {
     adapter.destroySession('session-sandbox');
   });
 
-  it('should upload workspace files directly for platform collect task', async () => {
+  it('should upload a workspace file via structured platform task without spawning claude', async () => {
     const { spawnAgent } = await import('../../packages/cli/src/utils/process.js');
     vi.mocked(spawnAgent).mockClear();
     const { ClaudeAdapter } = await import('../../packages/cli/src/adapters/claude.js');
@@ -173,26 +173,31 @@ describe('ClaudeAdapter', () => {
       const adapter = new ClaudeAdapter({ project: tempDir });
       const session = adapter.createSession('session-collect', {});
 
-      const chunks: string[] = [];
-      const donePromise = new Promise<void>((resolve) => session.onDone(resolve));
-      session.onChunk((delta) => chunks.push(delta));
+      let donePayload:
+        | { attachments?: Array<{ name: string; url: string; type: string }> }
+        | undefined;
+      const donePromise = new Promise<void>((resolve) =>
+        session.onDone((payload) => {
+          donePayload = payload;
+          resolve();
+        })
+      );
 
-      const platformTaskMessage = [
-        '[PLATFORM TASK]',
-        'Collect files task (platform-issued):',
-        'UPLOAD_URL=https://agents.hot/api/files/agent-upload',
-        'UPLOAD_TOKEN=test-token',
-        '[END PLATFORM TASK]',
-      ].join('\n');
-
-      session.send(platformTaskMessage);
+      session.send(
+        'Upload one file',
+        undefined,
+        { uploadUrl: 'https://agents.hot/api/files/agent-upload', uploadToken: 'test-token' },
+        undefined,
+        { type: 'upload_file', path: 'root.txt' }
+      );
       await donePromise;
 
       expect(spawnAgent).not.toHaveBeenCalled();
       expect(mockFetch).toHaveBeenCalled();
       expect(uploadedNames).toContain('root.txt');
-      expect(uploadedNames).toContain('nested/child.txt');
-      expect(chunks.join('')).toContain('https://files.agents.hot/mock/');
+      expect(donePayload?.attachments?.length).toBe(1);
+      expect(donePayload?.attachments?.[0]?.name).toBe('root.txt');
+      expect(donePayload?.attachments?.[0]?.url).toContain('https://files.agents.hot/mock/');
 
       adapter.destroySession('session-collect');
     } finally {

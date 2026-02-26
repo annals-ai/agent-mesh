@@ -19,6 +19,7 @@ export interface BridgeConfig {
   token?: string;                          // platform auth token (login writes)
   agents: Record<string, AgentEntry>;      // key = agent alias (slug)
   runtime?: RuntimeConfig;
+  docsHintShownAt?: string;
 }
 
 export interface RuntimeConfig {
@@ -69,6 +70,16 @@ export function saveConfig(config: BridgeConfig): void {
 export function updateConfig(partial: Partial<BridgeConfig>): void {
   const existing = loadConfig();
   saveConfig({ ...existing, ...partial });
+}
+
+export function maybePrintDocsHint(docsUrl: string): void {
+  const config = loadConfig();
+  if (config.docsHintShownAt) return;
+
+  // Print once to stderr so agent runners can discover docs without polluting stdout JSON.
+  process.stderr.write(`\n[agent-mesh] Docs: ${docsUrl}\n\n`);
+  config.docsHintShownAt = new Date().toISOString();
+  saveConfig(config);
 }
 
 function parsePositiveInt(raw: unknown): number | undefined {

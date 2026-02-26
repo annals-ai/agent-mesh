@@ -1,4 +1,14 @@
-import { AgentAdapter, type AdapterConfig, type SessionHandle, type ToolEvent, type OutputAttachment, type UploadCredentials } from './base.js';
+import {
+  AgentAdapter,
+  type AdapterConfig,
+  type SessionHandle,
+  type ToolEvent,
+  type OutputAttachment,
+  type UploadCredentials,
+  type SessionDonePayload,
+  type PlatformTask,
+  type OutputFileManifestEntry,
+} from './base.js';
 import { spawnAgent } from '../utils/process.js';
 import { log } from '../utils/logger.js';
 import { createInterface } from 'node:readline';
@@ -6,9 +16,10 @@ import { homedir } from 'node:os';
 import { which } from '../utils/which.js';
 import { createClientWorkspace } from '../utils/client-workspace.js';
 import { getSandboxPreset, type SandboxFilesystemConfig } from '../utils/sandbox.js';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { join, relative, basename } from 'node:path';
-import { snapshotWorkspace, diffAndUpload, collectRealFiles, type FileSnapshot } from '../utils/auto-upload.js';
+import { collectRealFiles, MIME_MAP } from '../utils/auto-upload.js';
+import { createZipBuffer } from '../utils/zip.js';
 
 const DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const MIN_IDLE_TIMEOUT = 60 * 1000; // 1 minute guardrail
@@ -22,9 +33,9 @@ const CLAUDE_RUNTIME_ALLOW_WRITE_PATHS = [
 ];
 
 
-const COLLECT_TASK_MARKER = 'Collect files task (platform-issued):';
-const MAX_UPLOAD_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-const MAX_COLLECT_FILES = 1500;
+const MAX_UPLOAD_FILE_SIZE = 200 * 1024 * 1024; // 200MB
+const MAX_COLLECT_FILES = 5000;
+const DEFAULT_ZIP_MAX_BYTES = 200 * 1024 * 1024; // 200MB
 
 function resolveIdleTimeoutMs(): number {
   const raw = process.env.AGENT_BRIDGE_CLAUDE_IDLE_TIMEOUT_MS;
@@ -46,7 +57,7 @@ type AnyEvent = Record<string, any>;
 class ClaudeSession implements SessionHandle {
   private chunkCallbacks: ((delta: string) => void)[] = [];
   private toolCallbacks: ((event: ToolEvent) => void)[] = [];
-  private doneCallbacks: ((attachments?: OutputAttachment[]) => void)[] = [];
+  private doneCallbacks: ((payload?: SessionDonePayload) => void)[] = [];
   private errorCallbacks: ((error: Error) => void)[] = [];
   private process: Awaited<ReturnType<typeof spawnAgent>> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -68,9 +79,6 @@ class ClaudeSession implements SessionHandle {
   /** Per-client workspace path (symlink-based), set on each send() */
   private currentWorkspace: string | undefined;
 
-  /** Pre-message workspace file snapshot for diffing */
-  private preMessageSnapshot: Map<string, FileSnapshot> = new Map();
-
   constructor(
     private sessionId: string,
     config: AdapterConfig,
@@ -80,7 +88,13 @@ class ClaudeSession implements SessionHandle {
     this.sandboxFilesystem = sandboxFilesystem;
   }
 
-  send(message: string, attachments?: { name: string; url: string; type: string }[], uploadCredentials?: UploadCredentials, clientId?: string): void {
+  send(
+    message: string,
+    attachments?: { name: string; url: string; type: string }[],
+    uploadCredentials?: UploadCredentials,
+    clientId?: string,
+    platformTask?: PlatformTask
+  ): void {
     this.resetIdleTimer();
     this.doneFired = false;
     this.chunksEmitted = false;
@@ -100,17 +114,15 @@ class ClaudeSession implements SessionHandle {
       this.currentWorkspace = undefined;
     }
 
-    const collectTask = this.parseCollectWorkspaceTask(message);
-    if (collectTask) {
-      void this.runCollectWorkspaceTask(collectTask);
+    if (platformTask) {
+      void this.runPlatformTask(platformTask);
       return;
     }
 
     const args = ['-p', message, '--continue', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions'];
 
-    // Download incoming attachments to workspace → snapshot → launch
+    // Download incoming attachments to workspace before launching.
     void this.downloadAttachments(attachments)
-      .then(() => this.takeSnapshot())
       .then(() => { this.launchProcess(args); });
   }
 
@@ -211,91 +223,181 @@ class ClaudeSession implements SessionHandle {
     });
   }
 
-  private parseCollectWorkspaceTask(message: string): { uploadUrl: string; uploadToken: string } | null {
-    if (!message.includes('[PLATFORM TASK]') || !message.includes('[END PLATFORM TASK]')) {
-      return null;
-    }
-    if (!message.includes(COLLECT_TASK_MARKER)) {
-      return null;
-    }
-
-    const urlMatch = message.match(/UPLOAD_URL=(\S+)/);
-    const tokenMatch = message.match(/UPLOAD_TOKEN=(\S+)/);
-    if (!urlMatch || !tokenMatch) {
-      return null;
-    }
-
-    return {
-      uploadUrl: urlMatch[1].trim(),
-      uploadToken: tokenMatch[1].trim(),
-    };
+  private getWorkspaceRoot(): string {
+    return this.currentWorkspace || this.config.project || process.cwd();
   }
 
-  private async runCollectWorkspaceTask(task: { uploadUrl: string; uploadToken: string }): Promise<void> {
-    const workspaceRoot = this.currentWorkspace || this.config.project || process.cwd();
+  private normalizeRelativePath(inputPath: string): string | null {
+    const normalized = inputPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized || normalized.includes('\0')) return null;
+    if (normalized.split('/').some((seg) => seg === '..')) return null;
+    return normalized;
+  }
+
+  private async runPlatformTask(task: PlatformTask): Promise<void> {
     try {
-      const files = await this.collectWorkspaceFiles(workspaceRoot);
-      if (files.length === 0) {
-        this.emitChunk('NO_FILES_FOUND');
-        this.doneFired = true;
-        for (const cb of this.doneCallbacks) cb();
-        return;
+      if (!this.uploadCredentials) {
+        throw new Error('Missing upload credentials for platform task');
       }
 
-      const uploadedUrls: string[] = [];
-      for (const absPath of files) {
-        this.resetIdleTimer();
-        try {
-          const buffer = await readFile(absPath);
-          if (buffer.length === 0 || buffer.length > MAX_UPLOAD_FILE_SIZE) {
-            continue;
-          }
-
-          const relPath = relative(workspaceRoot, absPath).replace(/\\/g, '/');
-          const filename = relPath && !relPath.startsWith('..') ? relPath : absPath.split('/').pop() || 'file';
-
-          const response = await fetch(task.uploadUrl, {
-            method: 'POST',
-            headers: {
-              'X-Upload-Token': task.uploadToken,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              filename,
-              content: buffer.toString('base64'),
-            }),
-          });
-
-          if (!response.ok) {
-            log.warn(`collect-files upload failed (${response.status}) for ${filename}`);
-            continue;
-          }
-
-          const payload = await response.json() as { url?: string };
-          if (typeof payload.url === 'string' && payload.url.length > 0) {
-            uploadedUrls.push(payload.url);
-          }
-        } catch (error) {
-          log.warn(`collect-files upload error for ${absPath}: ${error}`);
-        }
-      }
-
-      if (uploadedUrls.length === 0) {
-        this.emitChunk('COLLECT_FILES_FAILED');
+      if (task.type === 'upload_file') {
+        await this.runUploadFileTask(task.path);
+      } else if (task.type === 'upload_all_zip') {
+        await this.runUploadAllZipTask(task.zip_name, task.max_bytes);
       } else {
-        this.emitChunk(uploadedUrls.join('\n'));
+        throw new Error(`Unsupported platform task: ${(task as { type?: string }).type || 'unknown'}`);
       }
-
       this.doneFired = true;
-      for (const cb of this.doneCallbacks) cb();
     } catch (error) {
-      this.emitError(new Error(`Collect files task failed: ${error instanceof Error ? error.message : String(error)}`));
+      this.emitError(new Error(`Platform task failed: ${error instanceof Error ? error.message : String(error)}`));
     }
+  }
+
+  private async runUploadFileTask(path: string): Promise<void> {
+    const workspaceRoot = this.getWorkspaceRoot();
+    const relPath = this.normalizeRelativePath(path);
+    if (!relPath) {
+      throw new Error('Invalid file path');
+    }
+
+    const absPath = join(workspaceRoot, relPath);
+    const info = await stat(absPath);
+    if (!info.isFile()) {
+      throw new Error('Path is not a regular file');
+    }
+
+    const buffer = await readFile(absPath);
+    if (buffer.length === 0 || buffer.length > MAX_UPLOAD_FILE_SIZE) {
+      throw new Error(`File size out of bounds: ${buffer.length}`);
+    }
+
+    const uploaded = await this.uploadBuffer(relPath, buffer);
+    for (const cb of this.doneCallbacks) cb({ attachments: [uploaded] });
+  }
+
+  private async runUploadAllZipTask(zipName?: string, maxBytes?: number): Promise<void> {
+    const workspaceRoot = this.getWorkspaceRoot();
+    const files = await this.collectWorkspaceFiles(workspaceRoot);
+    if (files.length === 0) {
+      throw new Error('No files found');
+    }
+
+    const maxZipBytes = typeof maxBytes === 'number' && Number.isFinite(maxBytes) && maxBytes > 0
+      ? Math.floor(maxBytes)
+      : DEFAULT_ZIP_MAX_BYTES;
+
+    const entries: Array<{ path: string; data: Buffer }> = [];
+    let totalBytes = 0;
+
+    for (const absPath of files) {
+      this.resetIdleTimer();
+      const relPath = relative(workspaceRoot, absPath).replace(/\\/g, '/');
+      if (!relPath || relPath.startsWith('..')) continue;
+
+      const buffer = await readFile(absPath);
+      if (buffer.length === 0) continue;
+      totalBytes += buffer.length;
+      if (totalBytes > maxZipBytes) {
+        throw new Error(`ZIP_TOO_LARGE:${totalBytes}`);
+      }
+      entries.push({ path: relPath, data: buffer });
+    }
+
+    const zipBuffer = createZipBuffer(entries);
+    if (zipBuffer.length > maxZipBytes) {
+      throw new Error(`ZIP_TOO_LARGE:${zipBuffer.length}`);
+    }
+
+    const safeZipName = this.normalizeRelativePath(zipName || '') || `workspace-${this.sessionId.slice(0, 8)}.zip`;
+    const uploaded = await this.uploadBuffer(safeZipName.endsWith('.zip') ? safeZipName : `${safeZipName}.zip`, zipBuffer);
+    for (const cb of this.doneCallbacks) cb({ attachments: [uploaded] });
+  }
+
+  private async uploadBuffer(filename: string, buffer: Buffer): Promise<OutputAttachment> {
+    const creds = this.uploadCredentials;
+    if (!creds) {
+      throw new Error('Upload credentials missing');
+    }
+
+    const response = await fetch(creds.uploadUrl, {
+      method: 'POST',
+      headers: {
+        'X-Upload-Token': creds.uploadToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filename,
+        content: buffer.toString('base64'),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed (${response.status}) for ${filename}`);
+    }
+
+    const payload = await response.json() as { url?: string };
+    if (typeof payload.url !== 'string' || payload.url.length === 0) {
+      throw new Error(`Upload response missing url for ${filename}`);
+    }
+
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return {
+      name: filename,
+      url: payload.url,
+      type: MIME_MAP[ext] || 'application/octet-stream',
+    };
   }
 
   private async collectWorkspaceFiles(workspaceRoot: string): Promise<string[]> {
     return collectRealFiles(workspaceRoot, MAX_COLLECT_FILES);
   }
+
+  private async collectWorkspaceManifest(workspaceRoot: string): Promise<OutputFileManifestEntry[]> {
+    const files = await this.collectWorkspaceFiles(workspaceRoot);
+    const manifest: OutputFileManifestEntry[] = [];
+
+    for (const absPath of files) {
+      const relPath = relative(workspaceRoot, absPath).replace(/\\/g, '/');
+      if (!relPath || relPath.startsWith('..')) continue;
+      try {
+        const fileStat = await stat(absPath);
+        if (!fileStat.isFile()) continue;
+        const ext = relPath.split('.').pop()?.toLowerCase() || '';
+        manifest.push({
+          path: relPath,
+          size: fileStat.size,
+          mtime_ms: Math.floor(fileStat.mtimeMs),
+          type: MIME_MAP[ext] || 'application/octet-stream',
+        });
+      } catch {
+        // ignore transient files
+      }
+    }
+
+    manifest.sort((a, b) => a.path.localeCompare(b.path));
+    return manifest;
+  }
+
+  private async finalizeDone(attachments?: OutputAttachment[]): Promise<void> {
+    const workspaceRoot = this.getWorkspaceRoot();
+    let fileManifest: OutputFileManifestEntry[] | undefined;
+    try {
+      fileManifest = await this.collectWorkspaceManifest(workspaceRoot);
+    } catch (error) {
+      log.warn(`Manifest collection failed: ${error}`);
+    }
+
+    const payload: SessionDonePayload = {};
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments;
+    }
+    if (fileManifest) {
+      payload.fileManifest = fileManifest;
+    }
+
+    for (const cb of this.doneCallbacks) cb(payload);
+  }
+
   onChunk(cb: (delta: string) => void): void {
     this.chunkCallbacks.push(cb);
   }
@@ -304,7 +406,7 @@ class ClaudeSession implements SessionHandle {
     this.toolCallbacks.push(cb);
   }
 
-  onDone(cb: (attachments?: OutputAttachment[]) => void): void {
+  onDone(cb: (payload?: SessionDonePayload) => void): void {
     this.doneCallbacks.push(cb);
   }
 
@@ -468,55 +570,16 @@ class ClaudeSession implements SessionHandle {
         }
       }
       this.doneFired = true;
-      // Auto-upload new/modified workspace files, then fire done with attachments
-      void this.autoUploadAndDone();
+      void this.finalizeDone();
       return;
     }
 
     // End subtype
     if (event.type === 'assistant' && event.subtype === 'end') {
       this.doneFired = true;
-      for (const cb of this.doneCallbacks) cb();
+      void this.finalizeDone();
       return;
     }
-  }
-
-  /**
-   * Auto-upload new/modified files from workspace, then fire done callbacks.
-   */
-  private async autoUploadAndDone(): Promise<void> {
-    let attachments: OutputAttachment[] | undefined;
-    const workspaceRoot = this.currentWorkspace || this.config.project;
-
-    if (this.uploadCredentials && workspaceRoot) {
-      try {
-        attachments = await diffAndUpload({
-          workspace: workspaceRoot,
-          snapshot: this.preMessageSnapshot,
-          uploadUrl: this.uploadCredentials.uploadUrl,
-          uploadToken: this.uploadCredentials.uploadToken,
-        });
-        if (attachments && attachments.length > 0) {
-          log.info(`Auto-uploaded ${attachments.length} file(s) from workspace`);
-        }
-      } catch (err) {
-        log.warn(`Auto-upload failed: ${err}`);
-        // Don't block done — still fire callbacks without attachments
-      }
-    }
-
-    for (const cb of this.doneCallbacks) cb(attachments);
-  }
-
-  /**
-   * Snapshot all files in the workspace before Claude starts processing.
-   */
-  private async takeSnapshot(): Promise<void> {
-    this.preMessageSnapshot.clear();
-    const workspaceRoot = this.currentWorkspace || this.config.project;
-    if (!workspaceRoot) return;
-
-    this.preMessageSnapshot = await snapshotWorkspace(workspaceRoot);
   }
 
   private emitChunk(text: string): void {

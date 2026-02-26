@@ -85,6 +85,7 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
       status: string;
       result?: string;
       attachments?: Array<{ name: string; url: string; type?: string }>;
+      file_manifest?: Array<{ path: string; size: number; mtime_ms: number; type: string }>;
       error_message?: string;
       error_code?: string;
     };
@@ -96,6 +97,9 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
         for (const att of task.attachments) {
           process.stdout.write(`${GRAY}[file: ${att.name} -> ${att.url}]${RESET}\n`);
         }
+      }
+      if (task.file_manifest) {
+        process.stdout.write(`${GRAY}[manifest: ${task.file_manifest.length} files]${RESET}\n`);
       }
       return;
     }

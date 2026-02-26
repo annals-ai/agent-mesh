@@ -27,6 +27,8 @@ import type {
   CallAgentDone,
   CallAgentError,
   ChunkKind,
+  FileManifestEntry,
+  PlatformTask,
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
@@ -386,7 +388,20 @@ export class AgentSession implements DurableObject {
       return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
     }
 
-    let body: { session_id: string; request_id: string; content: string; attachments?: Attachment[]; upload_url?: string; upload_token?: string; client_id?: string; mode?: string; callback_url?: string; session_title?: string; user_message?: string };
+    let body: {
+      session_id: string;
+      request_id: string;
+      content: string;
+      attachments?: Attachment[];
+      platform_task?: PlatformTask;
+      upload_url?: string;
+      upload_token?: string;
+      client_id?: string;
+      mode?: string;
+      callback_url?: string;
+      session_title?: string;
+      user_message?: string;
+    };
     try {
       body = await request.json() as typeof body;
     } catch {
@@ -408,6 +423,7 @@ export class AgentSession implements DurableObject {
       request_id: body.request_id,
       content: body.content,
       attachments: body.attachments ?? [],
+      ...(body.platform_task && { platform_task: body.platform_task }),
       ...(body.upload_url && { upload_url: body.upload_url }),
       ...(body.upload_token && { upload_token: body.upload_token }),
       ...(body.client_id && { client_id: body.client_id }),
@@ -537,7 +553,13 @@ export class AgentSession implements DurableObject {
       }
       if (msg.type === 'done') {
         const doneMsg = msg as Done;
-        await this.completeAsyncTask(msg.request_id, task, doneMsg.result || '', doneMsg.attachments);
+        await this.completeAsyncTask(
+          msg.request_id,
+          task,
+          doneMsg.result || '',
+          doneMsg.attachments,
+          doneMsg.file_manifest
+        );
         return;
       }
       if (msg.type === 'error') {
@@ -574,9 +596,11 @@ export class AgentSession implements DurableObject {
         controller.enqueue(`data: ${event}\n\n`);
       } else if (msg.type === 'done') {
         const doneMsg = msg as Done;
-        const doneEvent = doneMsg.attachments && doneMsg.attachments.length > 0
-          ? { type: 'done', attachments: doneMsg.attachments }
-          : { type: 'done' };
+        const doneEvent = {
+          type: 'done',
+          ...(doneMsg.attachments && doneMsg.attachments.length > 0 ? { attachments: doneMsg.attachments } : {}),
+          ...(doneMsg.file_manifest && doneMsg.file_manifest.length > 0 ? { file_manifest: doneMsg.file_manifest } : {}),
+        };
         controller.enqueue(`data: ${JSON.stringify(doneEvent)}\n\n`);
         clearTimeout(timer);
         this.pendingRelays.delete(msg.request_id);
@@ -602,14 +626,17 @@ export class AgentSession implements DurableObject {
     task: AsyncTaskMeta,
     result: string,
     attachments?: Attachment[],
+    fileManifest?: FileManifestEntry[],
   ): Promise<void> {
     const normalizedAttachments = attachments && attachments.length > 0 ? attachments : undefined;
+    const normalizedManifest = fileManifest && fileManifest.length > 0 ? fileManifest : undefined;
 
     // Store result in DO for polling (24h TTL via alarm)
     await this.state.storage.put(`result:${requestId}`, JSON.stringify({
       status: 'completed',
       result,
       ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
+      ...(normalizedManifest ? { file_manifest: normalizedManifest } : {}),
       duration_ms: Date.now() - task.startedAt,
       completed_at: new Date().toISOString(),
     }));
@@ -628,6 +655,7 @@ export class AgentSession implements DurableObject {
           status: 'completed',
           result,
           ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
+          ...(normalizedManifest ? { file_manifest: normalizedManifest } : {}),
           duration_ms: Date.now() - task.startedAt,
           session_key: task.sessionKey,
           session_title: task.sessionTitle,
@@ -1153,7 +1181,15 @@ export class AgentSession implements DurableObject {
             if (!line.startsWith('data: ')) continue;
             const eventData = line.slice(6);
             try {
-              const event = JSON.parse(eventData) as { type: string; delta?: string; kind?: ChunkKind; code?: string; message?: string; attachments?: Attachment[] };
+              const event = JSON.parse(eventData) as {
+                type: string;
+                delta?: string;
+                kind?: ChunkKind;
+                code?: string;
+                message?: string;
+                attachments?: Attachment[];
+                file_manifest?: FileManifestEntry[];
+              };
               if (event.type === 'chunk') {
                 ws.send(JSON.stringify({
                   type: 'call_agent_chunk',
@@ -1167,6 +1203,7 @@ export class AgentSession implements DurableObject {
                   type: 'call_agent_done',
                   call_id: callId,
                   ...(event.attachments && { attachments: event.attachments }),
+                  ...(event.file_manifest && { file_manifest: event.file_manifest }),
                 } satisfies CallAgentDone));
               } else if (event.type === 'error') {
                 await this.updateCallStatus(callRecordId, 'failed');

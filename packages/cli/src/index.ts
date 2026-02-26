@@ -24,7 +24,9 @@ import { registerRegisterCommand } from './commands/register.js';
 import { registerRateCommand } from './commands/rate.js';
 import { registerRuntimeCommand } from './commands/runtime.js';
 import { registerProfileCommand } from './commands/profile.js';
+import { registerFilesCommand } from './commands/files.js';
 import { maybeAutoUpgradeOnStartup } from './utils/auto-updater.js';
+import { maybePrintDocsHint } from './utils/config.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -40,6 +42,15 @@ program
   .version(version)
   .option('-v', 'output the version number')
   .on('option:v', () => { console.log(version); process.exit(0); });
+
+program.configureOutput({
+  outputError: (str, write) => {
+    write(str);
+    if (str.trim().length > 0) {
+      write('\nDocs: https://agents.hot/docs/cli\n');
+    }
+  },
+});
 
 registerConnectCommand(program);
 registerLoginCommand(program);
@@ -65,5 +76,30 @@ registerRegisterCommand(program);
 registerRateCommand(program);
 registerRuntimeCommand(program);
 registerProfileCommand(program);
+registerFilesCommand(program);
+
+program
+  .command('help')
+  .description('Show CLI help')
+  .option('--json', 'Output machine-readable command reference')
+  .action((opts: { json?: boolean }) => {
+    if (opts.json) {
+      const commands = program.commands
+        .map((cmd) => cmd.name())
+        .filter((name) => name !== 'help');
+      console.log(JSON.stringify({
+        name: 'agent-mesh',
+        docs: 'https://agents.hot/docs/cli',
+        commands,
+      }));
+      return;
+    }
+    program.outputHelp();
+  });
+
+const wantsJsonOutput = process.argv.includes('--json');
+if (!wantsJsonOutput && !process.argv.includes('--version') && !process.argv.includes('-v')) {
+  maybePrintDocsHint('https://agents.hot/docs/cli');
+}
 
 program.parse();

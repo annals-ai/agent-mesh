@@ -59,7 +59,7 @@ async function asyncCall(opts: {
   json?: boolean;
   outputFile?: string;
   signal?: AbortSignal;
-}): Promise<{ callId: string }> {
+}): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
   const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${opts.id}/call`, {
@@ -90,9 +90,10 @@ async function asyncCall(opts: {
     process.exit(1);
   }
 
-  const { request_id, call_id, status, error_message, error_code } = await res.json() as {
+  const { request_id, call_id, session_key, status, error_message, error_code } = await res.json() as {
     request_id: string;
     call_id: string;
+    session_key?: string;
     status: string;
     error_message?: string;
     error_code?: string;
@@ -146,9 +147,13 @@ async function asyncCall(opts: {
         console.log(JSON.stringify({
           call_id,
           request_id,
+          ...(session_key ? { session_key } : {}),
           status: 'completed',
           result,
           ...(task.attachments?.length ? { attachments: task.attachments } : {}),
+          ...(Array.isArray((task as { file_manifest?: unknown[] }).file_manifest)
+            ? { file_manifest: (task as { file_manifest: unknown[] }).file_manifest }
+            : {}),
           rate_hint: `POST /api/agents/${opts.id}/rate  body: { call_id: "${call_id}", rating: 1-5 }`,
         }));
       } else {
@@ -158,6 +163,13 @@ async function asyncCall(opts: {
             log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
           }
         }
+        const manifest = (task as { file_manifest?: unknown[] }).file_manifest;
+        if (Array.isArray(manifest)) {
+          log.info(`  ${GRAY}Manifest:${RESET} ${manifest.length} file(s)`);
+        }
+        if (session_key) {
+          log.info(`  ${GRAY}Session:${RESET} ${session_key}`);
+        }
       }
       if (opts.outputFile && result) {
         writeFileSync(opts.outputFile, result);
@@ -166,7 +178,7 @@ async function asyncCall(opts: {
       if (!opts.json) {
         log.info(`${GRAY}Rate this call: agent-mesh rate ${call_id} <1-5> --agent ${opts.id}${RESET}`);
       }
-      return { callId: call_id };
+      return { callId: call_id, ...(session_key ? { sessionKey: session_key } : {}) };
     }
 
     if (task.status === 'failed') {
@@ -201,7 +213,7 @@ async function streamCall(opts: {
   json?: boolean;
   outputFile?: string;
   signal?: AbortSignal;
-}): Promise<{ callId: string }> {
+}): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
   const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${opts.id}/call`, {
@@ -237,7 +249,7 @@ async function streamCall(opts: {
 
   // Fallback: JSON response (no SSE support)
   if (contentType.includes('application/json')) {
-    const result = await res.json() as { call_id: string; status: string; created_at: string };
+    const result = await res.json() as { call_id: string; status: string; created_at: string; session_key?: string };
     if (opts.json) {
       console.log(JSON.stringify(result));
     } else {
@@ -248,7 +260,7 @@ async function streamCall(opts: {
       console.log(`  ${GRAY}Created${RESET}    ${result.created_at}`);
       console.log('');
     }
-    return;
+    return { callId: result.call_id, ...(result.session_key ? { sessionKey: result.session_key } : {}) };
   }
 
   // SSE streaming
@@ -268,6 +280,7 @@ async function streamCall(opts: {
   let outputBuffer = '';
   let inThinkingBlock = false;
   let callId = res.headers.get('X-Call-Id') || '';
+  let sessionKey = res.headers.get('X-Session-Key') || '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -283,6 +296,9 @@ async function streamCall(opts: {
         const event = JSON.parse(data);
         if (event.type === 'start' && event.call_id) {
           callId = event.call_id;
+          if (event.session_key) {
+            sessionKey = event.session_key;
+          }
         }
         if (opts.json) {
           console.log(JSON.stringify(event));
@@ -305,6 +321,9 @@ async function streamCall(opts: {
             console.log('');
             for (const att of event.attachments as { name: string; url: string }[]) {
               log.info(`  ${GRAY}File:${RESET} ${att.name}  ${GRAY}${att.url}${RESET}`);
+            }
+            if (Array.isArray(event.file_manifest)) {
+              log.info(`  ${GRAY}Manifest:${RESET} ${event.file_manifest.length} file(s)`);
             }
           } else if (event.type === 'error') {
             process.stderr.write(`\nError: ${event.message}\n`);
@@ -344,12 +363,15 @@ async function streamCall(opts: {
   if (!opts.json) {
     console.log('\n');
     log.success('Call completed');
+    if (sessionKey) {
+      log.info(`${GRAY}Session:${RESET} ${sessionKey}`);
+    }
     if (callId) {
       log.info(`${GRAY}Rate this call: agent-mesh rate ${callId} <1-5> --agent ${opts.id}${RESET}`);
     }
   }
 
-  return { callId };
+  return { callId, ...(sessionKey ? { sessionKey } : {}) };
 }
 
 export function registerCallCommand(program: Command): void {
@@ -404,7 +426,7 @@ export function registerCallCommand(program: Command): void {
           signal: abortController.signal,
         };
 
-        let result: { callId: string };
+        let result: { callId: string; sessionKey?: string };
         if (opts.stream) {
           result = await streamCall(callOpts);
         } else {

@@ -226,7 +226,7 @@ export class BridgeManager {
 
   private async dispatchWithLocalQueue(opts: { msg: Message; handle: SessionHandle; requestKey: string }): Promise<void> {
     const { msg, handle, requestKey } = opts;
-    const { session_id, request_id, content, attachments, upload_url, upload_token, client_id } = msg;
+    const { session_id, request_id, content, attachments, upload_url, upload_token, client_id, platform_task } = msg;
     const state = this.requestDispatches.get(requestKey);
     if (!state) return;
 
@@ -255,7 +255,7 @@ export class BridgeManager {
         : undefined;
 
       try {
-        handle.send(content, attachments, uploadCredentials, client_id);
+        handle.send(content, attachments, uploadCredentials, client_id, platform_task);
         this.sessionLastSeenAt.set(session_id, Date.now());
       } catch (err) {
         log.error(`Failed to send to adapter: ${err}`);
@@ -323,13 +323,16 @@ export class BridgeManager {
       this.sessionLastSeenAt.set(sessionId, Date.now());
     });
 
-    handle.onDone((attachments) => {
+    handle.onDone((payload) => {
       void this.releaseRequestLease(sessionId, requestRef.requestId, 'done');
+      const attachments = payload?.attachments;
+      const fileManifest = payload?.fileManifest;
       const done: Done = {
         type: 'done',
         session_id: sessionId,
         request_id: requestRef.requestId,
         ...(attachments && attachments.length > 0 && { attachments: attachments as Attachment[] }),
+        ...(fileManifest && fileManifest.length > 0 && { file_manifest: fileManifest }),
         ...(fullResponseBuffer && { result: fullResponseBuffer }),
       };
       this.trackRequest(sessionId, requestRef.requestId, 'done');

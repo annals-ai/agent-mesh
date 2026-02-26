@@ -24,16 +24,45 @@ export interface OutputAttachment {
   type: string;
 }
 
+export interface OutputFileManifestEntry {
+  path: string;
+  size: number;
+  mtime_ms: number;
+  type: string;
+}
+
+export type PlatformTask =
+  | {
+      type: 'upload_file';
+      path: string;
+    }
+  | {
+      type: 'upload_all_zip';
+      zip_name?: string;
+      max_bytes?: number;
+    };
+
+export interface SessionDonePayload {
+  attachments?: OutputAttachment[];
+  fileManifest?: OutputFileManifestEntry[];
+}
+
 export interface UploadCredentials {
   uploadUrl: string;
   uploadToken: string;
 }
 
 export interface SessionHandle {
-  send(message: string, attachments?: { name: string; url: string; type: string }[], uploadCredentials?: UploadCredentials, clientId?: string): void;
+  send(
+    message: string,
+    attachments?: { name: string; url: string; type: string }[],
+    uploadCredentials?: UploadCredentials,
+    clientId?: string,
+    platformTask?: PlatformTask
+  ): void;
   onChunk(cb: (delta: string) => void): void;
   onToolEvent(cb: (event: ToolEvent) => void): void;
-  onDone(cb: (attachments?: OutputAttachment[]) => void): void;
+  onDone(cb: (payload?: SessionDonePayload) => void): void;
   onError(cb: (error: Error) => void): void;
   kill(): void;
 }
