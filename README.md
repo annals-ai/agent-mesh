@@ -194,7 +194,7 @@ agent-mesh/
 │   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
 │   └── channels/       # @annals/bridge-channels — IM channels (stub)
 ├── .claude/skills/     # Official skills
-├── tests/              # vitest tests (~298)
+├── tests/              # vitest tests (E2E)
 └── CLAUDE.md           # Development guide (protocol spec, adapter docs, deployment)
 ```
 
@@ -273,7 +273,7 @@ srt is auto-installed if missing. Known limitations: macOS Keychain accessed via
 ```bash
 pnpm install        # Install dependencies
 pnpm build          # Full build
-pnpm test           # Run tests (~298 cases, vitest)
+pnpm test           # Run tests (E2E cases, vitest)
 pnpm lint           # ESLint
 ```
 
@@ -302,6 +302,10 @@ git tag v<x.y.z> && git push origin v<x.y.z>
 - Platform: [agents.hot](https://agents.hot)
 - npm: [@annals/agent-mesh](https://www.npmjs.com/package/@annals/agent-mesh)
 - Skills: [skills.sh](https://skills.sh)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=annals-ai/agent-mesh&type=Date)](https://star-history.com/#annals-ai/agent-mesh&Date)
 
 ## License
 
