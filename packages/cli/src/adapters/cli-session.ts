@@ -6,30 +6,21 @@ import {
   type OutputAttachment,
   type SessionDonePayload,
 } from './base.js';
-import type { FileTransferOffer } from '@annals/bridge-protocol';
+import type { CliProfile, OutputParser, ParsedEvent } from './profiles.js';
+import { buildSandboxFilesystem, type SandboxFilesystemConfig } from '../utils/sandbox.js';
 import { spawnAgent } from '../utils/process.js';
 import { log } from '../utils/logger.js';
 import { createInterface } from 'node:readline';
-import { homedir } from 'node:os';
 import { which } from '../utils/which.js';
 import { createClientWorkspace } from '../utils/client-workspace.js';
-import { getSandboxPreset, type SandboxFilesystemConfig } from '../utils/sandbox.js';
 import { writeFile, mkdir, stat } from 'node:fs/promises';
 import { join, relative, basename } from 'node:path';
-import { collectRealFiles, MIME_MAP } from '../utils/auto-upload.js';
+import { collectRealFiles } from '../utils/auto-upload.js';
 import { createZipBuffer } from '../utils/zip.js';
 import { sha256Hex } from '../utils/webrtc-transfer.js';
 
 const DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const MIN_IDLE_TIMEOUT = 60 * 1000; // 1 minute guardrail
-const HOME_DIR = homedir();
-const CLAUDE_RUNTIME_ALLOW_WRITE_PATHS = [
-  `${HOME_DIR}/.claude`,
-  `${HOME_DIR}/.claude.json`,
-  `${HOME_DIR}/.claude.json.lock`,
-  `${HOME_DIR}/.claude.json.tmp`,
-  `${HOME_DIR}/.local/state/claude`,
-];
 
 const MAX_COLLECT_FILES = 5000;
 const DEFAULT_ZIP_MAX_BYTES = 200 * 1024 * 1024; // 200MB
@@ -48,10 +39,7 @@ function resolveIdleTimeoutMs(): number {
 
 const IDLE_TIMEOUT = resolveIdleTimeoutMs();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyEvent = Record<string, any>;
-
-class ClaudeSession implements SessionHandle {
+class CliSession implements SessionHandle {
   private chunkCallbacks: ((delta: string) => void)[] = [];
   private toolCallbacks: ((event: ToolEvent) => void)[] = [];
   private doneCallbacks: ((payload?: SessionDonePayload) => void)[] = [];
@@ -61,14 +49,9 @@ class ClaudeSession implements SessionHandle {
   private doneFired = false;
   private chunksEmitted = false;
   private config: AdapterConfig;
+  private profile: CliProfile;
+  private parser: OutputParser;
   private sandboxFilesystem: SandboxFilesystemConfig | undefined;
-
-  /** Track current tool call being streamed */
-  private activeToolCallId: string | null = null;
-  private activeToolName: string | null = null;
-
-  /** Track current content block type to distinguish thinking vs text deltas */
-  private currentBlockType: 'thinking' | 'text' | null = null;
 
   /** Per-client workspace path (symlink-based), set on each send() */
   private currentWorkspace: string | undefined;
@@ -79,9 +62,12 @@ class ClaudeSession implements SessionHandle {
   constructor(
     private sessionId: string,
     config: AdapterConfig,
+    profile: CliProfile,
     sandboxFilesystem?: SandboxFilesystemConfig,
   ) {
     this.config = config;
+    this.profile = profile;
+    this.parser = profile.createParser();
     this.sandboxFilesystem = sandboxFilesystem;
   }
 
@@ -94,10 +80,10 @@ class ClaudeSession implements SessionHandle {
     this.resetIdleTimer();
     this.doneFired = false;
     this.chunksEmitted = false;
-    this.activeToolCallId = null;
-    this.activeToolName = null;
-    this.currentBlockType = null;
     this.withFiles = withFiles || false;
+
+    // Reset parser for new message
+    this.parser = this.profile.createParser();
 
     // Set up per-client workspace (symlink-based isolation)
     if (clientId && this.config.project) {
@@ -106,17 +92,13 @@ class ClaudeSession implements SessionHandle {
       this.currentWorkspace = undefined;
     }
 
-    const args = ['-p', message, '--continue', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--dangerously-skip-permissions'];
+    const args = this.profile.buildArgs(message);
 
     // Download incoming attachments to workspace before launching.
     void this.downloadAttachments(attachments)
       .then(() => { this.launchProcess(args); });
   }
 
-  /**
-   * Download incoming attachment URLs to the workspace directory so Claude can read them.
-   * Runs before the workspace snapshot so downloaded files are treated as pre-existing inputs.
-   */
   private async downloadAttachments(attachments?: { name: string; url: string; type: string }[]): Promise<void> {
     if (!attachments || attachments.length === 0) return;
 
@@ -126,7 +108,6 @@ class ClaudeSession implements SessionHandle {
     await mkdir(workspaceRoot, { recursive: true });
 
     for (const att of attachments) {
-      // Sanitize: strip path separators to prevent directory traversal
       const safeName = basename(att.name).replace(/[^a-zA-Z0-9._-]/g, '_') || 'attachment';
       const destPath = join(workspaceRoot, safeName);
       try {
@@ -148,18 +129,19 @@ class ClaudeSession implements SessionHandle {
     const cwd = this.currentWorkspace || this.config.project || undefined;
 
     try {
-      this.process = await spawnAgent('claude', args, {
+      this.process = await spawnAgent(this.profile.command, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: cwd || undefined,
         sandboxEnabled: this.config.sandboxEnabled,
         sandboxFilesystem: this.sandboxFilesystem,
+        envPassthroughKeys: this.profile.envPassthroughKeys,
         env: {
           ...process.env,
           ...(this.config.agentId ? { AGENT_BRIDGE_AGENT_ID: this.config.agentId } : {}),
         },
       });
     } catch (err) {
-      this.emitError(new Error(`Failed to spawn claude: ${err}`));
+      this.emitError(new Error(`Failed to spawn ${this.profile.command}: ${err}`));
       return;
     }
 
@@ -169,45 +151,70 @@ class ClaudeSession implements SessionHandle {
 
     rl.on('line', (line) => {
       this.resetIdleTimer();
-      if (!line.trim()) return;
 
-      try {
-        const event = JSON.parse(line) as AnyEvent;
+      const parsed = this.parser.parseLine(line);
+      if (!parsed) return;
 
-        // Capture error detail from Claude's stream events
-        if (event.is_error && typeof event.result === 'string') {
-          errorDetail = event.result;
-        }
-        if (event.error && typeof event.error === 'string') {
-          errorDetail = errorDetail || event.error;
-        }
-
-        this.handleEvent(event);
-      } catch {
-        log.debug(`Claude non-JSON line: ${line}`);
+      // Capture error detail for exit handler
+      if (parsed.type === 'error') {
+        errorDetail = parsed.message;
       }
+
+      this.dispatchParsedEvent(parsed);
     });
 
     this.process.stderr.on('data', (data: Buffer) => {
       const text = data.toString().trim();
       if (text) {
         stderrText += text + '\n';
-        log.debug(`Claude stderr: ${text}`);
+        log.debug(`${this.profile.displayName} stderr: ${text}`);
       }
     });
 
     this.process.child.on('exit', (code) => {
+      // autoEmitDoneOnExit: process exit with code 0 = done
+      if (this.profile.autoEmitDoneOnExit && code === 0 && !this.doneFired) {
+        this.doneFired = true;
+        void this.finalizeDone();
+        return;
+      }
+
       if (code !== 0 && code !== null) {
         setTimeout(() => {
           if (this.doneFired) return;
           const detail = errorDetail || stderrText.trim();
           const msg = detail
-            ? `Claude process failed: ${detail}`
-            : `Claude process exited with code ${code}`;
+            ? `${this.profile.displayName} process failed: ${detail}`
+            : `${this.profile.displayName} process exited with code ${code}`;
           this.emitError(new Error(msg));
         }, 50);
       }
     });
+  }
+
+  private dispatchParsedEvent(event: ParsedEvent): void {
+    switch (event.type) {
+      case 'chunk':
+        if (!this.chunksEmitted) {
+          this.emitChunk(event.text);
+        } else {
+          // If chunks already emitted and this is from a "result" fallback,
+          // still emit — the parser already handles dedup for assistant messages
+          this.emitChunk(event.text);
+        }
+        break;
+      case 'tool':
+        this.emitToolEvent(event.event);
+        break;
+      case 'done':
+        this.doneFired = true;
+        void this.finalizeDone(event.attachments);
+        break;
+      case 'error':
+        this.doneFired = true;
+        this.emitError(new Error(event.message));
+        break;
+    }
   }
 
   private getWorkspaceRoot(): string {
@@ -218,10 +225,6 @@ class ClaudeSession implements SessionHandle {
     return collectRealFiles(workspaceRoot, MAX_COLLECT_FILES);
   }
 
-  /**
-   * Collect workspace files into a ZIP buffer + compute SHA-256.
-   * Only called when with_files is true.
-   */
   private async createWorkspaceZip(workspaceRoot: string): Promise<{ zipBuffer: Buffer; fileCount: number } | null> {
     const files = await this.collectWorkspaceFiles(workspaceRoot);
     if (files.length === 0) return null;
@@ -262,7 +265,6 @@ class ClaudeSession implements SessionHandle {
       payload.attachments = attachments;
     }
 
-    // Only create ZIP when caller requested files
     if (this.withFiles) {
       const workspaceRoot = this.getWorkspaceRoot();
       try {
@@ -311,166 +313,6 @@ class ClaudeSession implements SessionHandle {
     }
   }
 
-  private handleEvent(event: AnyEvent): void {
-    // ── stream_event wrapper (--include-partial-messages mode) ──
-
-    if (event.type === 'stream_event' && event.event) {
-      const inner = event.event;
-
-      // Track current block type (thinking vs text) from content_block_start
-      if (inner.type === 'content_block_start') {
-        const blockType = inner.content_block?.type as string | undefined;
-        if (blockType === 'thinking') {
-          this.currentBlockType = 'thinking';
-        } else if (blockType === 'text') {
-          this.currentBlockType = 'text';
-        }
-        // tool_use handled separately below
-      }
-
-      // Text delta — route to thinking or actual output based on current block
-      if (inner.type === 'content_block_delta' && inner.delta?.type === 'text_delta' && inner.delta.text) {
-        if (this.currentBlockType === 'thinking') {
-          this.emitToolEvent({ kind: 'thinking', tool_name: '', tool_call_id: '', delta: inner.delta.text });
-        } else {
-          this.emitChunk(inner.delta.text);
-        }
-        return;
-      }
-
-      // Thinking delta — extended thinking API (thinking_delta type)
-      if (inner.type === 'content_block_delta' && inner.delta?.type === 'thinking_delta' && inner.delta.thinking) {
-        this.emitToolEvent({
-          kind: 'thinking',
-          tool_name: '',
-          tool_call_id: '',
-          delta: inner.delta.thinking,
-        });
-        return;
-      }
-
-      // Tool use start — content_block_start with tool_use type
-      if (inner.type === 'content_block_start' && inner.content_block?.type === 'tool_use') {
-        const toolCallId = inner.content_block.id || `tool-${Date.now()}`;
-        const toolName = inner.content_block.name || 'unknown';
-        this.activeToolCallId = toolCallId;
-        this.activeToolName = toolName;
-        this.emitToolEvent({
-          kind: 'tool_start',
-          tool_name: toolName,
-          tool_call_id: toolCallId,
-          delta: '',
-        });
-        return;
-      }
-
-      // Tool input delta — streaming JSON fragments of tool parameters
-      if (inner.type === 'content_block_delta' && inner.delta?.type === 'input_json_delta' && inner.delta.partial_json !== undefined) {
-        if (this.activeToolCallId && this.activeToolName) {
-          this.emitToolEvent({
-            kind: 'tool_input',
-            tool_name: this.activeToolName,
-            tool_call_id: this.activeToolCallId,
-            delta: inner.delta.partial_json,
-          });
-        }
-        return;
-      }
-
-      // Content block stop — tool input complete
-      if (inner.type === 'content_block_stop') {
-        this.activeToolCallId = null;
-        this.activeToolName = null;
-        return;
-      }
-
-      // Catch-all: forward any other stream event as 'status' so nothing is silently lost
-      if (inner.type && inner.type !== 'message_start' && inner.type !== 'message_stop') {
-        this.emitToolEvent({
-          kind: 'status',
-          tool_name: '',
-          tool_call_id: '',
-          delta: JSON.stringify(inner),
-        });
-      }
-      return;
-    }
-
-    // ── Tool result (user event with tool_result content) ──
-
-    if (event.type === 'user' && event.message?.content) {
-      for (const block of event.message.content) {
-        if (block.type === 'tool_result') {
-          const toolCallId = block.tool_use_id || 'unknown';
-          const resultText = typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? '');
-          const isError = !!block.is_error;
-          this.emitToolEvent({
-            kind: 'tool_result',
-            tool_name: '', // tool name not in result event
-            tool_call_id: toolCallId,
-            delta: isError ? `[error] ${resultText}` : resultText,
-          });
-        }
-      }
-      return;
-    }
-
-    // ── Legacy formats (for Claude Code versions without --include-partial-messages) ──
-
-    if (event.type === 'assistant' && event.subtype === 'text_delta' && event.delta?.text) {
-      this.emitChunk(event.delta.text);
-      return;
-    }
-
-    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta?.text) {
-      this.emitChunk(event.delta.text);
-      return;
-    }
-
-    // Full assistant message — skip if chunks already streamed
-    if (event.type === 'assistant' && event.message?.content) {
-      if (event.error) return;
-      if (this.chunksEmitted) return;
-
-      for (const block of event.message.content) {
-        if (block.type === 'text' && block.text) {
-          this.emitTextAsChunks(block.text);
-        }
-      }
-      return;
-    }
-
-    // Result event — completion
-    if (event.type === 'result') {
-      if (event.is_error) {
-        // Emit error instead of silently swallowing — prevents the stream
-        // from hanging when Claude returns an error with exit code 0.
-        const errorText = typeof event.result === 'string' && event.result
-          ? event.result
-          : 'Claude returned an error';
-        this.doneFired = true; // prevent exit handler from double-firing
-        this.emitError(new Error(errorText));
-        return;
-      }
-
-      if (!this.chunksEmitted) {
-        if (typeof event.result === 'string' && event.result) {
-          this.emitTextAsChunks(event.result);
-        }
-      }
-      this.doneFired = true;
-      void this.finalizeDone();
-      return;
-    }
-
-    // End subtype
-    if (event.type === 'assistant' && event.subtype === 'end') {
-      this.doneFired = true;
-      void this.finalizeDone();
-      return;
-    }
-  }
-
   private emitChunk(text: string): void {
     this.chunksEmitted = true;
     for (const cb of this.chunkCallbacks) cb(text);
@@ -509,7 +351,7 @@ class ClaudeSession implements SessionHandle {
   private resetIdleTimer(): void {
     this.clearIdleTimer();
     this.idleTimer = setTimeout(() => {
-      log.warn(`Claude session ${this.sessionId} idle timeout, killing process`);
+      log.warn(`${this.profile.displayName} session ${this.sessionId} idle timeout, killing process`);
       this.kill();
     }, IDLE_TIMEOUT);
   }
@@ -530,36 +372,33 @@ class ClaudeSession implements SessionHandle {
   }
 }
 
-export class ClaudeAdapter extends AgentAdapter {
-  readonly type = 'claude';
-  readonly displayName = 'Claude Code';
+export class CliAdapter extends AgentAdapter {
+  readonly type: string;
+  readonly displayName: string;
 
-  private sessions = new Map<string, ClaudeSession>();
+  private sessions = new Map<string, CliSession>();
   private config: AdapterConfig;
+  private profile: CliProfile;
 
-  constructor(config: AdapterConfig = {}) {
+  constructor(profile: CliProfile, config: AdapterConfig = {}) {
     super();
+    this.profile = profile;
+    this.type = profile.command;
+    this.displayName = profile.displayName;
     this.config = config;
   }
 
   async isAvailable(): Promise<boolean> {
-    return !!(await which('claude'));
+    return !!(await which(this.profile.command));
   }
 
   createSession(id: string, config: AdapterConfig): SessionHandle {
     const merged = { ...this.config, ...config };
-    let sandboxFilesystem: SandboxFilesystemConfig | undefined;
+    const sandboxFs = merged.sandboxEnabled && merged.project
+      ? buildSandboxFilesystem(this.profile, merged.project)
+      : undefined;
 
-    if (merged.sandboxEnabled && merged.project) {
-      const preset = getSandboxPreset('claude');
-      sandboxFilesystem = {
-        denyRead: preset.denyRead,
-        allowWrite: Array.from(new Set([merged.project, '/tmp', ...CLAUDE_RUNTIME_ALLOW_WRITE_PATHS])),
-        denyWrite: preset.denyWrite,
-      };
-    }
-
-    const session = new ClaudeSession(id, merged, sandboxFilesystem);
+    const session = new CliSession(id, merged, this.profile, sandboxFs);
     this.sessions.set(id, session);
     return session;
   }
@@ -568,7 +407,6 @@ export class ClaudeAdapter extends AgentAdapter {
     const session = this.sessions.get(id);
     if (session) {
       session.kill();
-      // Client workspaces are persistent — no cleanup needed
       this.sessions.delete(id);
     }
   }

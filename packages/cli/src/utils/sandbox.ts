@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { log } from './logger.js';
+import type { CliProfile } from '../adapters/profiles.js';
 
 const SRT_PACKAGE = '@anthropic-ai/sandbox-runtime';
 
@@ -10,10 +11,6 @@ export interface SandboxFilesystemConfig {
   denyWrite?: string[];
 }
 
-/**
- * Default filesystem presets per agent type.
- * Network is handled by the srt programmatic API (updateConfig bypass = unrestricted).
- */
 /**
  * Sensitive paths that must be blocked from reading inside the sandbox.
  * Covers: SSH keys, cloud credentials, API keys, tokens, agent configs,
@@ -60,13 +57,16 @@ const SENSITIVE_PATHS: string[] = [
   '~/Library/Keychains',
 ];
 
-const SANDBOX_PRESETS: Record<string, SandboxFilesystemConfig> = {
-  claude: {
-    denyRead: [...SENSITIVE_PATHS],
-    allowWrite: ['.', '/tmp'],
+/**
+ * Build a sandbox filesystem config from a CliProfile and project path.
+ */
+export function buildSandboxFilesystem(profile: CliProfile, projectPath: string): SandboxFilesystemConfig {
+  return {
+    denyRead: [...SENSITIVE_PATHS, ...profile.configDirs],
+    allowWrite: [...new Set([projectPath, '/tmp', ...profile.runtimeWritePaths])],
     denyWrite: ['.env', '.env.*'],
-  },
-};
+  };
+}
 
 // ── SandboxManager dynamic import ──────────────────────
 
@@ -135,22 +135,18 @@ export async function isSandboxAvailable(): Promise<boolean> {
 }
 
 /**
- * Get the default filesystem config for an agent type.
- */
-export function getSandboxPreset(agentType: string): SandboxFilesystemConfig {
-  return SANDBOX_PRESETS[agentType] ?? SANDBOX_PRESETS.claude;
-}
-
-/**
- * Initialize sandbox for a given agent type.
+ * Initialize the sandbox runtime.
  *
  * Uses the srt programmatic API:
  * 1. initialize() with a placeholder allowedDomains (required by srt)
  * 2. updateConfig() to bypass — remove allowedDomains, leaving network unrestricted
  *
+ * The filesystem config is applied per-session via wrapWithSandbox(filesystemOverride).
+ * Here we use a minimal default that gets overridden at spawn time.
+ *
  * Returns true on success, false on failure.
  */
-export async function initSandbox(agentType: string): Promise<boolean> {
+export async function initSandbox(): Promise<boolean> {
   // Try to import SandboxManager
   let mgr = await resolveManager();
 
@@ -172,7 +168,11 @@ export async function initSandbox(agentType: string): Promise<boolean> {
     return false;
   }
 
-  const filesystem = getSandboxPreset(agentType);
+  const filesystem: SandboxFilesystemConfig = {
+    denyRead: [...SENSITIVE_PATHS],
+    allowWrite: ['.', '/tmp'],
+    denyWrite: ['.env', '.env.*'],
+  };
 
   try {
     // Step 1: initialize with a placeholder allowedDomains (srt requires it)

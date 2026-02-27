@@ -4,7 +4,8 @@ import { loadConfig, addAgent, findAgentByAgentId, uniqueSlug, getAgentWorkspace
 import { writePid, removePid, spawnBackground, isProcessAlive, getLogPath } from '../utils/process-manager.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { BridgeManager } from '../bridge/manager.js';
-import { ClaudeAdapter } from '../adapters/claude.js';
+import { getProfile, PROFILES } from '../adapters/profiles.js';
+import { CliAdapter } from '../adapters/cli-session.js';
 import type { AgentAdapter, AdapterConfig } from '../adapters/base.js';
 import { initSandbox, resetSandbox } from '../utils/sandbox.js';
 import { log } from '../utils/logger.js';
@@ -26,12 +27,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
-  switch (type) {
-    case 'claude':
-      return new ClaudeAdapter(config);
-    default:
-      throw new Error(`Unknown agent type: ${type}. Supported: claude`);
-  }
+  const profile = getProfile(type); // throws if unknown
+  return new CliAdapter(profile, config);
 }
 
 export function registerConnectCommand(program: Command): void {
@@ -77,8 +74,9 @@ export function registerConnectCommand(program: Command): void {
             bridge_url: string;
           };
 
-          if (ticketData.agent_type !== 'claude') {
-            log.error(`Unsupported agent type from ticket: ${ticketData.agent_type}. Only claude is supported.`);
+          if (!PROFILES[ticketData.agent_type]) {
+            const supported = Object.keys(PROFILES).join(', ');
+            log.error(`Unsupported agent type from ticket: ${ticketData.agent_type}. Supported: ${supported}`);
             process.exit(1);
           }
 
@@ -220,7 +218,7 @@ export function registerConnectCommand(program: Command): void {
       // Sandbox
       const sandboxEnabled = opts.sandbox ?? true;
       if (sandboxEnabled) {
-        const ok = await initSandbox(agentType);
+        const ok = await initSandbox();
         if (!ok) {
           log.warn('Sandbox not available on this platform, continuing without sandbox');
         }

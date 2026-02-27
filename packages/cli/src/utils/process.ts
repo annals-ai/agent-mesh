@@ -1,24 +1,14 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { buildCommandString, wrapWithSandbox, type SandboxFilesystemConfig } from './sandbox.js';
 
-const SANDBOX_ENV_PASSTHROUGH_KEYS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_MODEL',
-  'HAPPY_CLAUDE_PATH',
-  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
-  'AGENT_BRIDGE_AGENT_ID',   // 当前 Agent 的 UUID，传给 claude code 子进程（A2A caller 标识）
-] as const;
-
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export function applySandboxEnv(command: string, env: NodeJS.ProcessEnv = process.env): string {
+export function applySandboxEnv(command: string, keys: string[], env: NodeJS.ProcessEnv = process.env): string {
   const assignments: string[] = [];
 
-  for (const key of SANDBOX_ENV_PASSTHROUGH_KEYS) {
+  for (const key of keys) {
     const value = env[key];
     if (typeof value === 'string' && value.length > 0) {
       assignments.push(`${key}=${shellQuote(value)}`);
@@ -45,6 +35,8 @@ export interface SpawnAgentOptions extends SpawnOptions {
   sandboxEnabled?: boolean;
   /** Per-session filesystem override (e.g. scoped allowWrite to worktree). */
   sandboxFilesystem?: SandboxFilesystemConfig;
+  /** Env var keys to pass through the sandbox shell wrapper. */
+  envPassthroughKeys?: string[];
 }
 
 export async function spawnAgent(
@@ -52,14 +44,14 @@ export async function spawnAgent(
   args: string[],
   options?: SpawnAgentOptions
 ): Promise<SpawnResult> {
-  const { sandboxEnabled, sandboxFilesystem, ...spawnOptions } = options ?? {};
+  const { sandboxEnabled, sandboxFilesystem, envPassthroughKeys, ...spawnOptions } = options ?? {};
 
   let finalCommand: string;
   let finalArgs: string[];
 
   if (sandboxEnabled) {
     const rawCommand = buildCommandString(command, args);
-    const cmdString = applySandboxEnv(rawCommand);
+    const cmdString = applySandboxEnv(rawCommand, envPassthroughKeys ?? []);
     const wrapped = await wrapWithSandbox(cmdString, sandboxFilesystem);
 
     if (wrapped) {
