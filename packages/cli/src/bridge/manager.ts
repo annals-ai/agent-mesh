@@ -17,6 +17,7 @@ import { readFile as readFileAsync, writeFile as writeFileAsync, unlink, mkdir a
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { extractZipBuffer } from '../utils/zip.js';
+import { createClientWorkspace } from '../utils/client-workspace.js';
 import { log } from '../utils/logger.js';
 
 const DUPLICATE_REQUEST_TTL_MS = 10 * 60_000;
@@ -637,7 +638,7 @@ export class BridgeManager {
     // Handle prepare-upload signal: register upload receiver before any message
     if ((msg.signal_type as string) === 'prepare-upload') {
       const offer = JSON.parse(msg.payload) as FileTransferOffer;
-      this.registerPendingUpload(offer);
+      this.registerPendingUpload(offer, msg.client_id);
       return;
     }
 
@@ -676,7 +677,7 @@ export class BridgeManager {
   // Upload (Caller → Agent) WebRTC signaling
   // ========================================================
 
-  private registerPendingUpload(offer: FileTransferOffer): void {
+  private registerPendingUpload(offer: FileTransferOffer, clientId?: string): void {
     const receiver = new FileUploadReceiver(offer.zip_size, offer.zip_sha256);
 
     // Wire outgoing signals through Bridge WS
@@ -706,10 +707,12 @@ export class BridgeManager {
       clearTimeout(timer);
       this.pendingUploads.delete(offer.transfer_id);
 
-      // Extract to agent's project directory so Claude can see the files.
-      // All client workspaces symlink into the project dir, so files placed
-      // here are visible regardless of which clientId is used later.
-      const workspaceDir = this.adapterConfig.project || join(homedir(), '.agent-mesh', 'uploads');
+      // Extract to per-client workspace so Claude Code's Glob can find real files.
+      // If clientId is provided and project is set, use .bridge-clients/{clientId}/.
+      let workspaceDir = this.adapterConfig.project || join(homedir(), '.agent-mesh', 'uploads');
+      if (clientId && this.adapterConfig.project) {
+        workspaceDir = createClientWorkspace(this.adapterConfig.project, clientId);
+      }
       try {
         mkdirSync(workspaceDir, { recursive: true });
         // Use pure-Node extraction (supports UTF-8 filenames, unlike macOS unzip)

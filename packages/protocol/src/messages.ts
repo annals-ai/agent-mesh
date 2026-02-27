@@ -120,6 +120,8 @@ export interface RtcSignalRelay {
   from_agent_id: string;
   signal_type: 'offer' | 'answer' | 'candidate';
   payload: string;
+  /** Stable client identifier for per-client workspace file extraction */
+  client_id?: string;
 }
 
 /** Cancel an in-progress request */

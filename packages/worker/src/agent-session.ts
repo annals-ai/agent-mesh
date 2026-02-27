@@ -1502,7 +1502,7 @@ export class AgentSession implements DurableObject {
    * signal_type='poll' → only returns buffered signals, no forwarding.
    */
   private async handleRtcSignalExchange(request: Request): Promise<Response> {
-    let body: { transfer_id: string; signal_type: string; payload: string };
+    let body: { transfer_id: string; signal_type: string; payload: string; client_id?: string };
     try {
       body = await request.json() as typeof body;
     } catch {
@@ -1525,6 +1525,7 @@ export class AgentSession implements DurableObject {
         from_agent_id: 'http-caller',
         signal_type: signal_type as RtcSignalRelay['signal_type'],
         payload,
+        ...(body.client_id && { client_id: body.client_id }),
       };
 
       try {
