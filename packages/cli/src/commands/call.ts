@@ -215,6 +215,32 @@ function prepareFileForUpload(filePath: string): {
 }
 
 /**
+ * Send prepare-upload signal to Agent via rtc-signal endpoint.
+ * This registers a FileUploadReceiver on the Agent BEFORE any message is sent.
+ */
+async function sendPrepareUpload(
+  agentId: string,
+  offer: FileTransferOfferInfo,
+  token: string,
+): Promise<void> {
+  const res = await fetch(`${DEFAULT_BASE_URL}/api/agents/${agentId}/rtc-signal`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      transfer_id: offer.transfer_id,
+      signal_type: 'prepare-upload',
+      payload: JSON.stringify(offer),
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`prepare-upload signal failed: HTTP ${res.status}`);
+  }
+}
+
+/**
  * Upload files via WebRTC P2P to Agent.
  * Caller creates offer + DataChannel, sends ZIP chunks.
  */
@@ -330,7 +356,6 @@ async function asyncCall(opts: {
   outputFile?: string;
   signal?: AbortSignal;
   withFiles?: boolean;
-  uploadOffer?: FileTransferOfferInfo;
 }): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
@@ -345,7 +370,6 @@ async function asyncCall(opts: {
       task_description: opts.taskDescription,
       mode: 'async',
       ...(opts.withFiles ? { with_files: true } : {}),
-      ...(opts.uploadOffer ? { file_upload_offer: opts.uploadOffer } : {}),
     }),
     signal: opts.signal,
   });
@@ -491,7 +515,6 @@ async function streamCall(opts: {
   outputFile?: string;
   signal?: AbortSignal;
   withFiles?: boolean;
-  uploadOffer?: FileTransferOfferInfo;
 }): Promise<{ callId: string; sessionKey?: string }> {
   const selfAgentId = process.env.AGENT_BRIDGE_AGENT_ID;
 
@@ -506,7 +529,6 @@ async function streamCall(opts: {
     body: JSON.stringify({
       task_description: opts.taskDescription,
       ...(opts.withFiles ? { with_files: true } : {}),
-      ...(opts.uploadOffer ? { file_upload_offer: opts.uploadOffer } : {}),
     }),
     signal: opts.signal,
   });
@@ -728,6 +750,13 @@ export function registerCallCommand(program: Command): void {
         const abortController = new AbortController();
         const timer = setTimeout(() => abortController.abort(), timeoutMs);
 
+        // Upload file FIRST via prepare-upload signal + WebRTC P2P
+        if (uploadOffer && uploadZipBuffer) {
+          await sendPrepareUpload(id, uploadOffer, token);
+          await sleep(500); // Let Agent register the upload receiver
+          await webrtcUpload(id, uploadOffer, uploadZipBuffer, token, opts.json);
+        }
+
         const callOpts = {
           id,
           name,
@@ -738,22 +767,13 @@ export function registerCallCommand(program: Command): void {
           outputFile: opts.outputFile,
           signal: abortController.signal,
           withFiles: opts.withFiles,
-          uploadOffer,
         };
 
         let result: { callId: string; sessionKey?: string };
         if (opts.stream) {
-          // For stream mode with upload, start WebRTC upload in parallel
-          if (uploadOffer && uploadZipBuffer) {
-            void webrtcUpload(id, uploadOffer, uploadZipBuffer, token, opts.json);
-          }
           result = await streamCall(callOpts);
         } else {
-          // For async mode, upload happens after the call is posted
           result = await asyncCall(callOpts);
-          if (uploadOffer && uploadZipBuffer) {
-            await webrtcUpload(id, uploadOffer, uploadZipBuffer, token, opts.json);
-          }
         }
 
         clearTimeout(timer);

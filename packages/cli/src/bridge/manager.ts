@@ -255,12 +255,8 @@ export class BridgeManager {
 
   private async dispatchWithLocalQueue(opts: { msg: Message; handle: SessionHandle; requestKey: string }): Promise<void> {
     const { msg, handle, requestKey } = opts;
-    const { session_id, request_id, content, attachments, client_id, with_files, file_upload_offer } = msg;
+    const { session_id, request_id, content, attachments, client_id, with_files } = msg;
 
-    // Register upload receiver if caller is sending files
-    if (file_upload_offer) {
-      this.registerPendingUpload(file_upload_offer, session_id, request_id);
-    }
     const state = this.requestDispatches.get(requestKey);
     if (!state) return;
 
@@ -637,6 +633,13 @@ export class BridgeManager {
   }
 
   private handleRtcSignalRelay(msg: RtcSignalRelay): void {
+    // Handle prepare-upload signal: register upload receiver before any message
+    if ((msg.signal_type as string) === 'prepare-upload') {
+      const offer = JSON.parse(msg.payload) as FileTransferOffer;
+      this.registerPendingUpload(offer, 'pre-upload', 'pre-upload');
+      return;
+    }
+
     // Check active download transfers (Agent → Caller)
     const downloadEntry = this.pendingTransfers.get(msg.transfer_id);
     if (downloadEntry) {

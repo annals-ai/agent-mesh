@@ -111,8 +111,6 @@ export interface Message {
   client_id?: string;
   /** Caller requests file transfer via WebRTC after task completion */
   with_files?: boolean;
-  /** Caller has files to upload via WebRTC P2P */
-  file_upload_offer?: FileTransferOffer;
 }
 
 /** Worker → CLI: WebRTC signaling relay from another agent */
@@ -207,8 +205,6 @@ export interface RelayRequest {
   client_id?: string;
   /** Caller requests file transfer via WebRTC after task completion */
   with_files?: boolean;
-  /** Caller has files to upload via WebRTC P2P */
-  file_upload_offer?: FileTransferOffer;
   /** Async mode: Worker returns 202 immediately, calls back when done */
   mode?: 'stream' | 'async';
   /** Async mode: Platform task ID to include in callback */

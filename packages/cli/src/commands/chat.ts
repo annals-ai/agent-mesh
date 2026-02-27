@@ -137,7 +137,6 @@ export interface ChatOptions {
   showThinking?: boolean;
   signal?: AbortSignal;
   mode?: 'stream' | 'async';
-  fileUploadOffer?: FileUploadOfferInfo;
 }
 
 /**
@@ -153,7 +152,6 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
     body: JSON.stringify({
       message: opts.message,
       mode: 'async',
-      ...(opts.fileUploadOffer ? { file_upload_offer: opts.fileUploadOffer } : {}),
     }),
     signal: opts.signal,
   });
@@ -251,7 +249,6 @@ export async function streamChat(opts: ChatOptions): Promise<void> {
     },
     body: JSON.stringify({
       message: opts.message,
-      ...(opts.fileUploadOffer ? { file_upload_offer: opts.fileUploadOffer } : {}),
     }),
     signal: opts.signal,
   });
@@ -423,9 +420,6 @@ export function registerChatCommand(program: Command): void {
       log.banner(`Chat with ${agentName}`);
       console.log(`${GRAY}Type your message and press Enter. /upload <path> to send a file. /quit to exit.${RESET}\n`);
 
-      let pendingUploadOffer: FileUploadOfferInfo | undefined;
-      let pendingUploadZipBuffer: Buffer | undefined;
-
       const rl = createInterface({
         input: process.stdin,
         output: process.stdout,
@@ -455,7 +449,7 @@ export function registerChatCommand(program: Command): void {
           return;
         }
 
-        // /upload <path> — prepare file for upload with next message
+        // /upload <path> — immediately upload file via prepare-upload signal + WebRTC
         if (trimmed.startsWith('/upload ')) {
           const filePath = trimmed.slice(8).trim();
           if (!filePath) {
@@ -470,11 +464,29 @@ export function registerChatCommand(program: Command): void {
           }
           try {
             const prepared = prepareUploadFile(filePath);
-            pendingUploadOffer = prepared.offer;
-            pendingUploadZipBuffer = prepared.zipBuffer;
-            log.info(`File staged: ${basename(filePath)} (${(prepared.offer.zip_size / 1024).toFixed(1)} KB). Type a message to send with the file.`);
+            // Send prepare-upload signal so Agent registers upload receiver immediately
+            const prepRes = await fetch(`${opts.baseUrl}/api/agents/${agentId}/rtc-signal`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                transfer_id: prepared.offer.transfer_id,
+                signal_type: 'prepare-upload',
+                payload: JSON.stringify(prepared.offer),
+              }),
+            });
+            if (!prepRes.ok) {
+              log.error(`Failed to signal upload: HTTP ${prepRes.status}`);
+              rl.prompt();
+              return;
+            }
+            await sleep(500); // Let Agent register the upload receiver
+            await chatWebrtcUpload(agentId, prepared.offer, prepared.zipBuffer, token, opts.baseUrl);
+            log.info(`File uploaded. Type a message to continue.`);
           } catch (err) {
-            log.error(`Failed to prepare file: ${(err as Error).message}`);
+            log.error(`Upload failed: ${(err as Error).message}`);
           }
           rl.prompt();
           return;
@@ -482,14 +494,7 @@ export function registerChatCommand(program: Command): void {
 
         console.log('');
 
-        // If there's a pending upload, send the offer with the message and start upload
-        const uploadOffer = pendingUploadOffer;
-        const uploadZipBuffer = pendingUploadZipBuffer;
-        pendingUploadOffer = undefined;
-        pendingUploadZipBuffer = undefined;
-
         try {
-          // TODO: pass file_upload_offer to chat API when upload is pending
           await streamChat({
             agentId,
             message: trimmed,
@@ -497,13 +502,7 @@ export function registerChatCommand(program: Command): void {
             baseUrl: opts.baseUrl,
             showThinking: opts.thinking,
             mode,
-            fileUploadOffer: uploadOffer,
           });
-
-          // Start WebRTC upload after message is sent
-          if (uploadOffer && uploadZipBuffer) {
-            await chatWebrtcUpload(agentId, uploadOffer, uploadZipBuffer, token, opts.baseUrl);
-          }
         } catch (err) {
           if (abortController.signal.aborted) return;
           log.error((err as Error).message);
