@@ -12,7 +12,8 @@ import {
   type QueueLease,
   type RuntimeQueueController,
 } from '../utils/local-runtime-queue.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFile as readFileAsync, writeFile as writeFileAsync, unlink, mkdir as mkdirAsync } from 'node:fs/promises';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -23,12 +24,20 @@ const DUPLICATE_REQUEST_TTL_MS = 10 * 60_000;
 const SESSION_SWEEP_INTERVAL_MS = 60_000;
 const DEFAULT_SESSION_IDLE_TTL_MS = 10 * 60_000;
 const MIN_SESSION_IDLE_TTL_MS = 60_000;
+const TRANSFER_ACTIVE_TTL_MS = 5 * 60_000;   // 5min — ZIP in memory
+const TRANSFER_DORMANT_TTL_MS = 60 * 60_000;  // 1h — ZIP on disk only
 
 type RequestStatus = 'active' | 'done' | 'error' | 'cancelled';
 
 interface RequestTrackerEntry {
   status: RequestStatus;
   expiresAt: number;
+}
+
+interface DormantTransfer {
+  zipPath: string;
+  offer: FileTransferOffer;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 interface RequestDispatchState {
@@ -84,6 +93,10 @@ export class BridgeManager {
   private pendingTransfers = new Map<string, { sender: FileSender; timer: ReturnType<typeof setTimeout> }>();
   /** Pending WebRTC file uploads (caller→agent): transfer_id → FileUploadReceiver + cleanup timer */
   private pendingUploads = new Map<string, { receiver: FileUploadReceiver; timer: ReturnType<typeof setTimeout> }>();
+  /** Dormant transfers: ZIP evicted from memory, cached on disk for up to 1h */
+  private dormantTransfers = new Map<string, DormantTransfer>();
+  /** Signals queued while a dormant transfer is being revived (prevents signal loss during async disk read) */
+  private revivingTransfers = new Map<string, RtcSignalRelay[]>();
 
   constructor(opts: BridgeManagerOptions) {
     this.wsClient = opts.wsClient;
@@ -98,6 +111,7 @@ export class BridgeManager {
       this.pruneIdleSessions();
     }, SESSION_SWEEP_INTERVAL_MS);
     this.cleanupTimer.unref?.();
+    void this.cleanupOrphanedTransferCache();
     log.info(`Bridge manager started with ${this.adapter.displayName} adapter`);
   }
 
@@ -589,12 +603,33 @@ export class BridgeManager {
       this.wsClient.send(rtcSignal);
     });
 
-    // Auto-cleanup after 5 minutes (ZIP stays in memory until then)
+    // Fire-and-forget: write ZIP to disk for dormant phase
+    const zipPath = this.transferCachePath(offer.transfer_id);
+    void (async () => {
+      try {
+        await mkdirAsync(this.transferCacheDir(), { recursive: true });
+        await writeFileAsync(zipPath, zipBuffer);
+        log.debug(`ZIP cached to disk: transfer=${offer.transfer_id.slice(0, 8)}... path=${zipPath}`);
+      } catch (err) {
+        log.warn(`Failed to cache ZIP to disk: ${err}`);
+      }
+    })();
+
+    // After ACTIVE TTL: evict from memory → transition to dormant (disk-only)
     const timer = setTimeout(() => {
       sender.close();
       this.pendingTransfers.delete(offer.transfer_id);
-      log.debug(`Transfer ${offer.transfer_id.slice(0, 8)}... expired`);
-    }, 5 * 60_000);
+
+      // Transition to dormant: ZIP lives on disk for up to DORMANT TTL
+      const dormantTimer = setTimeout(() => {
+        this.cleanupDormantTransfer(offer.transfer_id);
+        log.debug(`Dormant expired, disk cache removed: transfer=${offer.transfer_id.slice(0, 8)}...`);
+      }, TRANSFER_DORMANT_TTL_MS);
+      dormantTimer.unref?.();
+
+      this.dormantTransfers.set(offer.transfer_id, { zipPath, offer, timer: dormantTimer });
+      log.info(`Transfer transitioned to dormant: transfer=${offer.transfer_id.slice(0, 8)}...`);
+    }, TRANSFER_ACTIVE_TTL_MS);
     timer.unref?.();
 
     this.pendingTransfers.set(offer.transfer_id, { sender, timer } as typeof this.pendingTransfers extends Map<string, infer V> ? V : never);
@@ -602,7 +637,7 @@ export class BridgeManager {
   }
 
   private handleRtcSignalRelay(msg: RtcSignalRelay): void {
-    // Check download transfers (Agent → Caller)
+    // Check active download transfers (Agent → Caller)
     const downloadEntry = this.pendingTransfers.get(msg.transfer_id);
     if (downloadEntry) {
       (downloadEntry as { targetAgentId?: string }).targetAgentId = msg.from_agent_id;
@@ -610,6 +645,12 @@ export class BridgeManager {
         signal_type: msg.signal_type,
         payload: msg.payload,
       });
+      return;
+    }
+
+    // Check dormant transfers (ZIP on disk, needs revival)
+    if (this.dormantTransfers.has(msg.transfer_id) || this.revivingTransfers.has(msg.transfer_id)) {
+      void this.handleDormantSignal(msg);
       return;
     }
 
@@ -703,6 +744,145 @@ export class BridgeManager {
       entry.sender.close();
     }
     this.pendingTransfers.clear();
+
+    for (const [id] of this.dormantTransfers) {
+      this.cleanupDormantTransfer(id);
+    }
+    this.revivingTransfers.clear();
+  }
+
+  // ========================================================
+  // Dormant transfer: disk cache + revival
+  // ========================================================
+
+  private transferCacheDir(): string {
+    return join(homedir(), '.agent-mesh', 'transfers');
+  }
+
+  private transferCachePath(transferId: string): string {
+    return join(this.transferCacheDir(), `${transferId}.zip`);
+  }
+
+  private cleanupDormantTransfer(transferId: string): void {
+    const entry = this.dormantTransfers.get(transferId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    this.dormantTransfers.delete(transferId);
+    void unlink(entry.zipPath).catch(() => {});
+  }
+
+  private async reviveDormantTransfer(dormant: DormantTransfer): Promise<FileSender> {
+    const zipBuffer = await readFileAsync(dormant.zipPath);
+    if (zipBuffer.length !== dormant.offer.zip_size) {
+      throw new Error(`ZIP size mismatch: expected ${dormant.offer.zip_size}, got ${zipBuffer.length}`);
+    }
+
+    const sender = new FileSender(dormant.offer.transfer_id, zipBuffer);
+
+    // Wire outgoing signals through Bridge WS (same wiring as registerPendingTransfer)
+    sender.onSignal((signal: SignalMessage) => {
+      const entry = this.pendingTransfers.get(dormant.offer.transfer_id);
+      if (!entry) return;
+      const rtcSignal: RtcSignal = {
+        type: 'rtc_signal',
+        transfer_id: dormant.offer.transfer_id,
+        target_agent_id: (entry as { targetAgentId?: string }).targetAgentId || '',
+        signal_type: signal.signal_type,
+        payload: signal.payload,
+      };
+      this.wsClient.send(rtcSignal);
+    });
+
+    // Revived transfer gets a fresh ACTIVE TTL — but no second dormant phase
+    const timer = setTimeout(() => {
+      sender.close();
+      this.pendingTransfers.delete(dormant.offer.transfer_id);
+      void unlink(dormant.zipPath).catch(() => {});
+      log.debug(`Revived transfer expired: transfer=${dormant.offer.transfer_id.slice(0, 8)}...`);
+    }, TRANSFER_ACTIVE_TTL_MS);
+    timer.unref?.();
+
+    this.pendingTransfers.set(dormant.offer.transfer_id, { sender, timer } as typeof this.pendingTransfers extends Map<string, infer V> ? V : never);
+    log.info(`Revived from disk cache: transfer=${dormant.offer.transfer_id.slice(0, 8)}... (${(zipBuffer.length / 1024).toFixed(1)} KB)`);
+
+    return sender;
+  }
+
+  private async handleDormantSignal(msg: RtcSignalRelay): Promise<void> {
+    const transferId = msg.transfer_id;
+
+    // Another signal already completed revival — route directly
+    const alreadyRevived = this.pendingTransfers.get(transferId);
+    if (alreadyRevived) {
+      (alreadyRevived as { targetAgentId?: string }).targetAgentId = msg.from_agent_id;
+      void alreadyRevived.sender.handleSignal({
+        signal_type: msg.signal_type,
+        payload: msg.payload,
+      });
+      return;
+    }
+
+    // Revival already in progress — queue this signal
+    const queue = this.revivingTransfers.get(transferId);
+    if (queue) {
+      queue.push(msg);
+      return;
+    }
+
+    // Start revival
+    const dormant = this.dormantTransfers.get(transferId);
+    if (!dormant) return; // raced with cleanup
+
+    this.revivingTransfers.set(transferId, []);
+    // Remove from dormant map (timer cleared inside revive or on error)
+    clearTimeout(dormant.timer);
+    this.dormantTransfers.delete(transferId);
+
+    try {
+      const sender = await this.reviveDormantTransfer(dormant);
+
+      // Route the triggering signal
+      const entry = this.pendingTransfers.get(transferId);
+      if (entry) {
+        (entry as { targetAgentId?: string }).targetAgentId = msg.from_agent_id;
+      }
+      void sender.handleSignal({
+        signal_type: msg.signal_type,
+        payload: msg.payload,
+      });
+
+      // Drain queued signals
+      const queued = this.revivingTransfers.get(transferId) || [];
+      this.revivingTransfers.delete(transferId);
+      for (const queuedMsg of queued) {
+        void sender.handleSignal({
+          signal_type: queuedMsg.signal_type,
+          payload: queuedMsg.payload,
+        });
+      }
+    } catch (err) {
+      log.warn(`Failed to revive dormant transfer ${transferId.slice(0, 8)}...: ${err}`);
+      this.revivingTransfers.delete(transferId);
+      void unlink(dormant.zipPath).catch(() => {});
+    }
+  }
+
+  private async cleanupOrphanedTransferCache(): Promise<void> {
+    try {
+      const dir = this.transferCacheDir();
+      let files: string[];
+      try {
+        files = readdirSync(dir);
+      } catch {
+        return; // dir doesn't exist yet — nothing to clean
+      }
+      const zipFiles = files.filter((f) => f.endsWith('.zip'));
+      if (zipFiles.length === 0) return;
+      await Promise.all(zipFiles.map((f) => unlink(join(dir, f)).catch(() => {})));
+      log.info(`Cleaned ${zipFiles.length} orphaned transfer cache file(s)`);
+    } catch (err) {
+      log.debug(`Transfer cache cleanup failed: ${err}`);
+    }
   }
 
   private updateSessionCount(): void {
