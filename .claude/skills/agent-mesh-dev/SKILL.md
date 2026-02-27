@@ -1,15 +1,15 @@
 ---
 name: agent-mesh-dev
 description: |
-  Agent Mesh（Bridge Worker / CLI / Protocol）代码开发指南。
-  当需要修改 agent-mesh 子仓库的代码、适配器、Worker、协议时使用。
-  触发词: mesh worker 开发, bridge worker 开发, CLI 开发, 适配器开发,
-  agent adapter, bridge protocol, durable objects 开发, mesh protocol,
-  修改 agent-mesh, mesh 代码, worker 部署, CLI 发布.
-version: 0.0.3
+  Agent Mesh (Bridge Worker / CLI / Protocol) code development guide.
+  Use when modifying code, adapters, Worker, or protocol in the agent-mesh sub-repo.
+  Trigger words: mesh worker dev, bridge worker dev, CLI dev, adapter dev,
+  agent adapter, bridge protocol, durable objects dev, mesh protocol,
+  modify agent-mesh, mesh code, worker deploy, CLI publish.
+version: 0.0.4
 ---
 
-# Agent Mesh Dev — Mesh 代码开发指南
+# Agent Mesh Dev — Code Development Guide
 
 ## How Agent Mesh Works
 
