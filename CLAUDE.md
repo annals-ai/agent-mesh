@@ -51,6 +51,7 @@ agent-mesh/
 | `POST /api/agents-by-token` | 查询使用指定 tokenHash 的在线 Agent | `X-Platform-Secret` |
 | `GET /health` | 健康检查 | 无 |
 | `GET /ws?agent_id=<uuid>` | WebSocket 升级（CLI 连接） | 协议内 register 认证 |
+| `POST /api/rtc-signal/:agentId` | WebRTC 信令交换（含 `ice_servers` TURN 凭据透传） | `X-Platform-Secret` |
 
 ### 错误码
 
