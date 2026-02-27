@@ -379,6 +379,7 @@ export class FileUploadReceiver {
 
       // Passive peer — receive DataChannel created by caller
       this.peer.onDataChannel((dc: InstanceType<NodeDataChannel['DataChannel']>) => {
+        log.debug('[WebRTC] Upload receiver: DataChannel opened');
         dc.onMessage((msg: Buffer | string) => {
           if (typeof msg === 'string') {
             try {
@@ -398,6 +399,7 @@ export class FileUploadReceiver {
 
     try {
       if (signal.signal_type === 'offer' || signal.signal_type === 'answer') {
+        log.debug(`[WebRTC] Upload receiver: setting remote ${signal.signal_type} (${signal.payload.length} chars)`);
         this.peer.setRemoteDescription(signal.payload, signal.signal_type);
         for (const c of this.pendingCandidates) {
           this.peer.addRemoteCandidate(c.candidate, c.mid);
@@ -411,8 +413,8 @@ export class FileUploadReceiver {
           this.pendingCandidates.push({ candidate, mid });
         }
       }
-    } catch {
-      // Ignore invalid signals (malformed SDP, bad candidates)
+    } catch (err) {
+      log.warn(`[WebRTC] Upload receiver signal error (${signal.signal_type}): ${err}`);
     }
   }
 

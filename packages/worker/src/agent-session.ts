@@ -88,6 +88,7 @@ export class AgentSession implements DurableObject {
   private pendingRelays = new Map<string, PendingRelay>();
   /** Buffer for Agent B's RTC signals destined for HTTP callers */
   private rtcSignalBuffer = new Map<string, Array<{ signal_type: string; payload: string }>>();
+  private rtcSignalCleanupScheduled: Set<string> | null = null;
   private lastPlatformSyncAt = 0;
   private static readonly PLATFORM_SYNC_INTERVAL_MS = 120_000; // 2 min
 
@@ -1532,12 +1533,23 @@ export class AgentSession implements DurableObject {
 
     // Drain buffered signals from Agent B → return to HTTP caller
     const signals = this.rtcSignalBuffer.get(transfer_id) || [];
-    this.rtcSignalBuffer.delete(transfer_id);
+    // Only clear buffer when there are signals to drain (prevents race condition
+    // where early poll clears buffer before agent's answer arrives)
+    if (signals.length > 0) {
+      this.rtcSignalBuffer.delete(transfer_id);
+    }
 
     // Schedule cleanup for this transfer_id's buffer after TTL
-    setTimeout(() => {
-      this.rtcSignalBuffer.delete(transfer_id);
-    }, RTC_SIGNAL_BUFFER_TTL_MS);
+    if (!this.rtcSignalCleanupScheduled?.has(transfer_id)) {
+      if (!this.rtcSignalCleanupScheduled) {
+        this.rtcSignalCleanupScheduled = new Set();
+      }
+      this.rtcSignalCleanupScheduled.add(transfer_id);
+      setTimeout(() => {
+        this.rtcSignalBuffer.delete(transfer_id);
+        this.rtcSignalCleanupScheduled?.delete(transfer_id);
+      }, RTC_SIGNAL_BUFFER_TTL_MS);
+    }
 
     return json(200, { ok: true, signals });
   }

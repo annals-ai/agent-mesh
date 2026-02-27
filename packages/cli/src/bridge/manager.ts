@@ -657,6 +657,7 @@ export class BridgeManager {
     // Check upload transfers (Caller → Agent)
     const uploadEntry = this.pendingUploads.get(msg.transfer_id);
     if (uploadEntry) {
+      log.debug(`[WebRTC] Routing ${msg.signal_type} signal to upload receiver: transfer=${msg.transfer_id.slice(0, 8)}...`);
       void uploadEntry.receiver.handleSignal({
         signal_type: msg.signal_type,
         payload: msg.payload,
@@ -664,7 +665,7 @@ export class BridgeManager {
       return;
     }
 
-    log.debug(`No pending transfer for ${msg.transfer_id.slice(0, 8)}...`);
+    log.debug(`No pending transfer for ${msg.transfer_id.slice(0, 8)}... (active=${this.pendingTransfers.size}, dormant=${this.dormantTransfers.size}, upload=${this.pendingUploads.size})`);
   }
 
   // ========================================================
