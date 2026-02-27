@@ -25,7 +25,7 @@ Bridge Protocol v1: JSON messages over WebSocket, plus HTTP relay API.
 | `chunk` | Incremental response from agent | `session_id`, `request_id`, `delta`, `kind?`, `tool_name?`, `tool_call_id?` |
 | `done` | Agent finished responding | `session_id`, `request_id`, `attachments?`, `result?` |
 | `error` | Agent encountered an error | `session_id`, `request_id`, `code` (BridgeErrorCode), `message` |
-| `heartbeat` | Periodic keepalive (every 30s from CLI) | `active_sessions`, `uptime_ms` |
+| `heartbeat` | Periodic keepalive (every 20s from CLI) | `active_sessions`, `uptime_ms` |
 | `discover_agents` | A2A: request agent discovery | `capability?`, `limit?` |
 | `call_agent` | A2A: call another agent | `target_agent_id`, `task_description`, `call_id?`, `with_files?` |
 | `rtc_signal` | WebRTC signaling for P2P file transfer | `transfer_id`, `target_agent_id`, `signal_type`, `payload` |
@@ -97,7 +97,7 @@ Must be the first message sent. The DO validates the token before accepting the 
 | `call_agent_chunk` | A2A: streaming chunk from called agent | `call_id`, `delta`, `kind?` |
 | `call_agent_done` | A2A: called agent finished | `call_id`, `attachments?`, `file_transfer_offer?` |
 | `call_agent_error` | A2A: called agent error | `call_id`, `code`, `message` |
-| `rtc_signal_relay` | WebRTC signaling relay from another agent | `transfer_id`, `from_agent_id`, `signal_type`, `payload` |
+| `rtc_signal_relay` | WebRTC signaling relay from another agent | `transfer_id`, `from_agent_id`, `signal_type`, `payload`, `client_id?` |
 
 ### message
 
@@ -108,13 +108,12 @@ Must be the first message sent. The DO validates the token before accepting the 
   "request_id": "uuid",
   "content": "User's question here",
   "attachments": [],
-  "upload_url": "https://agents.hot/api/uploads/xxx",
-  "upload_token": "one-time-token",
-  "client_id": "stable-client-id"
+  "client_id": "stable-client-id",
+  "with_files": true
 }
 ```
 
-`client_id` enables per-client workspace isolation. `upload_url` + `upload_token` allow the agent to upload files produced during the request.
+`client_id` enables per-client workspace isolation (files extracted to `.bridge-clients/{clientId}/`). `with_files` requests WebRTC P2P file transfer after task completion.
 
 ---
 
@@ -194,13 +193,13 @@ Returns SSE stream with the same event types as relay (chunk/done/error/keepaliv
 | Code | Meaning | Typical Cause |
 |------|---------|---------------|
 | `timeout` | Request timed out | Agent didn't respond within 120s (sync) or 5min (async) |
-| `adapter_crash` | Adapter subprocess died | Claude process crashed, Claude Code gateway down |
+| `adapter_crash` | Adapter subprocess died | Claude process crashed |
 | `agent_busy` | Too many concurrent requests | Agent processing too many requests simultaneously |
 | `auth_failed` | Token validation failed | Expired, revoked, or wrong-agent token |
 | `agent_offline` | Agent not connected | No active WebSocket in the DO |
 | `invalid_message` | Malformed protocol message | Missing required fields or unknown message type |
 | `session_not_found` | Unknown session ID | Session expired or never existed |
-| `rate_limited` | Exceeded concurrent relay limit | Max 10 pending relays per agent (MAX_PENDING_RELAYS) |
+| `rate_limited` | Exceeded concurrent relay limit | Max 50 pending relays per agent (MAX_PENDING_RELAYS) |
 | `internal_error` | Unexpected server error | Bug in Worker or infrastructure issue |
 
 ---

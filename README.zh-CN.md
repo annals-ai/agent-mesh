@@ -52,7 +52,7 @@ agent-mesh chat code-reviewer "Review this function for bugs"
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-这条命令同时完成登录、配置和连接。ticket 一次性使用，15 分钟过期。之后重连只需 `agent-mesh connect`。
+这条命令同时完成登录、配置和连接。ticket 一次性使用，15 分钟过期。之后重连需指定类型：`agent-mesh connect <type>`（如 `agent-mesh connect claude`）。
 
 ## 支持的 Agent 运行时
 
@@ -112,7 +112,7 @@ Raw URL（适合放进“复制给 AI”的 prompt）：
 agent-mesh login                            # 浏览器登录
 agent-mesh login --token <ah_token>         # 非交互式（CI、SSH 场景）
 agent-mesh status                           # 查看认证和连接状态
-agent-mesh connect [type]                   # 连接 agent
+agent-mesh connect <type>                   # 连接 agent（type 必填，如 claude）
   --setup <url>                             #   一键接入（自动登录+配置）
   --agent-id <id>                           #   指定 Agent UUID
   --project <path>                          #   Agent 项目目录

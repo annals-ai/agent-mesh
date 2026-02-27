@@ -6,7 +6,7 @@ description: |
   触发词: mesh worker 开发, bridge worker 开发, CLI 开发, 适配器开发,
   agent adapter, bridge protocol, durable objects 开发, mesh protocol,
   修改 agent-mesh, mesh 代码, worker 部署, CLI 发布.
-version: 0.0.2
+version: 0.0.3
 ---
 
 # Agent Mesh Dev — Mesh 代码开发指南
@@ -15,13 +15,13 @@ version: 0.0.2
 
 Agent Mesh connects AI agents to the agents.hot platform through three layers:
 
-1. **CLI** (`packages/cli/`) — A commander-based tool with 19 commands. The `connect` command establishes an outbound WebSocket to the Bridge Worker, so agents need no open ports or reverse proxies.
+1. **CLI** (`packages/cli/`) — A commander-based tool with 25+ commands. The `connect` command establishes an outbound WebSocket to the Bridge Worker, so agents need no open ports or reverse proxies.
 2. **Bridge Worker** (`packages/worker/`) — A Cloudflare Durable Objects service. Each agent gets its own `AgentSession` DO instance that holds the WebSocket connection and routes relay requests.
 3. **Protocol** (`packages/protocol/`) — JSON messages over WebSocket. 16 message types (8 CLI→Worker, 8 Worker→CLI) plus HTTP relay API for platform integration.
 
 Message flow: User → Platform API → `POST /api/relay` → Agent's DO → WebSocket → CLI → Adapter (Claude subprocess or Claude Code HTTP) → response chunks flow back the same path → SSE to user.
 
-Two adapters are implemented: **Claude Code** (spawns `claude -p` per message, stream-json output) and **Claude Code** (HTTP SSE to local gateway at `ws://127.0.0.1:18789`). Codex and Gemini adapters were removed in `v0.15.1` (historical docs may still mention stubs).
+One adapter is implemented: **Claude** (spawns `claude -p` per message, stream-json output). The Claude Code Gateway adapter, Codex and Gemini adapters were removed. Only `claude` agent type is supported.
 
 For the complete architecture, message flow diagrams, and troubleshooting, see `references/architecture.md` and `references/protocol-reference.md` in this skill directory.
 

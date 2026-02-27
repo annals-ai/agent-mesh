@@ -61,7 +61,7 @@ Key points:
 
 ## Connect Flow
 
-What happens when you run `agent-mesh connect`:
+What happens when you run `agent-mesh connect <type>` (type is required, e.g. `claude`):
 
 ```
 1. CLI resolves agent config
@@ -87,12 +87,11 @@ What happens when you run `agent-mesh connect`:
    └── Write KV cache: key=agent:{id}, TTL=300s, metadata={token_hash, user_id, agent_type}
 
 6. CLI creates adapter
-   ├── claude → ClaudeAdapter (spawns claude -p per message)
-   └── claude → Claude CodeAdapter (connects to local gateway WebSocket)
+   └── claude → ClaudeAdapter (spawns claude -p per message)
 
 7. CLI starts BridgeManager
    └── routes incoming WS messages to adapter sessions
-   └── sends heartbeat every 30s
+   └── sends heartbeat every 20s
 ```
 
 ---
@@ -197,28 +196,66 @@ When `--with-files` is passed, the caller receives files directly from the agent
    └── WebRTC failure = no files transferred; task text result still returned
 ```
 
+### Upload Flow (Caller → Agent)
+
+When a user selects a file in the browser, it is uploaded directly to the agent via WebRTC — before any chat message is sent.
+
+```
+1. Browser: user selects file
+   └── ZIP file + SHA-256 hash → POST /api/agents/{id}/rtc-signal
+       {signal_type: 'prepare-upload', payload: JSON.stringify(FileTransferOffer)}
+       └── Platform injects client_id (deriveClientId from authenticated user)
+
+2. Platform → Worker DO → WS 'rtc_signal_relay' to Agent CLI
+   └── relay includes client_id field (transparent pass-through)
+
+3. CLI: BridgeManager.handleRtcSignalRelay
+   └── signal_type === 'prepare-upload':
+       ├── Parse offer from payload
+       └── registerPendingUpload(offer, client_id)
+           ├── Create FileUploadReceiver (WebRTC answer side)
+           └── On completion: extract ZIP to workspace dir
+               ├── If client_id + project → .bridge-clients/{clientId}/ (per-client workspace)
+               └── Else → project root or ~/.agent-mesh/uploads/
+
+4. Browser sends WebRTC offer → poll for answer → DataChannel P2P direct
+   └── 64KB binary chunks → SHA-256 verify → extract files
+
+5. Files are real files (not symlinks) in the workspace
+   └── Claude Code's Glob can find them directly
+```
+
+### Return File Security
+
+`collectRealFiles()` determines which files to include in the return ZIP:
+- Skip ALL symlinks (both file and directory) → these are agent's original project files
+- Only collect real files → these are session-produced outputs (Claude-created + user-uploaded)
+- No exclude list needed — symlink vs real file distinction handles everything
+
 Signaling buffer: Worker DO holds `rtcSignalBuffer` Map with 60s TTL auto-cleanup.
 
 HTTP endpoints:
-- `POST /api/rtc-signal/:agentId` (Worker) — accepts signaling from HTTP callers, relays to Agent WS, returns buffered responses
-- `POST /api/agents/{id}/rtc-signal` (Platform) — auth proxy to Worker endpoint
+- `POST /api/rtc-signal/:agentId` (Worker) — accepts signaling from HTTP callers, relays to Agent WS, returns buffered responses. Transparently forwards `client_id` from body.
+- `POST /api/agents/{id}/rtc-signal` (Platform) — auth proxy to Worker endpoint. Injects `client_id` via `deriveClientId(userId)` if not already present.
 
 ---
 
-## Adapter Comparison
+## Adapter
 
-| Aspect | Claude Code | Claude Code |
-|--------|-------------|----------|
-| Protocol | CLI subprocess (`claude -p`) | WebSocket JSON-RPC (Claude Code Gateway Protocol v3) |
-| Session model | New process per message | Persistent WS connection, idempotencyKey per request |
-| Streaming | stdout stream-json events | `event(agent)` → incremental delta extraction |
-| Key events | `assistant/text_delta` → `result` or `assistant/end` | `assistant` stream accumulate → `lifecycle end` |
-| Idle timeout | 5 minutes (kill process) | N/A (persistent connection) |
-| Sandbox | macOS Seatbelt via srt (default on) | Not sandboxed (separate daemon) |
-| Gateway address | N/A | `ws://127.0.0.1:18789` (default) |
-| Client ID requirement | N/A | Must be `gateway-client` |
-| Async support | `spawnAgent` is async (wrapWithSandbox returns Promise) | Synchronous send |
-| Availability check | `which claude` | WS connect to gateway |
+Only one adapter is currently implemented: **Claude** (CLI subprocess).
+
+| Aspect | Claude (CLI subprocess) |
+|--------|------------------------|
+| Protocol | `claude -p <message> --output-format stream-json --verbose --max-turns 1` |
+| Session model | New process per message |
+| Streaming | stdout stream-json events |
+| Key events | `assistant/text_delta` → `result` or `assistant/end` |
+| Idle timeout | 5 minutes (kill process) |
+| Sandbox | macOS Seatbelt via srt (optional) |
+| Async support | `spawnAgent` is async (wrapWithSandbox returns Promise) |
+| Availability check | `which claude` |
+
+The Claude Code Gateway adapter, Codex adapter, and Gemini adapter were all removed. Only `claude` agent type is supported.
 
 ---
 
@@ -283,6 +320,7 @@ When a user starts a chat, the Bridge creates a symlink-based workspace under `.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
+| `Agent type is required` | `agent-mesh connect` called without type argument | Add the type: `agent-mesh connect claude --agent-id <id>`. Type is required in non-`--setup` mode |
 | `auth_failed` on register | Token expired, revoked, or wrong agent ownership | Run `agent-mesh login` for a fresh token, or check `cli_tokens` table |
 | WS close 4001 (REPLACED) | Another CLI instance connected with the same agent | Only one CLI per agent. Stop the other instance |
 | WS close 4002 (TOKEN_REVOKED) | Token was revoked via platform settings | Generate a new token at agents.hot/settings or `agent-mesh login` |

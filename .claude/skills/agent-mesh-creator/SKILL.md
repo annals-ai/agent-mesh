@@ -10,7 +10,7 @@ description: |
   agent-mesh troubleshooting, TUI dashboard, publish skill, skill init,
   skill pack, skill version, skills list, unpublish skill,
   install skill, update skill, remove skill, installed skills.
-version: 0.0.2
+version: 0.0.3
 ---
 
 # Agent Mesh — Create, Connect & Publish Agents
@@ -19,7 +19,7 @@ version: 0.0.2
 
 The agent-mesh CLI connects your local AI runtime to the agents.hot platform through an outbound WebSocket — no open ports or reverse proxies needed.
 
-Message flow: User sends message → Platform API → Bridge Worker (Cloudflare DO) → WebSocket → your local CLI → Adapter (Claude subprocess or Claude Code HTTP) → response streams back the same path.
+Message flow: User sends message → Platform API → Bridge Worker (Cloudflare DO) → WebSocket → your local CLI → Adapter (Claude subprocess) → response streams back the same path.
 
 Each agent gets its own Durable Object instance on the Bridge Worker. Only one CLI can be connected per agent at a time.
 
@@ -86,9 +86,8 @@ Match the developer's intent and jump to the appropriate section:
 | Type | Runtime | How it works | Status |
 |------|---------|------------|--------|
 | `claude` | Claude Code CLI | Spawns `claude -p` subprocess per message | Available |
-| `claude` | Claude Code Gateway | HTTP SSE via `ws://127.0.0.1:18789` | Available |
-| `codex` | Codex CLI | Historical docs may mention it; adapter removed in current CLI | Removed |
-| `gemini` | Gemini CLI | Historical docs may mention it; adapter removed in current CLI | Removed |
+
+Only the `claude` agent type is supported. The Claude Code Gateway, Codex, and Gemini adapters have been removed.
 
 ---
 
@@ -104,12 +103,13 @@ Examples: `Code Review Pro`, `SQL Query Helper`, `React Component Builder`.
 
 ### 2. Agent Type
 
-Ask which runtime the agent uses:
+Currently only one type is supported:
 
 | Type | When to use |
 |------|-------------|
-| `claude` | Agent runs via Claude Code Gateway (local daemon, Protocol v3) |
-| `claude` | Agent runs via Claude Code CLI (stdio, stream-json) |
+| `claude` | Agent runs via Claude Code CLI (`claude -p` subprocess per message) |
+
+Default is `claude`. Skip this step unless future runtimes are added.
 
 ### 3. Description
 
@@ -166,28 +166,23 @@ Default location: `~/.agent-mesh/agents/<agent-name>/` (use kebab-case).
 
 If you used `--setup` to register the agent, the workspace directory was already created automatically — the CLI printed the path. Skip `mkdir` and go straight to adding files.
 
-### 2. Choose the protocol based on agent_type
+### 2. Create the directory structure
 
-| agent_type | Instruction file | Skills directory | Why |
-|------------|-----------------|------------------|-----|
-| `claude` | `CLAUDE.md` | `.claude/skills/` | Claude Code reads these natively from cwd |
-| `claude` | `AGENTS.md` | `.agents/skills/` | AAIF standard — Claude Code / other AGENTS-aware runtimes read natively |
+Since only `claude` type is supported, the convention is:
 
-Create the directory structure:
+| Instruction file | Skills directory |
+|-----------------|------------------|
+| `CLAUDE.md` | `.claude/skills/` |
 
-Claude Code agent (`--type claude`):
 ```bash
 mkdir -p ~/.agent-mesh/agents/<agent-name>/.claude/skills
 ```
 
-Claude Code agent (`--type claude`):
-```bash
-mkdir -p ~/.agent-mesh/agents/<agent-name>/.agents/skills
-```
+Note: Skills installed via `agent-mesh skills install` go to `.agents/skills/` with symlinks created in `.claude/skills/`.
 
 ### 3. Write the role instruction file
 
-Create `CLAUDE.md` (for claude) or `AGENTS.md` (for others) in the agent folder root. Write the content yourself based on what you know about the agent. Include:
+Create `CLAUDE.md` in the agent folder root. Write the content yourself based on what you know about the agent. Include:
 - Role: Who the agent is (e.g. "You are a senior code reviewer specializing in TypeScript")
 - Behavior rules: Tone, constraints, what to do and not do
 - Domain knowledge: Key context the agent needs
@@ -224,15 +219,13 @@ description: "What this skill does. When to use it — include trigger words and
 - Do not omit the `---` fences — they are required YAML frontmatter delimiters.
 - After writing each SKILL.md, verify it starts with `---` on line 1.
 
-Place each skill at:
-- Claude: `<agent-folder>/.claude/skills/<skill-name>/SKILL.md`
-- Claude Code: `<agent-folder>/.agents/skills/<skill-name>/SKILL.md`
+Place each skill at: `<agent-folder>/.claude/skills/<skill-name>/SKILL.md`
 
 ### Required Files Checklist
 
 | File | Purpose | Required? |
 |------|---------|-----------|
-| `CLAUDE.md` (claude) or `AGENTS.md` (others) | Role instructions, read every turn | Yes |
+| `CLAUDE.md` | Role instructions, read every turn | Yes |
 | `.claude/skills/<name>/SKILL.md` | Agent capability, needs YAML frontmatter | Yes, for each `/skill` in description |
 | `~/.agent-mesh/config.json` | Token, agent registry, projectPath | Auto-created by CLI |
 
@@ -243,23 +236,11 @@ Run `find <agent-folder> -type f` and verify:
 2. Every `/skill-name` from the description has a matching SKILL.md
 3. Every SKILL.md starts with `---` YAML frontmatter — run `head -3 <agent-folder>/.claude/skills/*/SKILL.md` and confirm each begins with `---` / `name:` / `description:`
 
-Expected structure (Claude Code agent):
+Expected structure:
 ```
 ~/.agent-mesh/agents/<agent-name>/
 ├── CLAUDE.md
 └── .claude/
-    └── skills/
-        ├── skill-a/
-        │   └── SKILL.md
-        └── skill-b/
-            └── SKILL.md
-```
-
-Expected structure (Universal agent):
-```
-~/.agent-mesh/agents/<agent-name>/
-├── AGENTS.md
-└── .agents/
     └── skills/
         ├── skill-a/
         │   └── SKILL.md
@@ -443,7 +424,7 @@ All commands accepting `<name-or-id>` resolve in this order:
 
 ### Reconnection
 
-After initial setup, reconnect with just `agent-mesh connect` — config persists in `~/.agent-mesh/config.json`.
+After initial setup, reconnect with `agent-mesh connect <type>` (type is required, e.g. `agent-mesh connect claude`) — config persists in `~/.agent-mesh/config.json`.
 
 ### Common Errors
 

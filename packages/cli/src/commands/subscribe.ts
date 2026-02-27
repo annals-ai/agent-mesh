@@ -7,7 +7,7 @@ const BASE_URL = 'https://agents.hot';
 
 interface ResolvedAuthor {
   id: string;
-  github_login: string;
+  login: string;
   name: string | null;
   avatar_url: string | null;
 }
@@ -51,7 +51,7 @@ export function registerSubscribeCommand(program: Command): void {
         const client = createClient();
         const author = await resolveAuthorLogin(authorLogin);
         await client.post(`/api/authors/${author.id}/subscribe`);
-        log.success(`Subscribed to ${author.github_login}${author.name ? ` (${author.name})` : ''}`);
+        log.success(`Subscribed to ${author.login}${author.name ? ` (${author.name})` : ''}`);
       } catch (err) {
         handleError(err);
       }
@@ -65,7 +65,7 @@ export function registerSubscribeCommand(program: Command): void {
         const client = createClient();
         const author = await resolveAuthorLogin(authorLogin);
         await client.del(`/api/authors/${author.id}/subscribe`);
-        log.success(`Unsubscribed from ${author.github_login}`);
+        log.success(`Unsubscribed from ${author.login}`);
       } catch (err) {
         handleError(err);
       }
@@ -97,7 +97,7 @@ export function registerSubscribeCommand(program: Command): void {
             { key: 'since', label: 'SINCE', width: 20 },
           ],
           data.subscriptions.map((s) => ({
-            login: s.author.github_login,
+            login: s.author.login,
             name: s.author.name || `${GRAY}—${RESET}`,
             since: new Date(s.created_at).toLocaleDateString(),
           })),

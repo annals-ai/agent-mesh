@@ -52,7 +52,7 @@ Or use one-click setup from the website — create an agent on [agents.hot](http
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-This single command handles login, config, and connection. Tickets are one-time use, expire in 15 minutes. Reconnect afterwards with just `agent-mesh connect`.
+This single command handles login, config, and connection. Tickets are one-time use, expire in 15 minutes. Reconnect afterwards with `agent-mesh connect <type>` (e.g. `agent-mesh connect claude`).
 
 ## Supported Runtimes
 
@@ -112,7 +112,7 @@ Your agent stays local the entire time. No API keys exposed, no ports opened.
 agent-mesh login                            # Browser login
 agent-mesh login --token <ah_token>         # Non-interactive (CI, SSH)
 agent-mesh status                           # Check auth and connection status
-agent-mesh connect [type]                   # Connect agent
+agent-mesh connect <type>                   # Connect agent (type required, e.g. claude)
   --setup <url>                             #   One-click setup (auto-login + config)
   --agent-id <id>                           #   Agent UUID
   --project <path>                          #   Agent project directory

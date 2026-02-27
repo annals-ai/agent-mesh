@@ -68,7 +68,7 @@ agent-mesh/
   2. JWT（Supabase Auth）→ 浏览器调试场景
 - **心跳 Revalidation**：每次平台同步心跳时，用缓存的 tokenHash 查 `cli_tokens.revoked_at`。Token 被吊销 → WS close `4002` (TOKEN_REVOKED)。Fail-open：网络错误不断连，只有确认 "0 rows" 才断连。
 - **主动断连端点**：`POST /disconnect` — 平台吊销 token 时主动断开 Agent。
-- **速率限制**：每个 Agent 最多 10 个并发 pending relay（`MAX_PENDING_RELAYS`）。
+- **速率限制**：每个 Agent 最多 50 个并发 pending relay（`MAX_PENDING_RELAYS`）。
 - **KV 缓存**：Agent 状态写入 KV（TTL 300s），metadata 含 `token_hash`/`user_id`/`agent_type`（`list()` 直接返回，无需额外 `get()`）。
 
 安全措施：
@@ -89,16 +89,7 @@ abstract destroySession(id: string): Promise<void>
 
 `SessionHandle` 提供: `send()`, `onChunk`, `onDone`, `onError`, `kill()`
 
-### Claude Code（已实现）
-
-- 协议: Claude Code Gateway Protocol v3, JSON-RPC over WebSocket
-- 默认地址: `ws://127.0.0.1:18789`
-- 流程: `connect` 握手 → `agent` 请求（必须有 `idempotencyKey`） → `event(agent)` 流式响应
-- 流式处理: `assistant` stream 累积文本，取增量 delta → `lifecycle end` 结束
-- Client ID: 必须是 `gateway-client`（Gateway 只接受: `gateway-client`, `claude-probe`, `cli`, `claude-control-ui`）
-- 非本地连接需 `trustedProxies` 配置
-
-### Claude Code（已实现）
+### Claude（唯一已实现的适配器）
 
 - 协议: `claude -p <message> --output-format stream-json --verbose --max-turns 1`
 - 每条消息 spawn 新进程（`spawnAgent` 是 async），stdout 读取流式事件
@@ -106,9 +97,7 @@ abstract destroySession(id: string): Promise<void>
 - 5 分钟空闲超时 kill
 - `spawnAgent` 是 async 函数（因为 `wrapWithSandbox` 是 async），`send()` 委托给 `private async launchProcess()`
 
-### Codex / Gemini
-
-已删除（v0.15.1）。如需支持新 Agent 类型，在 `adapters/` 新建文件并注册到 `connect.ts` 的 `createAdapter()` 即可。
+Claude Code Gateway 适配器、Codex 适配器和 Gemini 适配器已全部删除。只支持 `claude` agent type。如需支持新类型，在 `adapters/` 新建文件并注册到 `connect.ts` 的 `createAdapter()` 即可。
 
 ## 一键接入流程（Connect Ticket）
 
@@ -123,12 +112,10 @@ CLI fetch ticket → 获取 { agent_id, token (ah_), agent_type, bridge_url }
      ↓
 自动保存 ah_ API key（等于 auto-login，仅在本地未登录时）
      ↓
-自动检测 Claude Code token（~/.claude/claude.json → gateway.auth.token）
-     ↓
 注册 Agent 到本地 config → 后台 spawn 连接 → 打开 TUI 管理面板
 ```
 
-之后重连只需 `agent-mesh connect`（从本地 config 读取），或用 `agent-mesh list` 管理。
+之后重连只需 `agent-mesh connect <type>`（type 必填，如 `claude`），或用 `agent-mesh list` 管理。
 
 ## CLI 命令
 
@@ -136,20 +123,24 @@ CLI fetch ticket → 获取 { agent_id, token (ah_), agent_type, bridge_url }
 agent-mesh login                           # 登录平台（Device Auth Flow）
 agent-mesh list                            # 交互式 TUI 管理面板（本机 Agent）
 
-agent-mesh connect [type]                  # 连接 Agent
+agent-mesh connect <type>                  # 连接 Agent（type 必填，如 claude）
   --setup <url>          # 一键接入 ticket URL
   --agent-id <id>        # Agent UUID
-  --project <path>       # Claude 适配器项目路径
-  --gateway-url <url>    # Claude Code Gateway 地址
-  --gateway-token <token># Claude Code Gateway token
+  --project <path>       # Agent workspace 路径
   --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
+  --sandbox              # 在沙箱中运行 (需要 srt)
+  --no-sandbox           # 禁用沙箱
+  --foreground           # 前台运行 (非 --setup 模式默认)
 
 agent-mesh call <agent>                    # A2A 调用（默认 async 轮询）
   --task <description>   # 任务描述（必填）
   --input-file <path>    # 读文件追加到任务描述
+  --upload-file <path>   # 通过 WebRTC P2P 上传文件
   --output-file <path>   # 保存响应到文件
+  --with-files           # 请求返回文件（WebRTC P2P）
   --stream               # 使用 SSE 流式而非 async 轮询
   --json                 # 输出 JSONL 事件
+  --rate <1-5>           # 完成后评分
   --timeout <seconds>    # 超时秒数 (默认 300)
 
 agent-mesh chat <agent> [message]          # 通过平台对话调试 Agent（默认 stream）
@@ -172,7 +163,7 @@ agent-mesh agents show <id> [--json]       # 查看 Agent 详情
 agent-mesh agents update <id> [options]    # 更新 Agent
 agent-mesh agents publish <id>             # 发布到市场
 agent-mesh agents unpublish <id>           # 从市场下架
-agent-mesh agents delete <id> [--confirm]  # 删除 Agent
+agent-mesh agents delete <id>              # 删除 Agent（交互式确认）
 
 agent-mesh skills init [path]              # 初始化 SKILL.md（含 frontmatter）
   --name <name>          # Skill 名称
@@ -194,10 +185,25 @@ agent-mesh skills installed [path]               # 列出本地已安装的 skil
   --check-updates        # 检查可用更新
   --human                # 人类可读表格输出
 
+agent-mesh config <agent>                  # 查看/更新 A2A 设置
+  --capabilities <list>  # 逗号分隔的能力标签
+  --max-calls-per-hour <n>
+  --max-calls-per-user-per-day <n>
+  --allow-a2a <bool>
+  --show                 # 查看当前设置
+
+agent-mesh stats                           # A2A 调用统计
+  --agent <name-or-id>   # 指定 Agent（省略显示全部）
+  --period <day|week|month>  # 时间段（默认 week）
+  --json
+
+agent-mesh rate <call-id> <rating> --agent <id>  # 评分（1-5）
+agent-mesh files list --agent <id> --session <key> [--json]  # 列出文件
+
 agent-mesh status                          # 查看连接状态
 ```
 
-`type` 可选。省略时从保存的 config 读取 `defaultAgentType`。
+`type` 可省略（如果 agent 已在本地 config 注册）。否则必填，如 `agent-mesh connect claude`。
 
 **命名规范**：Agent 名称必须为英文（不支持中文或其他非 ASCII 字符）。Workspace 文件夹使用 kebab-case（例如 `Code Review Pro` → `~/.agent-mesh/agents/code-review-pro/`）。
 

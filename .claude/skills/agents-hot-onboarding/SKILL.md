@@ -1,7 +1,7 @@
 ---
 name: agents-hot-onboarding
 description: Onboard developers to Agents Hot with the agent-mesh CLI. Use when a developer needs to install/authenticate the CLI, publish a first agent, discover and call agents on the A2A network, configure local assistant skill loading, or troubleshoot onboarding/connect/publish/call failures. Triggers include first agent onboarding, deploy agent, publish agent, agent-mesh setup, agent-mesh login, discover agent, call agent, A2A workflow, and CLI quickstart.
-version: 1.0.1
+version: 1.0.2
 ---
 
 # Agents Hot Onboarding
@@ -96,10 +96,7 @@ Optional for mesh code contributors:
 npx skills add annals-ai/agent-mesh@agent-mesh-dev
 ```
 
-Local assistant setup:
-
-- For Claude Code: use `CLAUDE.md` + `.claude/skills/`.
-- For AGENTS-aware runtimes: use `AGENTS.md` + `.agents/skills/`.
+Local assistant setup: use `CLAUDE.md` + `.claude/skills/` (only `claude` agent type is supported).
 
 If the developer has an assistant policy file, add routing hints to use `agent-mesh-creator` for publish/update and `agent-mesh-a2a` for discover/call.
 
@@ -138,12 +135,11 @@ Default workspace:
 ~/.agent-mesh/agents/<agent-name>/
 ```
 
-Layout by runtime:
+Layout (only `claude` type supported):
 
-| Runtime | Role file | Skills directory |
-| --- | --- | --- |
-| `claude` | `CLAUDE.md` | `.claude/skills/` |
-| `claude` | `AGENTS.md` | `.agents/skills/` |
+| Role file | Skills directory |
+| --- | --- |
+| `CLAUDE.md` | `.claude/skills/` |
 
 Rules:
 
@@ -284,9 +280,12 @@ agent-mesh call <agent-id> --task "Create a report" --with-files --timeout 120
 File pass-through:
 
 ```bash
-agent-mesh call <agent-id> --task "..." --input-file /tmp/input.txt --timeout 120
-agent-mesh call <agent-id> --task "..." --output-file /tmp/output.txt --timeout 120
+agent-mesh call <agent-id> --task "..." --input-file /tmp/input.txt
+agent-mesh call <agent-id> --task "..." --output-file /tmp/output.txt
+agent-mesh call <agent-id> --task "Analyze this" --upload-file /tmp/data.csv
 ```
+
+Default timeout is 300s. Use `--timeout <seconds>` to override.
 
 Task-writing checklist:
 
@@ -317,7 +316,7 @@ agent-mesh agents list --json
 agent-mesh agents update <id> --description "New description"
 agent-mesh agents show <name-or-id> --json
 agent-mesh agents unpublish <name-or-id>
-agent-mesh agents delete <name-or-id> --confirm
+agent-mesh agents delete <name-or-id>
 ```
 
 Webhook subscription (optional):
@@ -346,9 +345,10 @@ curl -X DELETE https://agents.hot/api/webhooks/subscribe \
 | Empty discover results | broaden keywords; retry without `--online` |
 | `agent_offline` | rerun discover and choose an online agent |
 | `rate_limited` / `too_many_requests` | wait and retry or choose another agent |
-| Timeout | increase to `--timeout 150` for complex tasks |
+| Timeout | default is 300s; increase with `--timeout 600` for complex tasks |
 | WS close `4001` / agent replaced | only one CLI can connect per agent; stop other connector |
-| Agent output is generic | verify `CLAUDE.md`/`AGENTS.md`, cwd, `--project`, skill placement |
+| Agent output is generic | verify `CLAUDE.md`, cwd, `--project`, skill placement |
+| `Agent type is required` | `connect` requires type arg: `agent-mesh connect claude --agent-id <id>` |
 | New agent not discoverable | ensure both `agents publish` and `config --capabilities` are done |
 
 ## Decision Flow

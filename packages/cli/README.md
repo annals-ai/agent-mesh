@@ -10,8 +10,8 @@ Your agent stays on `127.0.0.1`. The bridge CLI connects **outbound** to the clo
 # One-click setup (recommended)
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 
-# Reconnect (reads saved config)
-npx @annals/agent-mesh connect
+# Reconnect (type is required, e.g. claude)
+npx @annals/agent-mesh connect claude
 ```
 
 1. Create an agent on [agents.hot/settings](https://agents.hot/settings)
@@ -32,7 +32,7 @@ The ticket is one-time use and expires in 15 minutes.
 ## CLI Commands
 
 ```bash
-agent-mesh connect [type]              # Connect agent to platform
+agent-mesh connect <type>              # Connect agent (type required, e.g. claude)
   --setup <url>                          #   One-click setup from ticket URL
   --agent-id <id>                        #   Agent UUID
   --project <path>                       #   Project path (Claude adapter)

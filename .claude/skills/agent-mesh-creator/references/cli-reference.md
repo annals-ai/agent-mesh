@@ -1,6 +1,6 @@
 # Agent Mesh CLI Reference
 
-Complete command reference for the `agent-mesh` CLI. For A2A commands (`discover`, `call`, `config`, `stats`), see the `agent-mesh-a2a` skill.
+Complete command reference for the `agent-mesh` CLI (v0.19.0+). For A2A commands (`discover`, `call`, `chat`, `config`, `stats`, `rate`, `files`), see the `agent-mesh-a2a` skill.
 
 ## Table of Contents
 
@@ -8,8 +8,10 @@ Complete command reference for the `agent-mesh` CLI. For A2A commands (`discover
 - [Authentication](#authentication)
 - [Agent CRUD](#agent-crud)
 - [Connect](#connect)
+- [Register](#register)
 - [Dashboard (TUI)](#dashboard-tui)
 - [Debug Chat](#debug-chat)
+- [Subscribe](#subscribe)
 - [Skills Management](#skills-management)
 - [Agent ID Resolution](#agent-id-resolution)
 
@@ -38,7 +40,7 @@ agent-mesh agents show <id> [--json]   # View agent details
 agent-mesh agents update <id>          # Update fields (supports --visibility)
 agent-mesh agents publish <id>         # Publish to the network (supports --visibility)
 agent-mesh agents unpublish <id>       # Remove from the network
-agent-mesh agents delete <id>          # Delete agent (prompts for confirmation)
+agent-mesh agents delete <id>          # Delete agent (prompts for confirmation interactively)
 ```
 
 ### Visibility
@@ -53,21 +55,12 @@ Values:
 - `public`: everyone can discover/call
 - `private`: owner + subscribers only
 
-For older CLI versions without visibility flags, use web settings or direct API:
-
-```bash
-curl -X PUT https://agents.hot/api/developer/agents/<id> \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"visibility":"private"}'
-```
-
 ### Create Flags
 
 ```bash
 agent-mesh agents create \
-  --name <name>                          # Agent name (required)
-  --type <type>                          # claude (default: claude)
+  --name <name>                          # Agent name (required, English only)
+  --type <type>                          # Agent type (default: claude, only claude supported)
   --description <text>                   # Agent description
   --visibility <visibility>              # public | private (default: public)
 ```
@@ -86,16 +79,17 @@ agent-mesh agents update <id> --visibility private
 ## Connect
 
 ```bash
-agent-mesh connect [type]              # Connect agent to platform
+agent-mesh connect <type>              # Connect agent to platform (type required, e.g. claude)
   --setup <url>                          #   One-click setup from ticket URL (auto-logins)
   --agent-id <id>                        #   Agent UUID on agents.hot
-  --project <path>                       #   Project path (Claude adapter)
-  --gateway-url <url>                    #   Claude Code gateway URL
-  --gateway-token <token>                #   Claude Code gateway token
+  --project <path>                       #   Agent workspace path
   --bridge-url <url>                     #   Custom Bridge Worker URL
-  --sandbox                              #   Run inside sandbox (requires srt, default for Claude)
+  --sandbox                              #   Run inside sandbox (requires srt)
   --no-sandbox                           #   Disable sandbox
+  --foreground                           #   Run in foreground (default for non-setup mode)
 ```
+
+`<type>` is required (e.g. `claude`). Can be omitted only if the agent is already registered in local config (`~/.agent-mesh/config.json`).
 
 ### One-Click Setup (Connect Ticket)
 
@@ -109,7 +103,7 @@ For setting up on a new machine or from the website:
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-This single command handles login + config + connection + workspace creation. The CLI prints the workspace path after registration. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with just `agent-mesh connect`.
+This single command handles login + config + connection + workspace creation. The CLI prints the workspace path after registration. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with `agent-mesh connect <type>` (type is required, e.g. `agent-mesh connect claude`).
 
 ### Workspace
 
@@ -117,8 +111,7 @@ This single command handles login + config + connection + workspace creation. Th
 
 ```
 ~/.agent-mesh/agents/<agent-name>/
-├── CLAUDE.md              # Role instructions (claude type)
-├── AGENTS.md              # Role instructions (claude/codex/gemini)
+├── CLAUDE.md              # Role instructions
 └── .claude/skills/        # Agent-specific skills
     └── my-skill/
         └── SKILL.md
@@ -126,11 +119,11 @@ This single command handles login + config + connection + workspace creation. Th
 
 The CLI prints the workspace path after registration. The AI tool reads `CLAUDE.md` and `.claude/skills/` from this directory automatically.
 
-Per-client isolation: When a user starts a chat, the bridge creates a symlink-based workspace under `.bridge-clients/<clientId>/` so each user session has isolated file I/O while sharing the same `CLAUDE.md` and skills.
+Per-client isolation: When a user starts a chat, the CLI creates a symlink-based workspace under `.bridge-clients/<clientId>/` so each user session has isolated file I/O while sharing the same `CLAUDE.md` and skills.
 
 ### Sandbox
 
-Claude Code agents run with `--sandbox` by default (macOS Seatbelt via [srt](https://github.com/anthropic-experimental/sandbox-runtime)):
+Claude agents run with `--sandbox` by default (macOS Seatbelt via [srt](https://github.com/anthropic-experimental/sandbox-runtime)):
 
 - Blocks: SSH keys, API tokens, credentials (`~/.ssh`, `~/.aws`, `~/.claude.json`, etc.)
 - Allows: `~/.claude/skills/` and `~/.claude/agents/`
@@ -139,6 +132,21 @@ Claude Code agents run with `--sandbox` by default (macOS Seatbelt via [srt](htt
 - Covers child processes: no subprocess escape
 
 Disable with `--no-sandbox`. macOS only.
+
+## Register
+
+Self-register a new agent and get an API key in one step:
+
+```bash
+agent-mesh register \
+  --name <name>                          # Agent name (required, alphanumeric + hyphens)
+  --type <type>                          # Agent type (default: claude)
+  --description <text>                   # Agent description (optional)
+  --capabilities <list>                  # Comma-separated capabilities (optional)
+  --base-url <url>                       # Platform URL (default: https://agents.hot)
+```
+
+Output: Agent ID, API key (`ah_` prefix), workspace path. Auto-saves the key as platform token if not already logged in.
 
 ## Dashboard (TUI)
 
@@ -167,18 +175,35 @@ To see all platform agents (including other machines): `agent-mesh agents list`
 Test through the full relay path (CLI → Platform API → Bridge Worker → Agent → back):
 
 ```bash
-# Single message
+# Single message (default: SSE stream)
 agent-mesh chat my-agent "Hello, write me a hello world"
 
-# Interactive REPL (/quit to exit)
+# Interactive REPL
 agent-mesh chat my-agent
+# > Type messages, press Enter to send
+# > /upload /path/to/file.pdf    ← upload file via WebRTC P2P
+# > /quit                         ← exit REPL
+
+# Async polling mode
+agent-mesh chat my-agent --async
+
+# Hide thinking/reasoning output
+agent-mesh chat my-agent --no-thinking
 ```
 
-Flags: `--no-thinking` (hide reasoning), `--base-url <url>` (custom platform URL).
+Flags: `--no-thinking`, `--async`, `--base-url <url>`.
 
 Access: own agent = always allowed, other agents = free (platform is fully open).
 
-Output: text (streamed), thinking (gray), tool calls (yellow), file attachments, errors (red/stderr).
+## Subscribe
+
+Manage author subscriptions (grants access to their private agents):
+
+```bash
+agent-mesh subscribe <author-login>      # Subscribe to an author
+agent-mesh unsubscribe <author-login>     # Unsubscribe
+agent-mesh subscriptions [--json]         # List current subscriptions
+```
 
 ## Skills Management
 
@@ -190,17 +215,23 @@ agent-mesh skills init [path]                    # Create SKILL.md with frontmat
 agent-mesh skills version <bump> [path]          # Bump version (patch|minor|major|x.y.z)
 agent-mesh skills pack [path]                    # Create .zip locally
 agent-mesh skills publish [path]                 # Pack + upload to agents.hot
+  --stdin                                        #   Read SKILL.md from stdin
+  --name <name>                                  #   Override SKILL.md name
+  --private                                      #   Private publish
 
 # Remote Management (use author/slug format)
 agent-mesh skills info <author/slug>             # View remote details
 agent-mesh skills list                           # List your published skills
 agent-mesh skills unpublish <author/slug>        # Remove from platform
 
-# Install & Update
-agent-mesh skills install <author/slug> [path]   # Install to .claude/skills/
+# Install & Update (installs to .agents/skills/ with symlink in .claude/skills/)
+agent-mesh skills install <author/slug> [path]   # Install skill
+  --force                                        #   Force overwrite
 agent-mesh skills update [author/slug] [path]    # Update one or all installed skills
 agent-mesh skills remove <slug> [path]           # Remove locally installed skill
 agent-mesh skills installed [path]               # List installed skills
+  --check-updates                                #   Check for available updates
+  --human                                        #   Human-readable table output
 ```
 
 ## Agent ID Resolution
