@@ -180,13 +180,15 @@ When `--with-files` is passed, the caller receives files directly from the agent
    └── Caller POSTs SDP offer to Platform API:
        POST /api/agents/{id}/rtc-signal
        {transfer_id, signal_type: 'offer', payload: SDP}
-       ├── Platform → Worker POST /api/rtc-signal/{agentId}
-       ├── Worker DO → WS forward to Agent B as 'rtc_signal_relay' (from_agent_id='http-caller')
+       ├── Platform generates Cloudflare TURN credentials (TTL 300s) → injects ice_servers into body
+       ├── Platform → Worker POST /api/rtc-signal/{agentId} (body includes ice_servers)
+       ├── Worker DO → WS forward to Agent B as 'rtc_signal_relay' (from_agent_id='http-caller', ice_servers passed through)
        └── Returns buffered signals from Agent B (answer + ICE candidates)
 
 4. Agent B's FileSender handles signaling
-   ├── Receives rtc_signal_relay via WS
-   ├── Creates PeerConnection + answer SDP
+   ├── Receives rtc_signal_relay via WS (with ice_servers if present)
+   ├── setIceServers() if TURN credentials available → Creates PeerConnection with STUN+TURN
+   ├── Creates answer SDP
    ├── Sends answer + ICE candidates → WS → DO buffer (target='http-caller')
    └── Caller picks up buffered signals on next poll
 
@@ -232,11 +234,23 @@ When a user selects a file in the browser, it is uploaded directly to the agent 
 - Only collect real files → these are session-produced outputs (Claude-created + user-uploaded)
 - No exclude list needed — symlink vs real file distinction handles everything
 
+### ICE / NAT Traversal
+
+Cloudflare TURN + dual STUN ensures WebRTC works behind symmetric NAT and enterprise firewalls.
+
+- **Browser**: `GET /api/turn-credentials` → returns `iceServers` (STUN + TURN with temp credentials, 300s TTL). Falls back to pure STUN if TURN env vars missing.
+- **CLI (via signaling)**: Platform `POST /api/agents/{id}/rtc-signal` injects `ice_servers` into signal body → Worker transparently passes to CLI → CLI calls `setIceServers()` before PeerConnection creation.
+- **Default STUN** (no TURN): `stun:stun.cloudflare.com:3478` + `stun:stun.l.google.com:19302`
+- **TURN formats**: UDP/TCP/TLS on ports 3478, 5349, 53, 80, 443 (穿透各类防火墙)
+- **Env vars**: `TURN_KEY_ID` + `TURN_API_TOKEN` (wrangler secrets on Platform Worker)
+- **node-datachannel TURN format**: `turn:username:credential@host:port` (embedded in iceServers string array)
+
 Signaling buffer: Worker DO holds `rtcSignalBuffer` Map with 60s TTL auto-cleanup.
 
 HTTP endpoints:
-- `POST /api/rtc-signal/:agentId` (Worker) — accepts signaling from HTTP callers, relays to Agent WS, returns buffered responses. Transparently forwards `client_id` from body.
-- `POST /api/agents/{id}/rtc-signal` (Platform) — auth proxy to Worker endpoint. Injects `client_id` via `deriveClientId(userId)` if not already present.
+- `POST /api/rtc-signal/:agentId` (Worker) — accepts signaling from HTTP callers, relays to Agent WS, returns buffered responses. Transparently forwards `client_id` and `ice_servers` from body.
+- `POST /api/agents/{id}/rtc-signal` (Platform) — auth proxy to Worker endpoint. Injects `client_id` via `deriveClientId(userId)` and `ice_servers` via Cloudflare TURN API.
+- `GET /api/turn-credentials` (Platform) — browser-side endpoint, returns `{ iceServers }` for RTCPeerConnection config.
 
 ---
 

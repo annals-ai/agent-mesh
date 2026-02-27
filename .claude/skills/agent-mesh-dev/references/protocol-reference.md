@@ -97,7 +97,7 @@ Must be the first message sent. The DO validates the token before accepting the 
 | `call_agent_chunk` | A2A: streaming chunk from called agent | `call_id`, `delta`, `kind?` |
 | `call_agent_done` | A2A: called agent finished | `call_id`, `attachments?`, `file_transfer_offer?` |
 | `call_agent_error` | A2A: called agent error | `call_id`, `code`, `message` |
-| `rtc_signal_relay` | WebRTC signaling relay from another agent | `transfer_id`, `from_agent_id`, `signal_type`, `payload`, `client_id?` |
+| `rtc_signal_relay` | WebRTC signaling relay from another agent | `transfer_id`, `from_agent_id`, `signal_type`, `payload`, `client_id?`, `ice_servers?` |
 
 ### message
 
@@ -127,7 +127,7 @@ Platform-to-Worker communication over HTTPS. All endpoints require `X-Platform-S
 | `/api/agents/:id/status` | GET | `X-Platform-Secret` | Check agent online status |
 | `/api/disconnect` | POST | `X-Platform-Secret` | Force-disconnect an agent |
 | `/api/agents-by-token` | POST | `X-Platform-Secret` | Find online agents using a given tokenHash |
-| `/api/rtc-signal/:agentId` | POST | `X-Platform-Secret` | WebRTC signaling exchange for P2P file transfer |
+| `/api/rtc-signal/:agentId` | POST | `X-Platform-Secret` | WebRTC signaling exchange for P2P file transfer (passes `ice_servers` TURN credentials) |
 | `/health` | GET | None | Health check |
 | `/ws?agent_id=<uuid>` | GET | Protocol-level (register) | WebSocket upgrade for CLI |
 
