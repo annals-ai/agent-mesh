@@ -33,9 +33,14 @@ import type {
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
-const MAX_PENDING_RELAYS = 10;
+const MAX_PENDING_RELAYS = 50;
 const HEARTBEAT_TIMEOUT_MS = 50_000;  // 2.5x CLI heartbeat interval (20s)
 const RELAY_TIMEOUT_MS = 120_000;     // 120s without any chunk or heartbeat = dead
+const REGISTER_TIMEOUT_MS = 10_000;   // 10s to send register after WS connect
+const MAX_RTC_SIGNAL_BUFFERS = 100;   // max transfer_ids in rtcSignalBuffer
+const MAX_SIGNALS_PER_TRANSFER = 50;  // max buffered signals per transfer_id
+const MAX_STORED_RESULTS = 100;       // max result: keys in DO storage
+const MAX_RELAY_BODY_BYTES = 5_242_880; // 5 MB max body for relay/a2a
 
 interface PendingRelay {
   controller: ReadableStreamDefaultController<string>;
@@ -56,6 +61,7 @@ const RTC_SIGNAL_BUFFER_TTL_MS = 60_000; // 60 seconds — auto-clean signal buf
 
 interface SessionSocketAttachment {
   promoted: boolean;
+  acceptedAt?: number;
   agentId?: string;
   agentType?: string;
   capabilities?: string[];
@@ -164,7 +170,6 @@ export class AgentSession implements DurableObject {
         connected_at: this.connectedAt,
         last_heartbeat: this.lastHeartbeat,
         active_sessions: this.activeSessions,
-        token_hash: this.cachedTokenHash,
         user_id: this.cachedUserId,
       });
     }
@@ -179,7 +184,12 @@ export class AgentSession implements DurableObject {
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
     this.state.acceptWebSocket(server);
-    this.setSocketAttachment(server, { promoted: false });
+    this.setSocketAttachment(server, { promoted: false, acceptedAt: Date.now() });
+    // Ensure alarm is scheduled so sweepZombieSockets() runs
+    // If no heartbeat alarm is active (no agent online), schedule one for register timeout
+    if (!this.authenticated) {
+      this.state.storage.setAlarm(Date.now() + REGISTER_TIMEOUT_MS);
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -291,6 +301,8 @@ export class AgentSession implements DurableObject {
         if (this.agentId && Date.now() - this.lastPlatformSyncAt >= AgentSession.PLATFORM_SYNC_INTERVAL_MS) {
           this.lastPlatformSyncAt = Date.now();
           this.syncHeartbeat(this.agentId);
+          // Prune old result: keys from DO storage (24h TTL + max 100)
+          void this.pruneOldResults();
           // API key revalidation (DO cached tokenHash → 1 query on revoked_at)
           if (this.cachedTokenHash) {
             const stillValid = await this.revalidateToken();
@@ -401,6 +413,12 @@ export class AgentSession implements DurableObject {
   // Relay handling
   // ========================================================
   private async handleRelay(request: Request): Promise<Response> {
+    // Body size guard (5 MB) — chunked encoding falls through (NaN > N → false)
+    const contentLength = parseInt(request.headers.get('Content-Length') || '', 10);
+    if (contentLength > MAX_RELAY_BODY_BYTES) {
+      return json(413, { error: 'payload_too_large', message: `Body exceeds ${MAX_RELAY_BODY_BYTES} bytes` });
+    }
+
     const ws = this.getPrimarySocket();
     if (!ws || !this.authenticated) {
       return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
@@ -842,6 +860,7 @@ export class AgentSession implements DurableObject {
     this.agentId = '';
     this.cachedTokenHash = '';
     this.cachedUserId = '';
+    this.rtcSignalBuffer.clear();
     await this.cleanupAllRelays();
     await this.state.storage.delete('agentId');
     await this.removeKV(agentId);
@@ -936,7 +955,22 @@ export class AgentSession implements DurableObject {
     this.state.storage.setAlarm(Date.now() + HEARTBEAT_TIMEOUT_MS);
   }
 
+  /** Close WebSocket connections that never sent a register message within REGISTER_TIMEOUT_MS */
+  private sweepZombieSockets(): void {
+    const now = Date.now();
+    const sockets = this.state.getWebSockets();
+    for (const socket of sockets) {
+      const meta = this.getSocketAttachment(socket);
+      if (!meta.promoted && meta.acceptedAt && now - meta.acceptedAt > REGISTER_TIMEOUT_MS) {
+        try { socket.close(1008, 'Register timeout'); } catch {}
+      }
+    }
+  }
+
   async alarm(): Promise<void> {
+    // Always sweep zombie (unauthenticated) sockets first
+    this.sweepZombieSockets();
+
     const ws = this.getPrimarySocket();
 
     // Case 1: Active connection — check heartbeat freshness
@@ -1032,6 +1066,44 @@ export class AgentSession implements DurableObject {
 
     // Async tasks — fail all with agent_offline
     await this.cleanupAsyncTasks();
+  }
+
+  /** Prune expired / excess result: keys from DO storage (called during heartbeat sync) */
+  private async pruneOldResults(): Promise<void> {
+    const resultEntries = await this.state.storage.list({ prefix: 'result:' });
+    if (resultEntries.size === 0) return;
+
+    const keysToDelete: string[] = [];
+    const entries: Array<{ key: string; completedAt: number }> = [];
+
+    for (const [key, value] of resultEntries) {
+      try {
+        const result = JSON.parse(value as string);
+        const completedAt = new Date(result.completed_at).getTime();
+        entries.push({ key, completedAt });
+        // 24h TTL
+        if (Date.now() - completedAt > 24 * 60 * 60 * 1000) {
+          keysToDelete.push(key);
+        }
+      } catch {
+        keysToDelete.push(key); // corrupt
+      }
+    }
+
+    // If over MAX_STORED_RESULTS, delete oldest
+    if (entries.length - keysToDelete.length > MAX_STORED_RESULTS) {
+      const remaining = entries
+        .filter((e) => !keysToDelete.includes(e.key))
+        .sort((a, b) => a.completedAt - b.completedAt);
+      const excess = remaining.length - MAX_STORED_RESULTS;
+      for (let i = 0; i < excess; i++) {
+        keysToDelete.push(remaining[i].key);
+      }
+    }
+
+    if (keysToDelete.length > 0) {
+      await this.state.storage.delete(keysToDelete);
+    }
   }
 
   private async cleanupAsyncTasks(): Promise<void> {
@@ -1257,6 +1329,12 @@ export class AgentSession implements DurableObject {
   // A2A: Handle incoming call (HTTP — from platform or DO-to-DO)
   // ========================================================
   private async handleA2ACall(request: Request): Promise<Response> {
+    // Body size guard (5 MB)
+    const contentLength = parseInt(request.headers.get('Content-Length') || '', 10);
+    if (contentLength > MAX_RELAY_BODY_BYTES) {
+      return json(413, { error: 'payload_too_large', message: `Body exceeds ${MAX_RELAY_BODY_BYTES} bytes` });
+    }
+
     const ws = this.getPrimarySocket();
     if (!ws || !this.authenticated) {
       return json(404, { error: 'agent_offline', message: 'Target agent is not connected' });
@@ -1353,7 +1431,14 @@ export class AgentSession implements DurableObject {
   private async handleRtcSignal(msg: RtcSignal): Promise<void> {
     // If target is 'http-caller', buffer signals for HTTP polling retrieval
     if (msg.target_agent_id === 'http-caller') {
+      // Guard: limit number of transfer_ids and signals per transfer
+      if (!this.rtcSignalBuffer.has(msg.transfer_id) && this.rtcSignalBuffer.size >= MAX_RTC_SIGNAL_BUFFERS) {
+        return; // silent drop — too many concurrent transfers
+      }
       const buf = this.rtcSignalBuffer.get(msg.transfer_id) || [];
+      if (buf.length >= MAX_SIGNALS_PER_TRANSFER) {
+        return; // silent drop — too many signals for this transfer
+      }
       buf.push({ signal_type: msg.signal_type, payload: msg.payload });
       this.rtcSignalBuffer.set(msg.transfer_id, buf);
       return;

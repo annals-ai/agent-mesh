@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { safeUnzip } from '../utils/zip.js';
 import { log } from '../utils/logger.js';
 
 const DUPLICATE_REQUEST_TTL_MS = 10 * 60_000;
@@ -666,11 +667,11 @@ export class BridgeManager {
         const zipPath = join(workspaceDir, '.upload.zip');
         writeFileSync(zipPath, zipBuffer);
         try {
-          execSync(`unzip -o -q "${zipPath}" -d "${workspaceDir}"`);
+          safeUnzip(zipPath, workspaceDir);
           try { execSync(`rm "${zipPath}"`); } catch {}
           log.info(`[WebRTC] Upload: ${offer.file_count} file(s) extracted to ${workspaceDir}`);
-        } catch {
-          log.warn(`[WebRTC] Upload: Failed to extract ZIP. Saved to: ${zipPath}`);
+        } catch (unzipErr) {
+          log.warn(`[WebRTC] Upload: Failed to extract ZIP: ${(unzipErr as Error).message}. Saved to: ${zipPath}`);
         }
       } catch (err) {
         log.error(`[WebRTC] Upload extraction failed: ${err}`);

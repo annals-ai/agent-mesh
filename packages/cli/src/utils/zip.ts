@@ -1,4 +1,6 @@
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
+import { execSync } from 'node:child_process';
+import { resolve, relative } from 'node:path';
 
 /**
  * Zero-dependency ZIP builder using Node.js built-in zlib.
@@ -142,6 +144,54 @@ export function createZipBuffer(entries: ZipEntry[]): Buffer {
   chunks.push(eocd);
 
   return Buffer.concat(chunks);
+}
+
+// --- Safe unzip (path traversal protection) ---
+
+/**
+ * Safely extract a ZIP file to destDir.
+ * Rejects ZIPs containing entries with `..` segments or absolute paths.
+ */
+export function safeUnzip(zipPath: string, destDir: string): void {
+  const absDestDir = resolve(destDir);
+
+  // List entries without extracting
+  const listing = execSync(`unzip -l "${zipPath}"`, { encoding: 'utf-8' });
+  const lines = listing.split('\n');
+
+  // unzip -l output: header lines, then "  Length  Date  Time  Name", then entries, then summary
+  // Entry lines have the filename as the last column after the date/time
+  for (const line of lines) {
+    // Match lines like "   1234  2026-02-27 12:00   some/file.txt"
+    const match = line.match(/^\s*\d+\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+(.+)$/);
+    if (!match) continue;
+
+    const entryPath = match[1].trim();
+    if (!entryPath) continue;
+
+    // Reject absolute paths
+    if (entryPath.startsWith('/')) {
+      throw new Error(`Blocked: ZIP contains absolute path entry: ${entryPath}`);
+    }
+
+    // Reject path traversal
+    if (entryPath.includes('..')) {
+      throw new Error(`Blocked: ZIP contains path traversal entry: ${entryPath}`);
+    }
+
+    // Double-check: resolved path must stay within destDir
+    const resolved = resolve(absDestDir, entryPath);
+    const rel = relative(absDestDir, resolved);
+    if (rel.startsWith('..') || resolve(resolved) !== resolved.replace(/\/$/, '')) {
+      // Only reject if it truly escapes
+      if (rel.startsWith('..')) {
+        throw new Error(`Blocked: ZIP entry escapes target directory: ${entryPath}`);
+      }
+    }
+  }
+
+  // Safe to extract
+  execSync(`unzip -o -q "${zipPath}" -d "${destDir}"`);
 }
 
 // --- ZIP extraction ---

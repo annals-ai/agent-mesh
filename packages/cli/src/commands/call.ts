@@ -9,6 +9,7 @@ import { createClient, PlatformApiError } from '../platform/api-client.js';
 import { resolveAgentId } from '../platform/resolve-agent.js';
 import { FileReceiver, FileUploadSender, sha256Hex, type SignalMessage } from '../utils/webrtc-transfer.js';
 import { parseSseChunk } from '../utils/sse-parser.js';
+import { safeUnzip } from '../utils/zip.js';
 import { log } from '../utils/logger.js';
 import { GRAY, RESET, BOLD } from '../utils/table.js';
 
@@ -147,10 +148,10 @@ async function webrtcDownload(
     writeFileSync(zipPath, zipBuffer);
 
     try {
-      execSync(`unzip -o -q "${zipPath}" -d "${outputDir}"`);
+      safeUnzip(zipPath, outputDir);
       try { execSync(`rm "${zipPath}"`); } catch {}
-    } catch {
-      log.warn(`Failed to extract ZIP. Saved to: ${zipPath}`);
+    } catch (unzipErr) {
+      log.warn(`Failed to extract ZIP: ${(unzipErr as Error).message}. Saved to: ${zipPath}`);
       return;
     }
 
