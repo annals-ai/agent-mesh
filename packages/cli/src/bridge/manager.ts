@@ -633,6 +633,8 @@ export class BridgeManager {
   }
 
   private handleRtcSignalRelay(msg: RtcSignalRelay): void {
+    log.info(`[WebRTC] Signal relay received: type=${msg.signal_type} transfer=${msg.transfer_id.slice(0, 8)}... from=${msg.from_agent_id}`);
+
     // Handle prepare-upload signal: register upload receiver before any message
     if ((msg.signal_type as string) === 'prepare-upload') {
       const offer = JSON.parse(msg.payload) as FileTransferOffer;
@@ -660,7 +662,7 @@ export class BridgeManager {
     // Check upload transfers (Caller → Agent)
     const uploadEntry = this.pendingUploads.get(msg.transfer_id);
     if (uploadEntry) {
-      log.debug(`[WebRTC] Routing ${msg.signal_type} signal to upload receiver: transfer=${msg.transfer_id.slice(0, 8)}...`);
+      log.info(`[WebRTC] Routing ${msg.signal_type} signal to upload receiver: transfer=${msg.transfer_id.slice(0, 8)}...`);
       void uploadEntry.receiver.handleSignal({
         signal_type: msg.signal_type,
         payload: msg.payload,
@@ -668,7 +670,7 @@ export class BridgeManager {
       return;
     }
 
-    log.debug(`No pending transfer for ${msg.transfer_id.slice(0, 8)}... (active=${this.pendingTransfers.size}, dormant=${this.dormantTransfers.size}, upload=${this.pendingUploads.size})`);
+    log.warn(`[WebRTC] No pending transfer for ${msg.transfer_id.slice(0, 8)}... (active=${this.pendingTransfers.size}, dormant=${this.dormantTransfers.size}, upload=${this.pendingUploads.size})`);
   }
 
   // ========================================================

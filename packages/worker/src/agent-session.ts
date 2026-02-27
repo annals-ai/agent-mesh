@@ -1428,18 +1428,22 @@ export class AgentSession implements DurableObject {
 
   /** CLI sends rtc_signal → route to target agent's DO (or buffer for http-caller) */
   private async handleRtcSignal(msg: RtcSignal): Promise<void> {
+    console.log(`[RTC-Signal] From agent: type=${msg.signal_type} target=${msg.target_agent_id} transfer=${msg.transfer_id.slice(0, 8)}...`);
     // If target is 'http-caller', buffer signals for HTTP polling retrieval
     if (msg.target_agent_id === 'http-caller') {
       // Guard: limit number of transfer_ids and signals per transfer
       if (!this.rtcSignalBuffer.has(msg.transfer_id) && this.rtcSignalBuffer.size >= MAX_RTC_SIGNAL_BUFFERS) {
+        console.warn(`[RTC-Signal] Buffer full, dropping signal for transfer=${msg.transfer_id.slice(0, 8)}...`);
         return; // silent drop — too many concurrent transfers
       }
       const buf = this.rtcSignalBuffer.get(msg.transfer_id) || [];
       if (buf.length >= MAX_SIGNALS_PER_TRANSFER) {
+        console.warn(`[RTC-Signal] Too many signals for transfer=${msg.transfer_id.slice(0, 8)}...`);
         return; // silent drop — too many signals for this transfer
       }
       buf.push({ signal_type: msg.signal_type, payload: msg.payload });
       this.rtcSignalBuffer.set(msg.transfer_id, buf);
+      console.log(`[RTC-Signal] Buffered ${msg.signal_type} for transfer=${msg.transfer_id.slice(0, 8)}... (total=${buf.length})`);
       return;
     }
 
@@ -1511,6 +1515,7 @@ export class AgentSession implements DurableObject {
     if (signal_type !== 'poll') {
       const ws = this.getPrimarySocket();
       if (!ws || !this.authenticated) {
+        console.warn(`[RTC-Exchange] Agent offline for ${signal_type} signal, transfer=${transfer_id.slice(0, 8)}...`);
         return json(404, { error: 'agent_offline', message: 'Agent is not connected' });
       }
 
@@ -1524,7 +1529,9 @@ export class AgentSession implements DurableObject {
 
       try {
         ws.send(JSON.stringify(relay));
-      } catch {
+        console.log(`[RTC-Exchange] Forwarded ${signal_type} to agent, transfer=${transfer_id.slice(0, 8)}...`);
+      } catch (err) {
+        console.error(`[RTC-Exchange] WS send failed for ${signal_type}: ${err}`);
         return json(502, { error: 'agent_offline', message: 'Failed to send signal to agent' });
       }
     }
@@ -1547,6 +1554,10 @@ export class AgentSession implements DurableObject {
         this.rtcSignalBuffer.delete(transfer_id);
         this.rtcSignalCleanupScheduled?.delete(transfer_id);
       }, RTC_SIGNAL_BUFFER_TTL_MS);
+    }
+
+    if (signals.length > 0 || signal_type !== 'poll') {
+      console.log(`[RTC-Exchange] Returning ${signals.length} buffered signals for transfer=${transfer_id.slice(0, 8)}... (request_type=${signal_type})`);
     }
 
     return json(200, { ok: true, signals });

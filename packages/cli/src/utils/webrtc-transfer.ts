@@ -399,7 +399,7 @@ export class FileUploadReceiver {
 
     try {
       if (signal.signal_type === 'offer' || signal.signal_type === 'answer') {
-        log.debug(`[WebRTC] Upload receiver: setting remote ${signal.signal_type} (${signal.payload.length} chars)`);
+        log.info(`[WebRTC] Upload receiver: setting remote ${signal.signal_type} (${signal.payload.length} chars)`);
         this.peer.setRemoteDescription(signal.payload, signal.signal_type);
         for (const c of this.pendingCandidates) {
           this.peer.addRemoteCandidate(c.candidate, c.mid);
