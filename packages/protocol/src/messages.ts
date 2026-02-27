@@ -122,6 +122,8 @@ export interface RtcSignalRelay {
   payload: string;
   /** Stable client identifier for per-client workspace file extraction */
   client_id?: string;
+  /** Dynamic ICE servers (STUN+TURN) from Platform for NAT traversal */
+  ice_servers?: Array<{ urls: string | string[]; username?: string; credential?: string }>;
 }
 
 /** Cancel an in-progress request */

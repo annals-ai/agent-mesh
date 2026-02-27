@@ -1,6 +1,6 @@
 import type { WorkerToBridgeMessage, Message, Chunk, Done, BridgeError, ChunkKind, Attachment, RtcSignalRelay, RtcSignal, FileTransferOffer } from '@annals/bridge-protocol';
 import { BridgeErrorCode } from '@annals/bridge-protocol';
-import { FileSender, FileUploadReceiver, type SignalMessage } from '../utils/webrtc-transfer.js';
+import { FileSender, FileUploadReceiver, type SignalMessage, type IceServerConfig } from '../utils/webrtc-transfer.js';
 import type { AgentAdapter, AdapterConfig, SessionHandle } from '../adapters/base.js';
 import { BridgeWSClient } from '../platform/ws-client.js';
 import { SessionPool } from './session-pool.js';
@@ -638,7 +638,7 @@ export class BridgeManager {
     // Handle prepare-upload signal: register upload receiver before any message
     if ((msg.signal_type as string) === 'prepare-upload') {
       const offer = JSON.parse(msg.payload) as FileTransferOffer;
-      this.registerPendingUpload(offer, msg.client_id);
+      this.registerPendingUpload(offer, msg.client_id, msg.ice_servers as IceServerConfig | undefined);
       return;
     }
 
@@ -646,6 +646,10 @@ export class BridgeManager {
     const downloadEntry = this.pendingTransfers.get(msg.transfer_id);
     if (downloadEntry) {
       (downloadEntry as { targetAgentId?: string }).targetAgentId = msg.from_agent_id;
+      // Inject TURN credentials from Platform (first signal carries ice_servers)
+      if (msg.ice_servers) {
+        downloadEntry.sender.setIceServers(msg.ice_servers as IceServerConfig);
+      }
       void downloadEntry.sender.handleSignal({
         signal_type: msg.signal_type,
         payload: msg.payload,
@@ -663,6 +667,9 @@ export class BridgeManager {
     const uploadEntry = this.pendingUploads.get(msg.transfer_id);
     if (uploadEntry) {
       log.info(`[WebRTC] Routing ${msg.signal_type} signal to upload receiver: transfer=${msg.transfer_id.slice(0, 8)}...`);
+      if (msg.ice_servers) {
+        uploadEntry.receiver.setIceServers(msg.ice_servers as IceServerConfig);
+      }
       void uploadEntry.receiver.handleSignal({
         signal_type: msg.signal_type,
         payload: msg.payload,
@@ -677,8 +684,8 @@ export class BridgeManager {
   // Upload (Caller → Agent) WebRTC signaling
   // ========================================================
 
-  private registerPendingUpload(offer: FileTransferOffer, clientId?: string): void {
-    const receiver = new FileUploadReceiver(offer.zip_size, offer.zip_sha256);
+  private registerPendingUpload(offer: FileTransferOffer, clientId?: string, iceServers?: IceServerConfig): void {
+    const receiver = new FileUploadReceiver(offer.zip_size, offer.zip_sha256, iceServers);
 
     // Wire outgoing signals through Bridge WS
     receiver.onSignal((signal: SignalMessage) => {

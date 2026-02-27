@@ -14,7 +14,28 @@ import { existsSync, copyFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { log } from './logger.js';
 
-const ICE_SERVERS = ['stun:stun.l.google.com:19302'];
+const DEFAULT_ICE_SERVERS = ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'];
+
+export type IceServerConfig = Array<{ urls: string | string[]; username?: string; credential?: string }>;
+
+/** Convert browser-style ICE config to node-datachannel string array format. */
+function toNdcPeerConfig(config?: IceServerConfig): { iceServers: string[] } {
+  if (!config || config.length === 0) return { iceServers: DEFAULT_ICE_SERVERS };
+  const servers: string[] = [];
+  for (const s of config) {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+    for (const url of urls) {
+      if (s.username && s.credential && (url.startsWith('turn:') || url.startsWith('turns:'))) {
+        // node-datachannel format: turn:username:credential@host:port
+        const scheme = url.startsWith('turns:') ? 'turns' : 'turn';
+        servers.push(`${scheme}:${s.username}:${s.credential}@${url.replace(/^turns?:/, '')}`);
+      } else {
+        servers.push(url);
+      }
+    }
+  }
+  return { iceServers: servers.length > 0 ? servers : DEFAULT_ICE_SERVERS };
+}
 const CHUNK_SIZE = 64 * 1024; // 64KB per DataChannel message
 const CONNECT_TIMEOUT_MS = 10_000;
 
@@ -100,10 +121,16 @@ export class FileSender {
   private pendingCandidates: Array<{ candidate: string; mid: string }> = [];
   private signalCallback: ((signal: SignalMessage) => void) | null = null;
   private closed = false;
+  private iceConfig?: IceServerConfig;
 
-  constructor(transferId: string, zipBuffer: Buffer) {
+  constructor(transferId: string, zipBuffer: Buffer, iceServers?: IceServerConfig) {
     this.transferId = transferId;
     this.zipBuffer = zipBuffer;
+    this.iceConfig = iceServers;
+  }
+
+  setIceServers(config: IceServerConfig): void {
+    if (!this.peer) this.iceConfig = config;
   }
 
   onSignal(cb: (signal: SignalMessage) => void): void {
@@ -115,9 +142,7 @@ export class FileSender {
     if (!ndc || this.closed) return;
 
     if (!this.peer) {
-      this.peer = new ndc.PeerConnection(`sender-${this.transferId}`, {
-        iceServers: ICE_SERVERS,
-      });
+      this.peer = new ndc.PeerConnection(`sender-${this.transferId}`, toNdcPeerConfig(this.iceConfig));
 
       this.peer.onLocalDescription((sdp: string, type: string) => {
         this.signalCallback?.({ signal_type: type as 'offer' | 'answer', payload: sdp });
@@ -207,10 +232,12 @@ export class FileReceiver {
   private signalCallback: ((signal: SignalMessage) => void | Promise<void>) | null = null;
   private pendingCandidates: Array<{ candidate: string; mid: string }> = [];
   private closed = false;
+  private iceConfig?: IceServerConfig;
 
-  constructor(expectedSize: number, expectedSha256: string) {
+  constructor(expectedSize: number, expectedSha256: string, iceServers?: IceServerConfig) {
     this.expectedSize = expectedSize;
     this.expectedSha256 = expectedSha256;
+    this.iceConfig = iceServers;
   }
 
   onSignal(cb: (signal: SignalMessage) => void | Promise<void>): void {
@@ -221,9 +248,7 @@ export class FileReceiver {
     const ndc = await loadNdc();
     if (!ndc) return null;
 
-    this.peer = new ndc.PeerConnection('receiver', {
-      iceServers: ICE_SERVERS,
-    });
+    this.peer = new ndc.PeerConnection('receiver', toNdcPeerConfig(this.iceConfig));
 
     return new Promise<string>((resolve) => {
       this.peer.onLocalDescription((sdp: string, type: string) => {
@@ -347,10 +372,16 @@ export class FileUploadReceiver {
   private signalCallback: ((signal: SignalMessage) => void) | null = null;
   private pendingCandidates: Array<{ candidate: string; mid: string }> = [];
   private closed = false;
+  private iceConfig?: IceServerConfig;
 
-  constructor(expectedSize: number, expectedSha256: string) {
+  constructor(expectedSize: number, expectedSha256: string, iceServers?: IceServerConfig) {
     this.expectedSize = expectedSize;
     this.expectedSha256 = expectedSha256;
+    this.iceConfig = iceServers;
+  }
+
+  setIceServers(config: IceServerConfig): void {
+    if (!this.peer) this.iceConfig = config;
   }
 
   onSignal(cb: (signal: SignalMessage) => void): void {
@@ -362,9 +393,7 @@ export class FileUploadReceiver {
     if (!ndc || this.closed) return;
 
     if (!this.peer) {
-      this.peer = new ndc.PeerConnection(`upload-receiver-${Date.now()}`, {
-        iceServers: ICE_SERVERS,
-      });
+      this.peer = new ndc.PeerConnection(`upload-receiver-${Date.now()}`, toNdcPeerConfig(this.iceConfig));
 
       this.peer.onLocalDescription((sdp: string, type: string) => {
         log.info(`[WebRTC] Upload receiver: onLocalDescription fired type=${type} (${sdp.length} chars)`);
@@ -489,10 +518,12 @@ export class FileUploadSender {
   private resolveComplete: (() => void) | null = null;
   private rejectComplete: ((err: Error) => void) | null = null;
   private closed = false;
+  private iceConfig?: IceServerConfig;
 
-  constructor(transferId: string, zipBuffer: Buffer) {
+  constructor(transferId: string, zipBuffer: Buffer, iceServers?: IceServerConfig) {
     this.transferId = transferId;
     this.zipBuffer = zipBuffer;
+    this.iceConfig = iceServers;
   }
 
   onSignal(cb: (signal: SignalMessage) => void | Promise<void>): void {
@@ -503,9 +534,7 @@ export class FileUploadSender {
     const ndc = await loadNdc();
     if (!ndc) return null;
 
-    this.peer = new ndc.PeerConnection('upload-sender', {
-      iceServers: ICE_SERVERS,
-    });
+    this.peer = new ndc.PeerConnection('upload-sender', toNdcPeerConfig(this.iceConfig));
 
     return new Promise<string>((resolve) => {
       this.peer.onLocalDescription((sdp: string, type: string) => {
