@@ -14,10 +14,9 @@ import {
 } from '../utils/local-runtime-queue.js';
 import { mkdirSync, writeFileSync, readdirSync } from 'node:fs';
 import { readFile as readFileAsync, writeFile as writeFileAsync, unlink, mkdir as mkdirAsync } from 'node:fs/promises';
-import { execSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
-import { safeUnzip } from '../utils/zip.js';
+import { extractZipBuffer } from '../utils/zip.js';
 import { log } from '../utils/logger.js';
 
 const DUPLICATE_REQUEST_TTL_MS = 10 * 60_000;
@@ -638,7 +637,7 @@ export class BridgeManager {
     // Handle prepare-upload signal: register upload receiver before any message
     if ((msg.signal_type as string) === 'prepare-upload') {
       const offer = JSON.parse(msg.payload) as FileTransferOffer;
-      this.registerPendingUpload(offer, 'pre-upload', 'pre-upload');
+      this.registerPendingUpload(offer);
       return;
     }
 
@@ -677,7 +676,7 @@ export class BridgeManager {
   // Upload (Caller → Agent) WebRTC signaling
   // ========================================================
 
-  private registerPendingUpload(offer: FileTransferOffer, _sessionId: string, _requestId: string): void {
+  private registerPendingUpload(offer: FileTransferOffer): void {
     const receiver = new FileUploadReceiver(offer.zip_size, offer.zip_sha256);
 
     // Wire outgoing signals through Bridge WS
@@ -707,19 +706,22 @@ export class BridgeManager {
       clearTimeout(timer);
       this.pendingUploads.delete(offer.transfer_id);
 
-      // Extract to session workspace
-      const workspaceDir = this.resolveUploadWorkspace(_sessionId);
+      // Extract to agent's project directory so Claude can see the files.
+      // All client workspaces symlink into the project dir, so files placed
+      // here are visible regardless of which clientId is used later.
+      const workspaceDir = this.adapterConfig.project || join(homedir(), '.agent-mesh', 'uploads');
       try {
         mkdirSync(workspaceDir, { recursive: true });
-        const zipPath = join(workspaceDir, '.upload.zip');
-        writeFileSync(zipPath, zipBuffer);
-        try {
-          safeUnzip(zipPath, workspaceDir);
-          try { execSync(`rm "${zipPath}"`); } catch {}
-          log.info(`[WebRTC] Upload: ${offer.file_count} file(s) extracted to ${workspaceDir}`);
-        } catch (unzipErr) {
-          log.warn(`[WebRTC] Upload: Failed to extract ZIP: ${(unzipErr as Error).message}. Saved to: ${zipPath}`);
+        // Use pure-Node extraction (supports UTF-8 filenames, unlike macOS unzip)
+        const entries = extractZipBuffer(zipBuffer);
+        for (const entry of entries) {
+          // Path traversal protection
+          if (entry.path.startsWith('/') || entry.path.includes('..')) continue;
+          const dest = join(workspaceDir, entry.path);
+          mkdirSync(dirname(dest), { recursive: true });
+          writeFileSync(dest, entry.data);
         }
+        log.info(`[WebRTC] Upload: ${entries.length} file(s) extracted to ${workspaceDir}`);
       } catch (err) {
         log.error(`[WebRTC] Upload extraction failed: ${err}`);
       }
@@ -729,11 +731,6 @@ export class BridgeManager {
     });
 
     log.info(`[WebRTC] Upload registered: transfer=${offer.transfer_id.slice(0, 8)}... (${offer.file_count} files, ${(offer.zip_size / 1024).toFixed(1)} KB)`);
-  }
-
-  private resolveUploadWorkspace(sessionId: string): string {
-    const safeSessionId = sessionId.replace(/[^a-zA-Z0-9_:-]/g, '_').slice(0, 64);
-    return join(homedir(), '.agent-mesh', 'uploads', safeSessionId);
   }
 
   private cleanupPendingUploads(): void {

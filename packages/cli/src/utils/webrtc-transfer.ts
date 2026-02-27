@@ -367,19 +367,29 @@ export class FileUploadReceiver {
       });
 
       this.peer.onLocalDescription((sdp: string, type: string) => {
+        log.info(`[WebRTC] Upload receiver: onLocalDescription fired type=${type} (${sdp.length} chars)`);
         this.signalCallback?.({ signal_type: type as 'offer' | 'answer', payload: sdp });
       });
 
       this.peer.onLocalCandidate((candidate: string, mid: string) => {
+        log.info(`[WebRTC] Upload receiver: onLocalCandidate fired`);
         this.signalCallback?.({
           signal_type: 'candidate',
           payload: JSON.stringify({ candidate, mid }),
         });
       });
 
+      this.peer.onStateChange((state: string) => {
+        log.info(`[WebRTC] Upload receiver: state=${state}`);
+      });
+
+      this.peer.onGatheringStateChange((state: string) => {
+        log.info(`[WebRTC] Upload receiver: gathering=${state}`);
+      });
+
       // Passive peer — receive DataChannel created by caller
       this.peer.onDataChannel((dc: InstanceType<NodeDataChannel['DataChannel']>) => {
-        log.debug('[WebRTC] Upload receiver: DataChannel opened');
+        log.info('[WebRTC] Upload receiver: DataChannel opened');
         dc.onMessage((msg: Buffer | string) => {
           if (typeof msg === 'string') {
             try {
@@ -401,6 +411,7 @@ export class FileUploadReceiver {
       if (signal.signal_type === 'offer' || signal.signal_type === 'answer') {
         log.info(`[WebRTC] Upload receiver: setting remote ${signal.signal_type} (${signal.payload.length} chars)`);
         this.peer.setRemoteDescription(signal.payload, signal.signal_type);
+        log.info(`[WebRTC] Upload receiver: setRemoteDescription done, remoteDesc=${!!this.peer.remoteDescription()}`);
         for (const c of this.pendingCandidates) {
           this.peer.addRemoteCandidate(c.candidate, c.mid);
         }

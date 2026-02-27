@@ -1,6 +1,6 @@
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
-import { execSync } from 'node:child_process';
-import { resolve, relative } from 'node:path';
+import { resolve, relative, dirname, join } from 'node:path';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 
 /**
  * Zero-dependency ZIP builder using Node.js built-in zlib.
