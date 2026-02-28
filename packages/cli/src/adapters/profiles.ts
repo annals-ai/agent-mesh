@@ -108,10 +108,8 @@ export class ClaudeOutputParser implements OutputParser {
         return null;
       }
 
-      // Catch-all: forward any other stream event as 'status' so nothing is silently lost
-      if (inner.type && inner.type !== 'message_start' && inner.type !== 'message_stop') {
-        return { type: 'tool', event: { kind: 'status', tool_name: '', tool_call_id: '', delta: JSON.stringify(inner) } };
-      }
+      // Drop known Anthropic bookkeeping events that should never reach the UI
+      // (message_start, message_stop, message_delta, signature_delta, ping, etc.)
       return null;
     }
 
