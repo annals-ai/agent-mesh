@@ -34,7 +34,6 @@ interface PublishResponse {
     name: string;
     slug: string;
     version: string;
-    has_files: boolean;
     is_private: boolean;
     author_login: string | null;
   };
@@ -48,10 +47,6 @@ interface SkillInfo {
   author?: string;
   author_login?: string | null;
   version?: string;
-  category?: string;
-  tags?: string[];
-  installs?: number;
-  views?: number;
   is_private?: boolean;
   has_files?: boolean;
   created_at?: string;
@@ -426,8 +421,6 @@ export function registerSkillsCommand(program: Command): void {
             name,
             version: opts.version || (frontmatter.version as string) || '1.0.0',
             description: frontmatter.description as string | undefined,
-            category: frontmatter.category as string | undefined,
-            tags: frontmatter.tags as string[] | undefined,
             author: frontmatter.author as string | undefined,
             private: opts.private ?? (frontmatter.private as boolean | undefined),
           };
@@ -457,10 +450,6 @@ export function registerSkillsCommand(program: Command): void {
           name: manifest.name,
           version: manifest.version,
           description: manifest.description,
-          category: manifest.category,
-          tags: manifest.tags,
-          author: manifest.author,
-          source_url: manifest.source_url,
           is_private: manifest.private,
         };
 
@@ -515,8 +504,6 @@ export function registerSkillsCommand(program: Command): void {
           if (data.description) console.log(`  ${data.description}`);
           console.log(`  ${GRAY}ref${RESET}       ${authorLogin}/${data.slug}`);
           console.log(`  ${GRAY}author${RESET}    ${data.author_login || data.author || '—'}`);
-          console.log(`  ${GRAY}category${RESET}  ${data.category || '—'}`);
-          console.log(`  ${GRAY}installs${RESET}  ${data.installs ?? 0}`);
           console.log(`  ${GRAY}private${RESET}   ${data.is_private ? 'yes' : 'no'}`);
           console.log('');
           return;
@@ -555,14 +542,12 @@ export function registerSkillsCommand(program: Command): void {
                 { key: 'name', label: 'NAME', width: 24 },
                 { key: 'author', label: 'AUTHOR', width: 16 },
                 { key: 'version', label: 'VERSION', width: 12 },
-                { key: 'installs', label: 'INSTALLS', width: 12, align: 'right' },
                 { key: 'private', label: 'PRIVATE', width: 10 },
               ],
               data.owned.map((s) => ({
                 name: s.name,
                 author: s.author_login || s.author || '—',
                 version: s.version || '—',
-                installs: String(s.installs ?? 0),
                 private: s.is_private ? 'yes' : `${GREEN}no${RESET}`,
               })),
             );

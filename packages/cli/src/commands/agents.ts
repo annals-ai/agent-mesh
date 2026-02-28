@@ -15,10 +15,8 @@ interface Agent {
   visibility?: 'public' | 'private';
   is_online: boolean;
   is_published: boolean;
-  is_active: boolean;
   capabilities?: string[];
   rate_limits?: Record<string, unknown>;
-  first_published_at?: string;
   created_at: string;
   updated_at?: string;
 }

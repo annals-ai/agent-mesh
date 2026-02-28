@@ -8,10 +8,7 @@ export interface SkillManifest {
   version: string;
   description?: string;
   main?: string;
-  category?: string;
-  tags?: string[];
   author?: string;
-  source_url?: string;
   private?: boolean;
 }
 
@@ -159,10 +156,7 @@ export async function loadSkillManifest(dir: string): Promise<SkillManifest> {
       version: (frontmatter.version as string) || '1.0.0',
       description: frontmatter.description as string | undefined,
       main: 'SKILL.md',
-      category: frontmatter.category as string | undefined,
-      tags: frontmatter.tags as string[] | undefined,
       author: frontmatter.author as string | undefined,
-      source_url: frontmatter.source_url as string | undefined,
       private: frontmatter.private as boolean | undefined,
     };
   } catch (err) {
