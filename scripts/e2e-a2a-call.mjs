@@ -125,7 +125,7 @@ if (agents.length > 0) {
   try {
     const output = run(
       `agent-mesh call ${target.id} --task "Respond with exactly: A2A_TEST_OK" --json --stream`,
-      { timeout: 60000 }
+      { timeout: 180000 }
     );
 
     if (output) {

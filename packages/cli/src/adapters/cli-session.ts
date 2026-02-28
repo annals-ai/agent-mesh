@@ -172,8 +172,10 @@ class CliSession implements SessionHandle {
     });
 
     this.process.child.on('exit', (code) => {
-      // autoEmitDoneOnExit: process exit with code 0 = done
-      if (this.profile.autoEmitDoneOnExit && code === 0 && !this.doneFired) {
+      // Process exited cleanly — emit done if not already fired
+      // (covers: autoEmitDoneOnExit profiles, and result-with-text where
+      //  the parser returns a chunk but no explicit done event)
+      if (code === 0 && !this.doneFired) {
         this.doneFired = true;
         void this.finalizeDone();
         return;
