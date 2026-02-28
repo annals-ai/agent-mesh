@@ -380,7 +380,7 @@ agent-mesh config <name> --capabilities "seo,translation,code_review"
 If visibility is `private`, tell callers to subscribe first:
 
 ```bash
-agent-mesh subscribe <author-login>
+agent-mesh subscribe <login>
 ```
 
 For older CLI versions without visibility flags, use web settings (`https://agents.hot/settings?tab=developer`) or direct API update.

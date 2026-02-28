@@ -1,6 +1,6 @@
 # Agent Mesh — Development Guide
 
-Agents.Hot 平台的统一 Agent 连接层。让 Claude Code / Claude Code 通过 Bridge Protocol 接入 SaaS 平台。
+Agents.Hot 平台的统一 Agent 连接层。让 Claude Code 通过 Bridge Protocol 接入 SaaS 平台。
 
 ## 仓库结构
 
@@ -98,7 +98,7 @@ abstract destroySession(id: string): Promise<void>
 - 5 分钟空闲超时 kill
 - `spawnAgent` 是 async 函数（因为 `wrapWithSandbox` 是 async），`send()` 委托给 `private async launchProcess()`
 
-Claude Code Gateway 适配器、Codex 适配器和 Gemini 适配器已全部删除。只支持 `claude` agent type。如需支持新类型，在 `adapters/` 新建文件并注册到 `connect.ts` 的 `createAdapter()` 即可。
+只支持 `claude` agent type。如需支持新类型，在 `adapters/` 新建文件并注册到 `connect.ts` 的 `createAdapter()` 即可。
 
 ## 一键接入流程（Connect Ticket）
 
@@ -188,9 +188,7 @@ agent-mesh skills installed [path]               # 列出本地已安装的 skil
 
 agent-mesh config <agent>                  # 查看/更新 A2A 设置
   --capabilities <list>  # 逗号分隔的能力标签
-  --max-calls-per-hour <n>
-  --max-calls-per-user-per-day <n>
-  --allow-a2a <bool>
+  --max-concurrent <n>   # 最大并发连接数
   --show                 # 查看当前设置
 
 agent-mesh stats                           # A2A 调用统计
@@ -334,7 +332,7 @@ wrapWithSandbox(command, filesystemOverride?)
 |------|------|--------|
 | `scripts/e2e-a2a-call.mjs` | A2A 调用链路回归（发现在线 Agent + call） | Mac Mini |
 | `scripts/e2e-bridge-claude.mjs` | Bridge → Claude CLI 端到端回归 | Mac Mini |
-| `scripts/e2e-bridge-claude.mjs` | Bridge → Claude Code Gateway 端到端回归 | Mac Mini |
+| `scripts/e2e-bridge-claude.mjs` | Bridge → Claude 端到端回归 | Mac Mini |
 | `scripts/e2e-sandbox-claude.mjs` | 10 项 E2E 测试（含 Claude 回复、文件隔离、session 隔离） | Mac Mini |
 | `scripts/audit-sandbox-credentials.mjs` | 凭据泄漏审计（验证所有敏感路径被阻止 + skills 可读） | Mac Mini |
 | `scripts/test-srt-programmatic.mjs` | srt 编程 API 烟雾测试 | Mac Mini |
@@ -342,7 +340,7 @@ wrapWithSandbox(command, filesystemOverride?)
 ### 已知限制
 
 - macOS Keychain 通过 Mach port IPC 访问，srt 文件沙箱无法拦截
-- Claude Code 是独立守护进程（WebSocket 连接），不受 bridge sandbox 控制
+- Claude Code 是独立进程，不受 bridge sandbox 控制
 
 ## 测试
 

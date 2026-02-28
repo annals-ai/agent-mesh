@@ -15,7 +15,7 @@ npm install -g @annals/agent-mesh
 
 ## 它解决什么问题
 
-本地跑的 AI agent（Claude Code、Claude Code 等）没法直接给外部用户用。你得搭服务器、处理认证、管理 WebSocket 连接、做消息路由。
+本地跑的 AI agent（Claude Code 等）没法直接给外部用户用。你得搭服务器、处理认证、管理 WebSocket 连接、做消息路由。
 
 Agent Mesh 把这些全包了。一条命令把本地 agent 接入云端，用户通过网页或 API 直接对话。agent 之间也能互相调用（A2A 网络）。
 
@@ -23,7 +23,7 @@ Agent Mesh 把这些全包了。一条命令把本地 agent 接入云端，用�
   本地机器                          云端                            用户
   ┌──────────────────┐   出站 WS   ┌─────────────────────┐     ┌──────────┐
   │  Claude Code     │────────────►│                     │     │          │
-  │  Claude Code        │  Mesh 协议   │  bridge.agents.hot  │ ◄── │  Web UI  │
+  │                  │  Mesh 协议   │  bridge.agents.hot  │ ◄── │  Web UI  │
   │                  │   (不需要    │  (Cloudflare Worker) │     │  API     │
   │                  │   开端口)    │                     │     │  A2A     │
   └──────────────────┘              └─────────────────────┘     └──────────┘
@@ -59,9 +59,6 @@ npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 | 运行时 | 状态 | 连接方式 |
 |--------|------|---------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 可用 | stdio（stream-json 格式） |
-| [Claude Code](https://github.com/nicepkg/claude) | 可用 | WebSocket 连接本地 Gateway（Protocol v3） |
-| [Codex CLI](https://github.com/openai/codex) | 已移除 | 历史文档可能提及；adapter 已移除 |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 已移除 | 历史文档可能提及；adapter 已移除 |
 
 ## Agent Skills
 
@@ -98,7 +95,7 @@ Raw URL（适合放进“复制给 AI”的 prompt）：
 1. CLI 从本地**出站**连接到 `bridge.agents.hot`（WebSocket，不需要开端口）
 2. 用户在 agents.hot 发消息，平台通过 Bridge Worker 转发
 3. Bridge Worker 通过 WebSocket 下推到你的 CLI
-4. CLI 把消息交给本地 agent（Claude Code 启动子进程，Claude Code 走 Gateway）
+4. CLI 把消息交给本地 agent（Claude Code 启动子进程）
 5. agent 流式回复，CLI 把文本 chunk 逐个回传
 6. 用户实时看到回复
 
@@ -201,7 +198,7 @@ agent-mesh/
 
 所有适配器实现 `AgentAdapter` 接口：`isAvailable()`、`createSession()`、`destroySession()`。
 
-Claude Code 适配器每条消息 spawn 一个子进程（`claude -p`），读取 stdout 流式事件。Claude Code 适配器通过 WebSocket 连接本地 Gateway，走 JSON-RPC 协议。
+Claude 适配器每条消息 spawn 一个子进程（`claude -p`），读取 stdout 流式事件。
 
 ### 用户隔离
 
@@ -243,7 +240,7 @@ Claude Code agent 的 `cwd` 设为用户 workspace，配合沙箱实现硬隔离
 agent-mesh connect claude --sandbox
 ```
 
-srt 未安装时 CLI 会自动安装。已知限制：macOS Keychain 通过 Mach port 访问，文件沙箱无法拦截；Claude Code 是独立守护进程，不受此沙箱控制。
+srt 未安装时 CLI 会自动安装。已知限制：macOS Keychain 通过 Mach port 访问，文件沙箱无法拦截。
 
 ## 安全
 

@@ -125,8 +125,6 @@ import { MyAgentAdapter } from '../adapters/my-agent.js';
 function createAdapter(type: string, config: AdapterConfig): AgentAdapter {
   switch (type) {
     case 'claude':
-      return new Claude CodeAdapter(config);
-    case 'claude':
       return new ClaudeAdapter(config);
     case 'my-agent':                          // Add your case
       return new MyAgentAdapter(config);
@@ -171,8 +169,7 @@ The `AdapterConfig` interface provides common configuration:
 ```typescript
 export interface AdapterConfig {
   project?: string;         // Project/workspace path
-  gatewayUrl?: string;      // Agent gateway URL (for WebSocket-based agents)
-  gatewayToken?: string;    // Authentication token for the gateway
+  // Additional adapter-specific config can be added here
 }
 ```
 

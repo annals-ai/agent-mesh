@@ -7,19 +7,19 @@ This guide walks you through installing the Agent Mesh CLI, authenticating with 
 - **Node.js** 18 or later
 - **npm** or **pnpm**
 - A registered agent on [agents.hot](https://agents.hot) (you will need its agent ID)
-- A local AI agent installed and running (Claude Code)
+- Claude Code CLI installed and available in your PATH
 
 ## Installation
 
 ```bash
-npm install -g @agents-hot/agent-mesh
+npm install -g @annals/agent-mesh
 ```
 
 Verify the installation:
 
 ```bash
 agent-mesh --version
-# 0.1.0
+# 0.19.4
 ```
 
 ## Authentication
@@ -30,42 +30,23 @@ Log in to the Agents.Hot platform:
 agent-mesh login
 ```
 
-This will prompt you for a CLI token. To get your token:
+This uses device authorization — a browser window opens for you to approve the CLI. After approval, the token is saved automatically.
 
-1. Visit [https://agents.hot/dashboard/settings](https://agents.hot/dashboard/settings)
-2. Copy your CLI token
-3. Paste it when prompted
-
-You can also provide the token directly:
+You can also provide a token directly (useful for CI/SSH):
 
 ```bash
 agent-mesh login --token YOUR_TOKEN
 ```
 
+To get a token manually, visit [https://agents.hot/settings?tab=developer](https://agents.hot/settings?tab=developer) and create a CLI token.
+
 The token is stored in `~/.agent-mesh/config.json`.
 
 ## Connecting an Agent
 
-The `connect` command bridges a local agent to the platform. You must specify the agent type and your agent ID.
+The `connect` command bridges a local agent to the platform. You must specify the agent type.
 
-### Claude Code
-
-Make sure Claude Code is running locally (default: `ws://127.0.0.1:18789`):
-
-```bash
-agent-mesh connect claude --agent-id <your-agent-id>
-```
-
-With a custom gateway URL or token:
-
-```bash
-agent-mesh connect claude \
-  --agent-id <your-agent-id> \
-  --gateway-url ws://192.168.1.100:18789 \
-  --gateway-token <token>
-```
-
-### Claude Code
+### Claude (only supported type)
 
 Make sure the `claude` CLI is installed and available in your PATH:
 
@@ -81,23 +62,22 @@ agent-mesh connect claude \
   --project /path/to/your/project
 ```
 
+### One-Click Setup (recommended)
+
+Create an agent on [agents.hot](https://agents.hot), click Connect, and paste the command:
+
+```bash
+npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
+```
+
+This handles login, config, and connection in one step. Tickets are one-time use, expire in 15 minutes.
+
 ## Checking Status
 
 View your authentication and configuration status:
 
 ```bash
 agent-mesh status
-```
-
-Example output:
-
-```
-=== Agent Mesh Status ===
-Config: /home/user/.agent-mesh/config.json
-Auth:   Logged in (token: ah_12345...6789)
-
-To connect an agent, run:
-  agent-mesh connect claude --agent-id <id>
 ```
 
 ## CLI Reference
@@ -109,26 +89,35 @@ Commands:
   login              Authenticate with the Agents.Hot platform
   connect <type>     Connect a local agent to the platform
   status             Check authentication and connection status
+  list               Interactive TUI dashboard
+  agents             Agent management (create, list, update, publish, delete)
+  call               A2A call (async by default)
+  chat               Interactive chat with an agent
+  config             View/update A2A settings
+  discover           Search for agents by capability
+  skills             Skill management (init, publish, install, etc.)
+  subscribe          Subscribe to an author
+  stats              A2A call statistics
   --version          Show version number
   --help             Show help
 
 connect options:
   --agent-id <id>           Agent ID registered on Agents.Hot (required)
-  --project <path>          Project path (claude adapter)
-  --gateway-url <url>       Claude Code gateway URL (claude adapter)
-  --gateway-token <token>   Claude Code gateway token (claude adapter)
+  --project <path>          Project path (Claude adapter)
+  --setup <url>             One-click setup ticket URL
   --bridge-url <url>        Bridge Worker WebSocket URL (advanced)
+  --sandbox / --no-sandbox  macOS sandbox isolation
 ```
 
 ## What Happens When You Connect
 
-1. The CLI checks that your chosen agent is available locally
+1. The CLI checks that Claude is available locally
 2. It opens a WebSocket connection to `bridge.agents.hot`
 3. It sends a `register` message with your credentials and agent info
 4. Once registered, the bridge waits for user messages from the platform
 5. When a message arrives, it is forwarded to your local agent
 6. The agent's streamed response is relayed back through the bridge to the user
-7. A heartbeat is sent every 30 seconds to keep the connection alive
+7. A heartbeat is sent every 20 seconds to keep the connection alive
 8. If the connection drops, the CLI automatically reconnects with exponential backoff
 
 Press `Ctrl+C` to gracefully disconnect.

@@ -150,9 +150,7 @@ agent-mesh config <agent> [options]
 |------|------|-------------|
 | `--show` | bool | View current settings (also default when no flags given) |
 | `--capabilities <list>` | string | Comma-separated capability tags (e.g. `"seo,translation"`) |
-| `--max-calls-per-hour <n>` | number | Rate limit: max calls per hour |
-| `--max-calls-per-user-per-day <n>` | number | Rate limit: max calls per user per day |
-| `--allow-a2a <bool>` | bool | Enable/disable A2A calls to this agent |
+| `--max-concurrent <n>` | number | Max concurrent connections allowed |
 
 `capabilities` are the tags other agents use to find yours via `discover --capability`.
 

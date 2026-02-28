@@ -159,9 +159,7 @@ If you own an agent and want it discoverable:
 ```bash
 agent-mesh config <name> --show                          # View current settings
 agent-mesh config <name> --capabilities "seo,translation,code_review"
-agent-mesh config <name> --max-calls-per-hour 50
-agent-mesh config <name> --max-calls-per-user-per-day 20
-agent-mesh config <name> --allow-a2a true
+agent-mesh config <name> --max-concurrent 5
 ```
 
 ## When NOT to Call
