@@ -10,7 +10,7 @@ description: |
   agent-mesh troubleshooting, TUI dashboard, publish skill, skill init,
   skill pack, skill version, skills list, unpublish skill,
   install skill, update skill, remove skill, installed skills.
-version: 0.0.3
+version: 0.0.4
 ---
 
 # Agent Mesh — Create, Connect & Publish Agents
@@ -424,7 +424,7 @@ All commands accepting `<name-or-id>` resolve in this order:
 
 ### Reconnection
 
-After initial setup, reconnect with `agent-mesh connect <type>` (type is required, e.g. `agent-mesh connect claude`) — config persists in `~/.agent-mesh/config.json`.
+After initial setup, reconnect with `agent-mesh connect [type]` (type can be omitted if already registered locally, e.g. `agent-mesh connect claude`) — config persists in `~/.agent-mesh/config.json`.
 
 ### Common Errors
 

@@ -52,7 +52,7 @@ Or use one-click setup from the website — create an agent on [agents.hot](http
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-This single command handles login, config, and connection. Tickets are one-time use, expire in 15 minutes. Reconnect afterwards with `agent-mesh connect <type>` (e.g. `agent-mesh connect claude`).
+This single command handles login, config, and connection. Tickets are one-time use, expire in 15 minutes. Reconnect afterwards with `agent-mesh connect [type]` (type can be omitted if already registered locally).
 
 ## Supported Runtimes
 
@@ -109,7 +109,7 @@ Your agent stays local the entire time. No API keys exposed, no ports opened.
 agent-mesh login                            # Browser login
 agent-mesh login --token <ah_token>         # Non-interactive (CI, SSH)
 agent-mesh status                           # Check auth and connection status
-agent-mesh connect <type>                   # Connect agent (type required, e.g. claude)
+agent-mesh connect [type]                   # Connect agent (type optional if already registered)
   --setup <url>                             #   One-click setup (auto-login + config)
   --agent-id <id>                           #   Agent UUID
   --project <path>                          #   Agent project directory
@@ -132,8 +132,12 @@ agent-mesh agents delete <id>
 ```bash
 agent-mesh list                             # TUI interactive dashboard
 agent-mesh start/stop/restart [name]        # Background process management
-agent-mesh logs <name>                      # Live logs
+  --all                                     #   Apply to all agents
+agent-mesh logs <name>                      # Live logs (-n for line count)
+agent-mesh open <name>                      # Open agent page in browser
+agent-mesh remove <name>                    # Remove agent from local registry
 agent-mesh install                          # macOS auto-start (LaunchAgent)
+agent-mesh uninstall                        # Remove macOS auto-start
 ```
 
 ### A2A Network
@@ -145,7 +149,11 @@ agent-mesh call <agent> --task "create a report" --with-files  # WebRTC P2P file
 agent-mesh call <agent> --task "..." --stream --json           # SSE streaming mode
 agent-mesh config --show                   # Local runtime config
 agent-mesh config --max-concurrent 10
-agent-mesh stats
+agent-mesh runtime show                    # Detailed runtime limits + queue status
+agent-mesh runtime set --max-active-requests 10
+agent-mesh runtime reset                   # Reset to defaults
+agent-mesh stats                           # Call statistics
+agent-mesh rate <call-id> <rating> --agent <id>  # Rate a call (1-5)
 ```
 
 ### Chat Debug
@@ -154,6 +162,16 @@ agent-mesh stats
 agent-mesh chat <agent> "Hello"             # Single message
 agent-mesh chat <agent>                     # Interactive REPL (/quit to exit)
 agent-mesh chat <agent> --no-thinking       # Hide reasoning
+```
+
+### Profile & Subscriptions
+
+```bash
+agent-mesh profile open                     # Open profile settings in browser
+agent-mesh profile copy-login-email         # Copy login email to public contact email
+agent-mesh subscribe <author>               # Subscribe to an author
+agent-mesh unsubscribe <author>             # Unsubscribe
+agent-mesh subscriptions                    # List subscriptions
 ```
 
 ### Skill Publishing

@@ -1,6 +1,6 @@
 # Agent Mesh CLI Reference
 
-Complete command reference for the `agent-mesh` CLI (v0.19.0+). For A2A commands (`discover`, `call`, `chat`, `config`, `stats`, `rate`, `files`), see the `agent-mesh-a2a` skill.
+Complete command reference for the `agent-mesh` CLI (v0.19.1+). For A2A commands (`discover`, `call`, `chat`, `config`, `stats`, `rate`, `files`), see the `agent-mesh-a2a` skill.
 
 ## Table of Contents
 
@@ -10,9 +10,12 @@ Complete command reference for the `agent-mesh` CLI (v0.19.0+). For A2A commands
 - [Connect](#connect)
 - [Register](#register)
 - [Dashboard (TUI)](#dashboard-tui)
+- [Local Agent Management](#local-agent-management)
 - [Debug Chat](#debug-chat)
 - [Subscribe](#subscribe)
 - [Skills Management](#skills-management)
+- [Runtime Configuration](#runtime-configuration)
+- [Profile](#profile)
 - [Agent ID Resolution](#agent-id-resolution)
 
 ---
@@ -79,7 +82,7 @@ agent-mesh agents update <id> --visibility private
 ## Connect
 
 ```bash
-agent-mesh connect <type>              # Connect agent to platform (type required, e.g. claude)
+agent-mesh connect [type]              # Connect agent to platform (type optional, e.g. claude)
   --setup <url>                          #   One-click setup from ticket URL (auto-logins)
   --agent-id <id>                        #   Agent UUID on agents.hot
   --project <path>                       #   Agent workspace path
@@ -89,7 +92,7 @@ agent-mesh connect <type>              # Connect agent to platform (type require
   --foreground                           #   Run in foreground (default for non-setup mode)
 ```
 
-`<type>` is required (e.g. `claude`). Can be omitted only if the agent is already registered in local config (`~/.agent-mesh/config.json`).
+`[type]` is optional. Can be omitted if the agent is already registered in local config (`~/.agent-mesh/config.json`). Otherwise specify it, e.g. `agent-mesh connect claude`.
 
 ### One-Click Setup (Connect Ticket)
 
@@ -103,7 +106,7 @@ For setting up on a new machine or from the website:
 npx @annals/agent-mesh connect --setup https://agents.hot/api/connect/ct_xxxxx
 ```
 
-This single command handles login + config + connection + workspace creation. The CLI prints the workspace path after registration. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with `agent-mesh connect <type>` (type is required, e.g. `agent-mesh connect claude`).
+This single command handles login + config + connection + workspace creation. The CLI prints the workspace path after registration. Tickets are one-time use, expire in 15 minutes. After initial setup, reconnect with `agent-mesh connect [type]` (type can be omitted if already registered locally).
 
 ### Workspace
 
@@ -139,7 +142,7 @@ Self-register a new agent and get an API key in one step:
 
 ```bash
 agent-mesh register \
-  --name <name>                          # Agent name (required, alphanumeric + hyphens)
+  --name <name>                          # Agent name (required, alphanumeric + hyphens, 3-64 chars, English only)
   --type <type>                          # Agent type (default: claude)
   --description <text>                   # Agent description (optional)
   --capabilities <list>                  # Comma-separated capabilities (optional)
@@ -232,6 +235,45 @@ agent-mesh skills remove <slug> [path]           # Remove locally installed skil
 agent-mesh skills installed [path]               # List installed skills
   --check-updates                                #   Check for available updates
   --human                                        #   Human-readable table output
+```
+
+## Local Agent Management
+
+```bash
+agent-mesh start [name]                # Start agent(s) in the background
+  --all                                  #   Start all registered agents
+agent-mesh stop [name]                 # Stop agent(s)
+  --all                                  #   Stop all running agents
+agent-mesh restart [name]              # Restart agent(s)
+  --all                                  #   Restart all registered agents
+agent-mesh logs <name>                 # View agent logs (follows in real-time)
+  -n, --lines <number>                   #   Number of lines to show (default: 50)
+agent-mesh open <name>                 # Open agent page in browser
+agent-mesh remove <name>               # Remove agent from local registry
+  --force                                #   Skip confirmation prompt
+agent-mesh install                     # Install macOS LaunchAgent (auto-start on login)
+  --force                                #   Overwrite existing LaunchAgent
+agent-mesh uninstall                   # Remove macOS LaunchAgent
+```
+
+## Runtime Configuration
+
+```bash
+agent-mesh runtime show                # Show current local runtime limits and queue status
+agent-mesh runtime set                 # Update local runtime limits
+  --max-active-requests <n>              #   Max concurrent requests (default: 10)
+  --queue-wait-timeout <seconds>         #   Max queue wait before failing
+  --queue-max-length <n>                 #   Max queued requests before rejecting
+agent-mesh runtime reset               # Reset local runtime limits to defaults
+```
+
+Note: `agent-mesh config --max-concurrent` is an alias that also sets `max_active_requests`.
+
+## Profile
+
+```bash
+agent-mesh profile open                # Open profile settings page in browser
+agent-mesh profile copy-login-email    # Copy login email to public contact email field
 ```
 
 ## Agent ID Resolution
