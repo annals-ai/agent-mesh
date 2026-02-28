@@ -33,7 +33,6 @@ import type {
 } from '@annals/bridge-protocol';
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
-const MAX_PENDING_RELAYS = 50;
 const HEARTBEAT_TIMEOUT_MS = 50_000;  // 2.5x CLI heartbeat interval (20s)
 const RELAY_TIMEOUT_MS = 120_000;     // 120s without any chunk or heartbeat = dead
 const REGISTER_TIMEOUT_MS = 10_000;   // 10s to send register after WS connect
@@ -445,10 +444,6 @@ export class AgentSession implements DurableObject {
 
     if (!body.session_id || !body.request_id || !body.content) {
       return json(400, { error: 'invalid_message', message: 'Missing required fields' });
-    }
-
-    if (this.pendingRelays.size >= MAX_PENDING_RELAYS) {
-      return json(429, { error: 'too_many_requests', message: 'Agent has too many pending requests' });
     }
 
     // Send message to agent via WebSocket
@@ -1358,11 +1353,6 @@ export class AgentSession implements DurableObject {
     // Forward as a relay to the connected agent
     const sessionId = `a2a-${crypto.randomUUID()}`;
     const requestId = crypto.randomUUID();
-
-    if (this.pendingRelays.size >= MAX_PENDING_RELAYS) {
-      await this.updateCallStatus(callRecordId, 'failed');
-      return json(429, { error: 'too_many_requests', message: 'Agent has too many pending requests' });
-    }
 
     const message: Message = {
       type: 'message',

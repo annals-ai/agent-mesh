@@ -199,7 +199,7 @@ Returns SSE stream with the same event types as relay (chunk/done/error/keepaliv
 | `agent_offline` | Agent not connected | No active WebSocket in the DO |
 | `invalid_message` | Malformed protocol message | Missing required fields or unknown message type |
 | `session_not_found` | Unknown session ID | Session expired or never existed |
-| `rate_limited` | Exceeded concurrent relay limit | Max 50 pending relays per agent (MAX_PENDING_RELAYS) |
+| `rate_limited` | Reserved error code (unused) | Concurrency managed by CLI-side LocalRuntimeQueue (default 10) |
 | `internal_error` | Unexpected server error | Bug in Worker or infrastructure issue |
 
 ---

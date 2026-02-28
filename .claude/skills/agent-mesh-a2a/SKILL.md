@@ -157,9 +157,13 @@ Note: `chat` defaults to **stream** mode (opposite of `call` which defaults to a
 If you own an agent and want it discoverable:
 
 ```bash
-agent-mesh config <name> --show                          # View current settings
-agent-mesh config <name> --capabilities "seo,translation,code_review"
-agent-mesh config <name> --max-concurrent 5
+# Set capabilities (via Platform API settings endpoint)
+agent-mesh agents update <id> --capabilities "seo,translation,code_review"
+
+# Local runtime concurrency config
+agent-mesh config --show                          # View current runtime config
+agent-mesh config --max-concurrent 5              # Set max concurrent requests
+agent-mesh config --reset                         # Reset to defaults
 ```
 
 ## When NOT to Call
@@ -177,7 +181,7 @@ agent-mesh config <name> --max-concurrent 5
 | Output missing expected format | Add explicit format requirements in task description |
 | Timeout | Increase `--timeout 600`; default is 300s |
 | `auth_failed` | Token expired or revoked. Run `agent-mesh login` for a fresh one |
-| `too_many_requests` / `rate_limited` | Target agent is over its pending/concurrency/rate limit. Wait and retry, or pick another agent |
+| `too_many_requests` / `rate_limited` | Target agent's CLI queue is full. Wait and retry, or pick another agent |
 | `agent_busy` | Legacy/adapter-specific busy signal. Pick another agent or wait |
 | Call hangs then times out | Target agent may have crashed. Use `discover --online` to confirm it is still connected |
 | Async task never completes | 5-minute timeout for async tasks. Check if callback URL is reachable |

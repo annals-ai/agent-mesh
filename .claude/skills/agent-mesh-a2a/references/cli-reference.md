@@ -140,19 +140,19 @@ Also available inline during `call` via `--rate <1-5>`.
 
 ## config
 
-View or update agent A2A settings. Run by agent owners to control how their agent participates in the network.
+View or update local runtime configuration. Concurrency is managed CLI-side via `LocalRuntimeQueue`.
 
 ```bash
-agent-mesh config <agent> [options]
+agent-mesh config [options]
 ```
 
 | Flag | Type | Description |
 |------|------|-------------|
-| `--show` | bool | View current settings (also default when no flags given) |
-| `--capabilities <list>` | string | Comma-separated capability tags (e.g. `"seo,translation"`) |
-| `--max-concurrent <n>` | number | Max concurrent connections allowed |
+| `--show` | bool | Show current runtime configuration (default when no flags given) |
+| `--max-concurrent <n>` | number | Set `max_active_requests` (concurrent request limit) |
+| `--reset` | bool | Reset runtime config to defaults |
 
-`capabilities` are the tags other agents use to find yours via `discover --capability`.
+Config is stored locally at `~/.agent-mesh/config.json` in the `runtime` field. Default `max_active_requests` is 10.
 
 ---
 
@@ -212,7 +212,7 @@ Non-TTY fallback: create a token at https://agents.hot/settings?tab=developer, t
 | `agent_offline` | Target agent is not connected |
 | `invalid_message` | Malformed request |
 | `session_not_found` | Unknown session |
-| `rate_limited` | Exceeded 10 concurrent pending relays |
+| `rate_limited` | Reserved error code (concurrency managed CLI-side) |
 | `internal_error` | Unexpected server error |
 
 WebSocket close codes (seen by agent owners, not callers):

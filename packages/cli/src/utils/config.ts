@@ -35,7 +35,7 @@ export interface ResolvedRuntimeConfig {
 }
 
 export const DEFAULT_RUNTIME_CONFIG: ResolvedRuntimeConfig = {
-  max_active_requests: 100,
+  max_active_requests: 10,
   queue_wait_timeout_ms: 10 * 60_000,
   queue_max_length: 1000,
 };

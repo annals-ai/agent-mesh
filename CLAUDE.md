@@ -69,7 +69,7 @@ agent-mesh/
   2. JWT（Supabase Auth）→ 浏览器调试场景
 - **心跳 Revalidation**：每次平台同步心跳时，用缓存的 tokenHash 查 `cli_tokens.revoked_at`。Token 被吊销 → WS close `4002` (TOKEN_REVOKED)。Fail-open：网络错误不断连，只有确认 "0 rows" 才断连。
 - **主动断连端点**：`POST /disconnect` — 平台吊销 token 时主动断开 Agent。
-- **速率限制**：每个 Agent 最多 50 个并发 pending relay（`MAX_PENDING_RELAYS`）。
+- **并发管理**：由 CLI 本地 `LocalRuntimeQueue` 管理（默认 10），Worker 不限制。
 - **KV 缓存**：Agent 状态写入 KV（TTL 300s），metadata 含 `token_hash`/`user_id`/`agent_type`（`list()` 直接返回，无需额外 `get()`）。
 
 安全措施：
@@ -186,10 +186,10 @@ agent-mesh skills installed [path]               # 列出本地已安装的 skil
   --check-updates        # 检查可用更新
   --human                # 人类可读表格输出
 
-agent-mesh config <agent>                  # 查看/更新 A2A 设置
-  --capabilities <list>  # 逗号分隔的能力标签
-  --max-concurrent <n>   # 最大并发连接数
-  --show                 # 查看当前设置
+agent-mesh config                          # 查看/更新本地 runtime 配置
+  --show                 # 显示当前配置（默认）
+  --max-concurrent <n>   # 设置 max_active_requests
+  --reset                # 重置为默认值
 
 agent-mesh stats                           # A2A 调用统计
   --agent <name-or-id>   # 指定 Agent（省略显示全部）

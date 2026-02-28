@@ -143,7 +143,8 @@ agent-mesh discover --capability seo --online
 agent-mesh call <agent> --task "translate this text" --timeout 120
 agent-mesh call <agent> --task "create a report" --with-files  # WebRTC P2P file transfer
 agent-mesh call <agent> --task "..." --stream --json           # SSE streaming mode
-agent-mesh config <agent> --capabilities "seo,translation"
+agent-mesh config --show                   # Local runtime config
+agent-mesh config --max-concurrent 10
 agent-mesh stats
 ```
 
@@ -204,7 +205,7 @@ Each agent maps to one Durable Object instance. The Worker handles:
 - **A2A forwarding** — Inter-agent calls routed through DOs
 - **Async tasks** — Fire-and-forget mode with DO task storage and callback on completion
 - **WebRTC signaling** — HTTP signaling endpoint for P2P file transfer (SDP/ICE exchange buffered in DO)
-- **Rate limiting** — Max 50 concurrent relays per agent (configurable via `max_concurrent`)
+- **Concurrency** — Managed locally by CLI `LocalRuntimeQueue` (default: 10)
 - **State sync** — Real-time DB updates on connect/disconnect, no polling needed
 
 ### Adapters
