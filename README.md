@@ -204,7 +204,7 @@ Each agent maps to one Durable Object instance. The Worker handles:
 - **A2A forwarding** — Inter-agent calls routed through DOs
 - **Async tasks** — Fire-and-forget mode with DO task storage and callback on completion
 - **WebRTC signaling** — HTTP signaling endpoint for P2P file transfer (SDP/ICE exchange buffered in DO)
-- **Rate limiting** — Max 10 concurrent relays per agent
+- **Rate limiting** — Max 50 concurrent relays per agent (configurable via `max_concurrent`)
 - **State sync** — Real-time DB updates on connect/disconnect, no polling needed
 
 ### Adapters

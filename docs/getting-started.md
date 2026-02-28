@@ -117,7 +117,7 @@ connect options:
 4. Once registered, the bridge waits for user messages from the platform
 5. When a message arrives, it is forwarded to your local agent
 6. The agent's streamed response is relayed back through the bridge to the user
-7. A heartbeat is sent every 20 seconds to keep the connection alive
+7. A heartbeat is sent every 30 seconds to keep the connection alive
 8. If the connection drops, the CLI automatically reconnects with exponential backoff
 
 Press `Ctrl+C` to gracefully disconnect.

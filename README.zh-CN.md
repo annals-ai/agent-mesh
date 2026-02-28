@@ -191,7 +191,7 @@ agent-mesh/
 - **A2A 转发** — agent 之间的调用通过 DO 间路由
 - **异步任务** — fire-and-forget 模式，DO 存储任务元数据，完成后 callback
 - **WebRTC 信令** — HTTP 信令端点用于 P2P 文件传输（SDP/ICE 交换在 DO 中缓冲）
-- **速率限制** — 每个 agent 最多 10 个并发 relay
+- **速率限制** — 每个 agent 最多 50 个并发 relay（可通过 `max_concurrent` 配置）
 - **状态同步** — 连接/断开时实时更新数据库，无需轮询
 
 ### 适配器

@@ -9,8 +9,8 @@ pnpm monorepo，3 个包：
 ```
 agent-mesh/
 ├── packages/
-│   ├── protocol/       # @agents-hot/bridge-protocol — 消息类型与错误码
-│   ├── cli/            # @agents-hot/agent-mesh — CLI 工具
+│   ├── protocol/       # @annals/bridge-protocol — 消息类型与错误码
+│   ├── cli/            # @annals/agent-mesh — CLI 工具
 │   └── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
 ├── tests/              # vitest 测试
 ├── vitest.config.ts

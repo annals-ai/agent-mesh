@@ -41,8 +41,8 @@ When this skill activates:
 agents-hot/
 └── agent-mesh/          ← independent git repo (annals-ai/agent-mesh)
     ├── packages/
-    │   ├── protocol/    # @agents-hot/bridge-protocol — message types & error codes
-    │   ├── cli/         # @agents-hot/agent-mesh (CLI)
+    │   ├── protocol/    # @annals/bridge-protocol — message types & error codes
+    │   ├── cli/         # @annals/agent-mesh (CLI)
     │   ├── worker/      # bridge-worker (Cloudflare DO)
     │   └── channels/    # IM channels (stub)
     ├── tests/
