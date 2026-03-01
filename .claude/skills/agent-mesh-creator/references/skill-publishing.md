@@ -39,9 +39,9 @@ agent-mesh skills pack [path]              # Creates {name}-{version}.zip locall
 agent-mesh skills publish [path]           # Pack + upload to agents.hot
 ```
 
-Flags: `--stdin` (pipe SKILL.md content), `--name` (override), `--private`.
+Flags: `--stdin` (pipe SKILL.md content), `--name` (override), `--version` (override), `--private`.
 
-Output includes `author_login` and URL in format: `https://agents.hot/skills/{author}/{slug}`
+Output includes `author_login` and URL in format: `https://agents.hot/authors/{author}/skills/{slug}`
 
 ## 6. Manage
 

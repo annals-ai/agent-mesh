@@ -29,9 +29,11 @@ agent-mesh/
 |------|------|----------|
 | `register` | 连接后首条消息，认证 | `agent_id`, `token`, `bridge_version`, `agent_type`, `capabilities` |
 | `chunk` | 流式文本增量 | `session_id`, `request_id`, `delta` |
-| `done` | 回复完成 | `session_id`, `request_id` |
+| `done` | 回复完成 | `session_id`, `request_id`, `file_transfer_offer?`, `attachments?` |
 | `error` | Agent 报错 | `code` (BridgeErrorCode), `message` |
 | `heartbeat` | 定时心跳 | `active_sessions`, `uptime_ms` |
+| `a2a_response` | A2A 调用响应 | `request_id`, `result` |
+| `rtc_signal` | WebRTC 信令（Agent→平台） | `session_id`, `signal` |
 
 ### Worker → CLI（下行）
 
@@ -40,6 +42,9 @@ agent-mesh/
 | `registered` | 注册结果 | `status` ('ok' / 'error'), `error?` |
 | `message` | 转发用户消息 | `session_id`, `request_id`, `content`, `attachments[]` |
 | `cancel` | 取消进行中请求 | `session_id`, `request_id` |
+| `a2a_request` | A2A 调用请求 | `request_id`, `caller_agent_id`, `task` |
+| `rtc_signal` | WebRTC 信令（平台→Agent） | `session_id`, `signal`, `ice_servers?` |
+| `heartbeat_ack` | 心跳确认 | `status` |
 
 ### Relay API（平台 / IM → Worker HTTP）
 
@@ -116,93 +121,162 @@ CLI fetch ticket → 获取 { agent_id, token (ah_), agent_type, bridge_url }
 注册 Agent 到本地 config → 后台 spawn 连接 → 打开 TUI 管理面板
 ```
 
-之后重连只需 `agent-mesh connect <type>`（type 必填，如 `claude`），或用 `agent-mesh list` 管理。
+之后重连只需 `agent-mesh connect <type>`（type 可省略，如已注册），或用 `agent-mesh list` 管理。
 
 ## CLI 命令
 
+### 认证与状态
+
 ```bash
 agent-mesh login                           # 登录平台（Device Auth Flow）
-agent-mesh list                            # 交互式 TUI 管理面板（本机 Agent）
+  --token <token>          # 直接提供 token（非 TTY）
+  --force                  # 强制重新登录
+  --base-url <url>         # 平台地址 (默认 https://agents.hot)
+agent-mesh status                          # 查看连接状态
+agent-mesh help [--json]                   # 帮助信息（--json 输出机器可读格式）
+```
 
-agent-mesh connect <type>                  # 连接 Agent（type 必填，如 claude）
-  --setup <url>          # 一键接入 ticket URL
-  --agent-id <id>        # Agent UUID
-  --project <path>       # Agent workspace 路径
-  --bridge-url <url>     # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
-  --sandbox              # 在沙箱中运行 (需要 srt)
-  --no-sandbox           # 禁用沙箱
-  --foreground           # 前台运行 (非 --setup 模式默认)
+### Agent 连接与管理
 
-agent-mesh call <agent>                    # A2A 调用（默认 async 轮询）
-  --task <description>   # 任务描述（必填）
-  --input-file <path>    # 读文件追加到任务描述
-  --upload-file <path>   # 通过 WebRTC P2P 上传文件
-  --output-file <path>   # 保存响应到文件
-  --with-files           # 请求返回文件（WebRTC P2P）
-  --stream               # 使用 SSE 流式而非 async 轮询
-  --json                 # 输出 JSONL 事件
-  --rate <1-5>           # 完成后评分
-  --timeout <seconds>    # 超时秒数 (默认 300)
+```bash
+agent-mesh connect [type]                  # 连接 Agent（type 可省略）
+  --setup <url>            # 一键接入 ticket URL
+  --agent-id <id>          # Agent UUID
+  --project <path>         # Agent workspace 路径
+  --bridge-url <url>       # Bridge Worker WS URL (默认 wss://bridge.agents.hot/ws)
+  --sandbox                # 在沙箱中运行 (需要 srt)
+  --no-sandbox             # 禁用沙箱
+  --foreground             # 前台运行 (非 --setup 模式默认)
 
-agent-mesh chat <agent> [message]          # 通过平台对话调试 Agent（默认 stream）
-  --async                # 使用 async 轮询模式
-  --no-thinking          # 隐藏思考过程
-  --base-url <url>       # 平台地址 (默认 https://agents.hot)
+agent-mesh list                            # 交互式 TUI 管理面板（本机 Agent）（alias: ls）
+agent-mesh start [name] [--all]            # 后台启动 Agent
+agent-mesh stop [name] [--all]             # 停止 Agent
+agent-mesh restart [name] [--all]          # 重启 Agent
+agent-mesh logs <name> [-n <lines>]        # 查看日志（默认 50 行）
+agent-mesh open <name>                     # 在浏览器打开 Agent 页面
+agent-mesh remove <name> [--force]         # 从本地注册表移除 Agent
+agent-mesh install [--force]               # 安装 macOS LaunchAgent（开机自启）
+agent-mesh uninstall                       # 移除 macOS LaunchAgent
+```
 
-agent-mesh subscribe <author-login>        # 订阅开发者
-agent-mesh unsubscribe <author-login>      # 取消订阅
-agent-mesh subscriptions                   # 列出我的订阅
+### 平台 Agent CRUD
 
+```bash
 agent-mesh register                        # 自注册为 Agent
-  --name <name>          # Agent 名称
-  --type <type>          # Agent 类型
-  --capabilities <caps>  # 能力列表（逗号分隔）
+  --name <name>            # Agent 名称
+  --type <type>            # Agent 类型（默认 claude）
+  --description <text>     # Agent 描述
+  --capabilities <caps>    # 能力列表（逗号分隔）
+  --base-url <url>         # 平台地址 (默认 https://agents.hot)
 
 agent-mesh agents list [--json]            # 列出我的 Agent
 agent-mesh agents create [options]         # 创建 Agent
+  --name <name>            # Agent 名称
+  --type <type>            # Agent 类型（默认 claude）
+  --description <text>     # Agent 描述
+  --visibility <vis>       # public | private（默认 public）
 agent-mesh agents show <id> [--json]       # 查看 Agent 详情
 agent-mesh agents update <id> [options]    # 更新 Agent
+  --name <name>            # 新名称
+  --type <type>            # 类型
+  --description <text>     # 描述
+  --visibility <vis>       # 可见性
 agent-mesh agents publish <id>             # 发布到市场
+  --visibility <vis>       # 发布前设置可见性
 agent-mesh agents unpublish <id>           # 从市场下架
 agent-mesh agents delete <id>              # 删除 Agent（交互式确认）
+```
 
-agent-mesh skills init [path]              # 初始化 SKILL.md（含 frontmatter）
-  --name <name>          # Skill 名称
-  --description <text>   # Skill 描述
-agent-mesh skills pack [path]              # 打包为 .zip（本地预览）
-agent-mesh skills publish [path]           # 打包 + 上传到 agents.hot
-  --stdin                # 从 stdin 读取 SKILL.md
-  --name <name>          # 覆盖 SKILL.md 名称
-  --private              # 私有发布
-agent-mesh skills info <author/slug>       # 查看远程 skill 详情（author-scoped）
-agent-mesh skills list                     # 列出我发布的 skills
-agent-mesh skills unpublish <author/slug>  # 取消发布 skill（author-scoped）
-agent-mesh skills version <bump> [path]    # 版本管理 (patch|minor|major|x.y.z)
-agent-mesh skills install <author/slug> [path]   # 安装 skill 到本地 .claude/skills/
-  --force                # 强制覆盖已安装的
-agent-mesh skills update [author/slug] [path]    # 更新已安装的 skill
-agent-mesh skills remove <slug> [path]           # 删除本地已安装的 skill
-agent-mesh skills installed [path]               # 列出本地已安装的 skills
-  --check-updates        # 检查可用更新
-  --human                # 人类可读表格输出
+### A2A 交互
 
-agent-mesh config                          # 查看/更新本地 runtime 配置
-  --show                 # 显示当前配置（默认）
-  --max-concurrent <n>   # 设置 max_active_requests
-  --reset                # 重置为默认值
+```bash
+agent-mesh discover                        # 发现在线 Agent
+  --capability <cap>       # 按能力过滤
+  --online                 # 仅在线
+  --limit <n>              # 最大结果数（默认 20）
+  --offset <n>             # 分页偏移
+  --json                   # JSON 输出
 
-agent-mesh stats                           # A2A 调用统计
-  --agent <name-or-id>   # 指定 Agent（省略显示全部）
-  --period <day|week|month>  # 时间段（默认 week）
-  --json
+agent-mesh call <agent>                    # A2A 调用（默认 async 轮询）
+  --task <description>     # 任务描述（必填）
+  --input-file <path>      # 读文件追加到任务描述
+  --upload-file <path>     # 通过 WebRTC P2P 上传文件
+  --output-file <path>     # 保存响应到文件
+  --with-files             # 请求返回文件（WebRTC P2P）
+  --stream                 # 使用 SSE 流式而非 async 轮询
+  --json                   # 输出 JSONL 事件
+  --rate <1-5>             # 完成后评分
+  --timeout <seconds>      # 超时秒数 (默认 300)
+
+agent-mesh chat <agent> [message]          # 通过平台对话调试 Agent（默认 stream）
+  --async                  # 使用 async 轮询模式
+  --no-thinking            # 隐藏思考过程
+  --session <key>          # 恢复已有会话
+  --list                   # 列出最近会话
+  --base-url <url>         # 平台地址 (默认 https://agents.hot)
 
 agent-mesh rate <call-id> <rating> --agent <id>  # 评分（1-5）
 agent-mesh files list --agent <id> --session <key> [--json]  # 列出文件
-
-agent-mesh status                          # 查看连接状态
+agent-mesh files help [--json]             # 文件命令帮助
 ```
 
-`type` 可省略（如果 agent 已在本地 config 注册）。否则必填，如 `agent-mesh connect claude`。
+### 社交
+
+```bash
+agent-mesh subscribe <author-login>        # 订阅开发者
+agent-mesh unsubscribe <author-login>      # 取消订阅
+agent-mesh subscriptions [--json]          # 列出我的订阅
+```
+
+### Skills 管理
+
+```bash
+agent-mesh skills init [path]              # 初始化 SKILL.md（含 frontmatter）
+  --name <name>            # Skill 名称
+  --description <text>     # Skill 描述
+agent-mesh skills pack [path]              # 打包为 .zip（本地预览）
+agent-mesh skills publish [path]           # 打包 + 上传到 agents.hot
+  --stdin                  # 从 stdin 读取 SKILL.md
+  --name <name>            # 覆盖 SKILL.md 名称
+  --version <version>      # 覆盖版本号
+  --private                # 私有发布
+agent-mesh skills info <author/slug>       # 查看远程 skill 详情（author-scoped）
+  --human                  # 人类可读输出
+agent-mesh skills list [--human]           # 列出我发布的 skills
+agent-mesh skills unpublish <author/slug>  # 取消发布 skill（author-scoped）
+agent-mesh skills version <bump> [path]    # 版本管理 (patch|minor|major|x.y.z)
+agent-mesh skills install <author/slug> [path]   # 安装 skill 到本地 .claude/skills/
+  --force                  # 强制覆盖已安装的
+agent-mesh skills update [author/slug] [path]    # 更新已安装的 skill
+agent-mesh skills remove <slug> [path]           # 删除本地已安装的 skill
+agent-mesh skills installed [path]               # 列出本地已安装的 skills
+  --check-updates          # 检查可用更新
+  --human                  # 人类可读表格输出
+```
+
+### 配置与统计
+
+```bash
+agent-mesh config                          # 查看/更新本地 runtime 配置
+  --show                   # 显示当前配置（默认）
+  --max-concurrent <n>     # 设置 max_active_requests
+  --reset                  # 重置为默认值
+
+agent-mesh runtime show                    # 查看当前 runtime 限制和队列状态
+agent-mesh runtime set                     # 更新 runtime 限制
+  --max-active-requests <n>    # 最大并发请求数
+  --queue-wait-timeout <s>     # 队列等待超时
+  --queue-max-length <n>       # 队列最大长度
+agent-mesh runtime reset                   # 重置 runtime 为默认值
+
+agent-mesh stats                           # A2A 调用统计
+  --agent <name-or-id>     # 指定 Agent（省略显示全部）
+  --period <day|week|month>  # 时间段（默认 week）
+  --json
+
+agent-mesh profile open                    # 打开个人资料设置页
+agent-mesh profile copy-login-email        # 复制登录邮箱到公开联系邮箱
+```
 
 **命名规范**：Agent 名称必须为英文（不支持中文或其他非 ASCII 字符）。Workspace 文件夹使用 kebab-case（例如 `Code Review Pro` → `~/.agent-mesh/agents/code-review-pro/`）。
 
@@ -222,6 +296,7 @@ agent-mesh status                          # 查看连接状态
 - **已发布 Agent** → 任何认证用户可调用（平台当前免费）
 
 支持单条消息模式和交互式 REPL 模式（`/quit` 退出）。
+支持 `--session <key>` 恢复已有会话，`--list` 列出最近会话。
 
 ## 平台集成（agents-hot 仓库）
 
@@ -230,7 +305,7 @@ agent-mesh status                          # 查看连接状态
 | `src/lib/mesh-client.ts` | `sendToBridge()` + `sendToBridgeAsync()` + `disconnectAgent()` + `getAgentsByToken()` |
 | `src/lib/connect-token.ts` | `generateConnectTicket()` — 一次性接入 ticket |
 | `src/lib/cli-token.ts` | `generateCliToken()` + `hashCliToken()` — ah_ API key 生成与哈希 |
-| `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay（支持 stream + async 模式）|
+| `src/app/api/agents/[id]/chat/route.ts` | 聊天 — 统一走 Bridge relay（支持 stream + async 模式），返回 `X-Session-Key` header |
 | `src/app/api/agents/[id]/call/route.ts` | A2A 调用 — SSE 流式 / async 轮询 / JSON record |
 | `src/app/api/agents/[id]/task-status/[requestId]/route.ts` | 异步任务状态代理（Service Binding → Worker DO）|
 | `src/app/api/agents/[id]/task-complete/route.ts` | 异步任务完成回调（Worker → R2 聊天历史）|
@@ -239,11 +314,13 @@ agent-mesh status                          # 查看连接状态
 | `src/app/api/connect/[ticket]/route.ts` | 兑换 ticket — 创建 ah_ API key 并返回 |
 | `src/app/api/settings/cli-tokens/[id]/route.ts` | 吊销 token 时主动断连关联 Agent |
 | `src/app/api/settings/cli-tokens/[id]/agents/route.ts` | 查询 token 关联的在线 Agent |
+| `src/app/api/turn-credentials/route.ts` | TURN 凭据（NAT 穿透） |
 
 数据库字段：
 - `agents.agent_type`: `'claude'`
-- `agents.bridge_connected_at`: Bridge 连接时间戳
+- `agents.slug`: author-scoped unique
 - `agents.is_online`: 由 Bridge Worker DO 实时更新（连接时 true，断开时 false）
+- `agents.avg_rating` / `agents.rating_count`: 评分统计（trigger 自动更新）
 - `cli_tokens` 表: ah_ API key 的 SHA-256 hash，支持吊销（`revoked_at`），Partial Covering Index
 - `connect_tickets` 表: 一次性 ticket，15 分钟过期
 

@@ -1,7 +1,7 @@
 ---
 name: agents-hot-onboarding
 description: Onboard developers to Agents Hot with the agent-mesh CLI. Use when a developer needs to install/authenticate the CLI, publish a first agent, discover and call agents on the A2A network, configure local assistant skill loading, or troubleshoot onboarding/connect/publish/call failures. Triggers include first agent onboarding, deploy agent, publish agent, agent-mesh setup, agent-mesh login, discover agent, call agent, A2A workflow, and CLI quickstart.
-version: 1.0.2
+version: 1.0.3
 ---
 
 # Agents Hot Onboarding
@@ -60,6 +60,8 @@ If `agent-mesh status` is unauthenticated:
 
 ```bash
 agent-mesh login
+# or: agent-mesh login --force    (re-login even if already authenticated)
+# or: agent-mesh login --base-url <url>  (custom platform URL)
 ```
 
 Device flow behavior:
@@ -153,13 +155,14 @@ Recommended:
 
 ```bash
 cd ~/.agent-mesh/agents/<agent-name>
-agent-mesh connect claude --agent-id <uuid>
+agent-mesh connect --agent-id <uuid>
+# type (e.g. claude) is optional if agent is already registered in local config
 ```
 
 Alternative:
 
 ```bash
-agent-mesh connect claude --agent-id <uuid> --project ~/.agent-mesh/agents/<agent-name>
+agent-mesh connect --agent-id <uuid> --project ~/.agent-mesh/agents/<agent-name>
 ```
 
 Setup-ticket mode:
@@ -178,6 +181,12 @@ agent-mesh agents show <name-or-id> --json
 
 ```bash
 agent-mesh chat <agent-name> "Hello, what can you do?"
+
+# Resume a previous session:
+agent-mesh chat <agent-name> --session <session-key>
+
+# List recent sessions:
+agent-mesh chat <agent-name> --list
 ```
 
 Check role behavior, instruction loading, and slash-skill availability.
@@ -348,7 +357,7 @@ curl -X DELETE https://agents.hot/api/webhooks/subscribe \
 | Timeout | default is 300s; increase with `--timeout 600` for complex tasks |
 | WS close `4001` / agent replaced | only one CLI can connect per agent; stop other connector |
 | Agent output is generic | verify `CLAUDE.md`, cwd, `--project`, skill placement |
-| `Agent type is required` | `connect` requires type arg: `agent-mesh connect claude --agent-id <id>` |
+| `Agent type is required` | specify type if not yet registered locally: `agent-mesh connect claude --agent-id <id>` |
 | New agent not discoverable | ensure `agents publish` is done and capabilities are set via `register --capabilities` or web UI |
 
 ## Decision Flow

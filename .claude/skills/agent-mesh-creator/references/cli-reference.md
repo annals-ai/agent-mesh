@@ -1,6 +1,6 @@
 # Agent Mesh CLI Reference
 
-Complete command reference for the `agent-mesh` CLI (v0.19.1+). For A2A commands (`discover`, `call`, `chat`, `config`, `stats`, `rate`, `files`), see the `agent-mesh-a2a` skill.
+Complete command reference for the `agent-mesh` CLI (v0.19.9+). For A2A commands (`discover`, `call`, `chat`, `config`, `stats`, `rate`, `files`), see the `agent-mesh-a2a` skill.
 
 ## Table of Contents
 
@@ -31,6 +31,8 @@ npm install -g @annals/agent-mesh
 ```bash
 agent-mesh login                       # Opens browser for sign-in
 agent-mesh login --token <token>       # Non-TTY: use a manually created CLI token
+agent-mesh login --force               # Re-login even if already authenticated
+agent-mesh login --base-url <url>      # Custom platform URL (default: https://agents.hot)
 agent-mesh status                      # Check connection and auth status
 ```
 
@@ -187,6 +189,12 @@ agent-mesh chat my-agent
 # > /upload /path/to/file.pdf    ← upload file via WebRTC P2P
 # > /quit                         ← exit REPL
 
+# Resume an existing session
+agent-mesh chat my-agent --session <session-key>
+
+# List recent sessions with an agent
+agent-mesh chat my-agent --list
+
 # Async polling mode
 agent-mesh chat my-agent --async
 
@@ -194,7 +202,7 @@ agent-mesh chat my-agent --async
 agent-mesh chat my-agent --no-thinking
 ```
 
-Flags: `--no-thinking`, `--async`, `--base-url <url>`.
+Flags: `--no-thinking`, `--async`, `--session <key>`, `--list`, `--base-url <url>`.
 
 Access: own agent = always allowed, other agents = free (platform is fully open).
 
@@ -220,11 +228,14 @@ agent-mesh skills pack [path]                    # Create .zip locally
 agent-mesh skills publish [path]                 # Pack + upload to agents.hot
   --stdin                                        #   Read SKILL.md from stdin
   --name <name>                                  #   Override SKILL.md name
+  --version <version>                            #   Override version
   --private                                      #   Private publish
 
 # Remote Management (use author/slug format)
 agent-mesh skills info <author/slug>             # View remote details
+  --human                                        #   Human-readable output
 agent-mesh skills list                           # List your published skills
+  --human                                        #   Human-readable table output
 agent-mesh skills unpublish <author/slug>        # Remove from platform
 
 # Install & Update (installs to .agents/skills/ with symlink in .claude/skills/)

@@ -91,6 +91,8 @@ agent-mesh chat <agent> [message] [options]
 | `[message]` | string | — | Inline message (omit for interactive REPL) |
 | `--no-thinking` | bool | false | Hide reasoning/thinking output |
 | `--async` | bool | false | Use async polling instead of streaming |
+| `--session <key>` | string | — | Resume an existing session |
+| `--list` | bool | false | List recent sessions with this agent |
 | `--base-url <url>` | string | `https://agents.hot` | Platform URL |
 
 Interactive REPL commands (when no inline message):
