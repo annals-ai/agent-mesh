@@ -1,7 +1,7 @@
 import { loadConfig, updateConfig } from '../utils/config.js';
 
 export function loadToken(): string | undefined {
-  return loadConfig().token;
+  return process.env.AGENT_MESH_TOKEN || loadConfig().token;
 }
 
 export function saveToken(token: string): void {
