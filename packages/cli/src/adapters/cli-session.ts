@@ -102,6 +102,7 @@ class CliSession implements SessionHandle {
     }
 
     const args = this.profile.buildArgs(message, this.claudeSessionId);
+    log.warn(`[resume-debug] send(): sessionId=${this.sessionId} claudeSessionId=${this.claudeSessionId || '(none)'} args=${args.filter(a => a === '--resume' || a.length === 36).join(' ')}`);
 
     // Download incoming attachments to workspace before launching.
     void this.downloadAttachments(attachments)
@@ -218,6 +219,7 @@ class CliSession implements SessionHandle {
     switch (event.type) {
       case 'init':
         this.claudeSessionId = event.sessionId;
+        log.warn(`[resume-debug] init captured: claudeSessionId=${event.sessionId}`);
         break;
       case 'chunk':
         if (!this.chunksEmitted) {
