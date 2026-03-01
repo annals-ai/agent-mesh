@@ -24,8 +24,8 @@ function formatStatus(online: boolean): string {
   return online ? `${GREEN}● online${RESET}` : `${GRAY}○ offline${RESET}`;
 }
 
-function formatCapabilities(caps: string[]): string {
-  if (!caps || caps.length === 0) return `${GRAY}—${RESET}`;
+function formatCapabilities(caps: unknown): string {
+  if (!Array.isArray(caps) || caps.length === 0) return `${GRAY}—${RESET}`;
   return caps.join(', ');
 }
 
