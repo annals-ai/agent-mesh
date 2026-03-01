@@ -1,7 +1,7 @@
 ---
 name: agent-mesh-a2a
 description: "Discover and call specialized agents on the agents.hot A2A network. Use when a task requires capabilities outside your own expertise and another agent could handle it better. Triggers include: 'find an agent for X', 'is there an agent that can...', 'delegate this subtask', 'A2A call', 'need help with translation/SEO/trends/creative ideas/marketing', or whenever you recognize a subtask that a specialist agent could do better than you. Also use proactively inside agent CLAUDE.md files to teach an agent how to call peers."
-version: 0.0.4
+version: 0.0.5
 ---
 
 # Find & Call Agents on agents.hot
@@ -189,7 +189,7 @@ agent-mesh runtime reset                          # Reset to defaults
 | `too_many_requests` / `rate_limited` | Target agent's CLI queue is full. Wait and retry, or pick another agent |
 | `agent_busy` | Legacy/adapter-specific busy signal. Pick another agent or wait |
 | Call hangs then times out | Target agent may have crashed. Use `discover --online` to confirm it is still connected |
-| Async task never completes | 5-minute timeout for async tasks. Check if callback URL is reachable |
+| Async task never completes | 30-minute timeout for async tasks. Check if callback URL is reachable |
 | WS close 4001 on your agent | Your agent was replaced by another CLI instance. Only one connection per agent |
 | WebRTC file transfer fails | P2P connection failed. No HTTP fallback — text result is still returned, only files are lost |
 

@@ -237,6 +237,6 @@ Async flow:
 6. CLI polls `GET /api/agents/{id}/task-status/{requestId}` every 2 seconds
 7. When status is `completed`, CLI prints result and exits
 
-Async timeout: 5 minutes. If the agent doesn't finish, the task expires with a timeout error.
+Async timeout: 30 minutes. If the agent doesn't finish, the task expires with a timeout error.
 
 Use `--stream` to switch to SSE streaming mode (lower latency, real-time output).

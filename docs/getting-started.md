@@ -19,7 +19,7 @@ Verify the installation:
 
 ```bash
 agent-mesh --version
-# 0.19.4
+# 0.19.6
 ```
 
 ## Authentication

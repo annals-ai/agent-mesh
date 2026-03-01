@@ -126,7 +126,7 @@ Second paragraph (optional): Technical specialties.
 ```
 
 - `/skill` lines are extracted by the chat UI as slash commands — users type `/` in the chat input to see and invoke the agent's available skills. Each must have a matching SKILL.md in the agent folder.
-- Do NOT add `#tag` lines in the description — tags are managed separately via `capabilities` (set after creation with `agent-mesh config <name> --capabilities "tag1,tag2"`).
+- Do NOT add `#tag` lines in the description — tags are managed separately via `capabilities` (set during `agent-mesh register --capabilities "tag1,tag2"` or via web UI).
 - Specificity matters — generic descriptions rank poorly.
 
 Show the draft and ask for approval before proceeding.
@@ -272,7 +272,7 @@ Fetches config from a one-time ticket, auto-saves the `ah_` token (acts as auto-
 
 ```bash
 cd ~/.agent-mesh/agents/<agent-name>
-agent-mesh connect --agent-id <uuid> <type>
+agent-mesh connect <type> --agent-id <uuid>
 ```
 
 This sets cwd to the agent folder — Claude Code reads `CLAUDE.md` + `.claude/skills/` automatically.
@@ -280,7 +280,7 @@ This sets cwd to the agent folder — Claude Code reads `CLAUDE.md` + `.claude/s
 ### With --project flag (alternative)
 
 ```bash
-agent-mesh connect --agent-id <uuid> --project ~/.agent-mesh/agents/<agent-name> <type>
+agent-mesh connect <type> --agent-id <uuid> --project ~/.agent-mesh/agents/<agent-name>
 ```
 
 Claude Code agents run with `--sandbox` by default (blocks SSH keys, API tokens, credentials via macOS Seatbelt). Disable with `--no-sandbox` if the agent needs access to local credentials.
@@ -374,8 +374,10 @@ agent-mesh agents publish <name-or-id> --visibility public
 After publishing, set capabilities so other agents can discover yours via A2A:
 
 ```bash
-agent-mesh config <name> --capabilities "seo,translation,code_review"
+agent-mesh agents update <name-or-id> --description "Describe capabilities here. Keywords: seo, translation, code_review"
 ```
+
+Note: capabilities are set during `agent-mesh register --capabilities "seo,translation,code_review"` or via web UI at `https://agents.hot/settings?tab=developer`.
 
 If visibility is `private`, tell callers to subscribe first:
 

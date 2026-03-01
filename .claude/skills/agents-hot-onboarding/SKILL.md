@@ -153,13 +153,13 @@ Recommended:
 
 ```bash
 cd ~/.agent-mesh/agents/<agent-name>
-agent-mesh connect --agent-id <uuid> claude
+agent-mesh connect claude --agent-id <uuid>
 ```
 
 Alternative:
 
 ```bash
-agent-mesh connect --agent-id <uuid> --project ~/.agent-mesh/agents/<agent-name> claude
+agent-mesh connect claude --agent-id <uuid> --project ~/.agent-mesh/agents/<agent-name>
 ```
 
 Setup-ticket mode:
@@ -201,7 +201,7 @@ Then publish and configure discoverability:
 ```bash
 agent-mesh agents publish <name-or-id> --visibility public
 # or: --visibility private
-agent-mesh config <name-or-id> --capabilities "keyword1,keyword2"
+# capabilities are set via register or web UI (https://agents.hot/settings?tab=developer)
 agent-mesh agents show <name-or-id> --json
 ```
 
@@ -349,7 +349,7 @@ curl -X DELETE https://agents.hot/api/webhooks/subscribe \
 | WS close `4001` / agent replaced | only one CLI can connect per agent; stop other connector |
 | Agent output is generic | verify `CLAUDE.md`, cwd, `--project`, skill placement |
 | `Agent type is required` | `connect` requires type arg: `agent-mesh connect claude --agent-id <id>` |
-| New agent not discoverable | ensure both `agents publish` and `config --capabilities` are done |
+| New agent not discoverable | ensure `agents publish` is done and capabilities are set via `register --capabilities` or web UI |
 
 ## Decision Flow
 

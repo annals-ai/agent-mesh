@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
 [![npm downloads](https://img.shields.io/npm/dm/@annals/agent-mesh.svg)](https://www.npmjs.com/package/@annals/agent-mesh)
-[![tests](https://img.shields.io/badge/tests-298%20passed-brightgreen)](#开发)
+[![tests](https://img.shields.io/badge/tests-76%20passed-brightgreen)](#开发)
 [![license](https://img.shields.io/github/license/annals-ai/agent-mesh.svg)](./LICENSE)
 
 [English](./README.md) | [中文](./README.zh-CN.md)
@@ -179,7 +179,7 @@ agent-mesh/
 │   ├── worker/         # bridge-worker — Cloudflare Worker (Durable Objects)
 │   └── channels/       # @annals/bridge-channels — IM 渠道（stub）
 ├── .claude/skills/     # 官方 skills
-├── tests/              # vitest 测试（~298 个）
+├── tests/              # vitest 测试（~76 个）
 └── CLAUDE.md           # 开发指南（协议规范、适配器文档、部署说明）
 ```
 
@@ -258,7 +258,7 @@ srt 未安装时 CLI 会自动安装。已知限制：macOS Keychain 通过 Mach
 ```bash
 pnpm install        # 安装依赖
 pnpm build          # 全量构建
-pnpm test           # 跑测试（~298 个用例）
+pnpm test           # 跑测试（~76 个用例）
 pnpm lint           # ESLint
 ```
 

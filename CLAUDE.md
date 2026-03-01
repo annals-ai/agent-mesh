@@ -19,9 +19,9 @@ agent-mesh/
 
 包依赖：`protocol ← cli`，`protocol ← worker`。
 
-## Bridge Protocol v1
+## Bridge Protocol v2
 
-协议版本: `BRIDGE_PROTOCOL_VERSION = 1`（整数），WebSocket 上的 JSON 消息。
+协议版本: `BRIDGE_PROTOCOL_VERSION = 2`（整数），WebSocket 上的 JSON 消息。
 
 ### CLI → Worker（上行）
 
@@ -92,10 +92,10 @@ abstract destroySession(id: string): Promise<void>
 
 ### Claude（唯一已实现的适配器）
 
-- 协议: `claude -p <message> --output-format stream-json --verbose --max-turns 1`
+- 协议: `claude -p <message> --continue --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions`
 - 每条消息 spawn 新进程（`spawnAgent` 是 async），stdout 读取流式事件
 - 事件: `assistant/text_delta` → `result` 或 `assistant/end` 结束
-- 5 分钟空闲超时 kill
+- 30 分钟空闲超时 kill（`DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000`，可通过 `AGENT_BRIDGE_CLAUDE_IDLE_TIMEOUT_MS` 环境变量覆盖）
 - `spawnAgent` 是 async 函数（因为 `wrapWithSandbox` 是 async），`send()` 委托给 `private async launchProcess()`
 
 只支持 `claude` agent type。如需支持新类型，在 `adapters/` 新建文件并注册到 `connect.ts` 的 `createAdapter()` 即可。
