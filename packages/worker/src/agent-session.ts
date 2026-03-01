@@ -34,6 +34,7 @@ import type {
 import { BRIDGE_PROTOCOL_VERSION, WS_CLOSE_REPLACED, WS_CLOSE_TOKEN_REVOKED } from '@annals/bridge-protocol';
 
 const HEARTBEAT_TIMEOUT_MS = 50_000;  // 2.5x CLI heartbeat interval (20s)
+const ALARM_INTERVAL_MS = 5 * 60_000; // 5 min — alarm self-renewal period (saves DO writes)
 const RELAY_TIMEOUT_MS = 120_000;     // 120s without any chunk or heartbeat = dead
 const REGISTER_TIMEOUT_MS = 10_000;   // 10s to send register after WS connect
 const MAX_RTC_SIGNAL_BUFFERS = 100;   // max transfer_ids in rtcSignalBuffer
@@ -78,6 +79,7 @@ export class AgentSession implements DurableObject {
   private capabilities: string[] = [];
   private connectedAt = '';
   private lastHeartbeat = '';
+  private lastHeartbeatTime = 0;  // epoch ms — in-memory only, avoids storage writes
   private activeSessions = 0;
   private agentId = '';
 
@@ -275,7 +277,8 @@ export class AgentSession implements DurableObject {
       this.lastPlatformSyncAt = Date.now();
 
       ws.send(JSON.stringify({ type: 'registered', status: 'ok' } satisfies Registered));
-      this.scheduleHeartbeatAlarm();
+      this.lastHeartbeatTime = Date.now();
+      this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
       return;
     }
 
@@ -287,13 +290,13 @@ export class AgentSession implements DurableObject {
     switch (msg.type) {
       case 'heartbeat':
         this.lastHeartbeat = new Date().toISOString();
+        this.lastHeartbeatTime = Date.now();
         this.activeSessions = msg.active_sessions;
         this.setSocketAttachment(ws, {
           promoted: true,
           lastHeartbeat: this.lastHeartbeat,
           activeSessions: this.activeSessions,
         });
-        this.scheduleHeartbeatAlarm();
         this.keepaliveAllRelays();
         // Check async task timeouts (5 min no activity)
         this.checkAsyncTaskTimeouts();
@@ -574,9 +577,8 @@ export class AgentSession implements DurableObject {
       const task: AsyncTaskMeta = JSON.parse(taskJson);
 
       if (msg.type === 'chunk') {
-        // Update activity timestamp, don't accumulate chunks
+        // Update in-memory activity timestamp only — no storage write to save DO quota
         task.lastActivity = Date.now();
-        await this.state.storage.put(`async:${msg.request_id}`, JSON.stringify(task));
         return;
       }
       if (msg.type === 'done') {
@@ -945,10 +947,6 @@ export class AgentSession implements DurableObject {
   // ========================================================
   // Heartbeat timeout via DO alarm
   // ========================================================
-  private scheduleHeartbeatAlarm(): void {
-    this.state.storage.setAlarm(Date.now() + HEARTBEAT_TIMEOUT_MS);
-  }
-
   /** Close WebSocket connections that never sent a register message within REGISTER_TIMEOUT_MS */
   private sweepZombieSockets(): void {
     const now = Date.now();
@@ -967,50 +965,67 @@ export class AgentSession implements DurableObject {
 
     const ws = this.getPrimarySocket();
 
-    // Case 1: Active connection — check heartbeat freshness
+    // Case 1: Active connection — check heartbeat freshness via in-memory timestamp
     if (ws && this.authenticated) {
-      const elapsed = Date.now() - new Date(this.lastHeartbeat).getTime();
+      const elapsed = Date.now() - this.lastHeartbeatTime;
       if (elapsed >= HEARTBEAT_TIMEOUT_MS) {
         try { ws.close(1000, 'Heartbeat timeout'); } catch {}
-        await this.markOffline();
+        try {
+          await this.markOffline();
+        } catch {
+          // Quota exhausted — don't crash, next alarm retry will clean up
+        }
       } else {
-        // Heartbeat arrived between alarm schedule and fire — reschedule
-        this.scheduleHeartbeatAlarm();
+        // Agent still alive — renew alarm for another 5 min cycle
+        try {
+          this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+        } catch {
+          // Quota exhausted — alarm won't renew, but agent stays connected
+          // until CF eventually fires a new alarm or WS disconnects
+        }
       }
       return;
     }
 
     // Case 2: No active connection (e.g. DO restarted, memory cleared)
     // but storage still has agentId → stale online status, clean up
-    const storedAgentId = await this.state.storage.get<string>('agentId');
-    if (storedAgentId) {
-      await this.state.storage.delete('agentId');
-      await this.updatePlatformStatus(storedAgentId, false);
-      try { await this.env.BRIDGE_KV.delete(`agent:${storedAgentId}`); } catch {}
+    try {
+      const storedAgentId = await this.state.storage.get<string>('agentId');
+      if (storedAgentId) {
+        await this.state.storage.delete('agentId');
+        await this.updatePlatformStatus(storedAgentId, false);
+        try { await this.env.BRIDGE_KV.delete(`agent:${storedAgentId}`); } catch {}
+      }
+    } catch {
+      // Quota exhausted — next alarm will retry cleanup
     }
 
     // Case 3: Clean up expired result entries (24h TTL)
-    const resultEntries = await this.state.storage.list({ prefix: 'result:' });
-    if (resultEntries.size > 0) {
-      const keysToDelete: string[] = [];
-      for (const [key, value] of resultEntries) {
-        try {
-          const result = JSON.parse(value as string);
-          const completedAt = new Date(result.completed_at).getTime();
-          if (Date.now() - completedAt > 24 * 60 * 60 * 1000) {
-            keysToDelete.push(key);
+    try {
+      const resultEntries = await this.state.storage.list({ prefix: 'result:' });
+      if (resultEntries.size > 0) {
+        const keysToDelete: string[] = [];
+        for (const [key, value] of resultEntries) {
+          try {
+            const result = JSON.parse(value as string);
+            const completedAt = new Date(result.completed_at).getTime();
+            if (Date.now() - completedAt > 24 * 60 * 60 * 1000) {
+              keysToDelete.push(key);
+            }
+          } catch {
+            keysToDelete.push(key); // corrupt entry, remove
           }
-        } catch {
-          keysToDelete.push(key); // corrupt entry, remove
+        }
+        if (keysToDelete.length > 0) {
+          await this.state.storage.delete(keysToDelete);
+        }
+        // If there are still non-expired results, reschedule
+        if (resultEntries.size > keysToDelete.length) {
+          this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000);
         }
       }
-      if (keysToDelete.length > 0) {
-        await this.state.storage.delete(keysToDelete);
-      }
-      // If there are still non-expired results, reschedule
-      if (resultEntries.size > keysToDelete.length) {
-        this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000);
-      }
+    } catch {
+      // Quota exhausted — result cleanup deferred to next alarm
     }
   }
 
