@@ -137,18 +137,23 @@ export interface ChatOptions {
   showThinking?: boolean;
   signal?: AbortSignal;
   mode?: 'stream' | 'async';
+  sessionKey?: string;
 }
 
 /**
  * Async chat: submit task → poll for result
+ * Returns the session_key from the response header (if available)
  */
-export async function asyncChat(opts: ChatOptions): Promise<void> {
+export async function asyncChat(opts: ChatOptions): Promise<string | undefined> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${opts.token}`,
+    'Content-Type': 'application/json',
+  };
+  if (opts.sessionKey) headers['X-Session-Key'] = opts.sessionKey;
+
   const res = await fetch(`${opts.baseUrl}/api/agents/${opts.agentId}/chat`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${opts.token}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       message: opts.message,
       mode: 'async',
@@ -172,6 +177,8 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
     error_message?: string;
     error_code?: string;
   };
+
+  const returnedSessionKey = res.headers.get('X-Session-Key') ?? undefined;
 
   if (status === 'failed') {
     throw new Error(`Task failed: ${error_message || error_code}`);
@@ -218,7 +225,7 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
       if (task.file_transfer_offer) {
         process.stdout.write(`${GRAY}[files: ${task.file_transfer_offer.file_count} available via WebRTC]${RESET}\n`);
       }
-      return;
+      return returnedSessionKey;
     }
     if (task.status === 'failed') {
       process.stderr.write(` failed\n`);
@@ -234,19 +241,23 @@ export async function asyncChat(opts: ChatOptions): Promise<void> {
 
 /**
  * Stream chat: SSE streaming (original mode)
+ * Returns the session_key from the response header (if available)
  */
-export async function streamChat(opts: ChatOptions): Promise<void> {
+export async function streamChat(opts: ChatOptions): Promise<string | undefined> {
   // Default to stream mode unless explicitly set to async
   if (opts.mode === 'async') {
     return asyncChat(opts);
   }
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${opts.token}`,
+    'Content-Type': 'application/json',
+  };
+  if (opts.sessionKey) headers['X-Session-Key'] = opts.sessionKey;
+
   const res = await fetch(`${opts.baseUrl}/api/agents/${opts.agentId}/chat`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${opts.token}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       message: opts.message,
     }),
@@ -264,6 +275,7 @@ export async function streamChat(opts: ChatOptions): Promise<void> {
 
   if (!res.body) throw new Error('Empty response body');
 
+  const returnedSessionKey = res.headers.get('X-Session-Key') ?? undefined;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -302,6 +314,7 @@ export async function streamChat(opts: ChatOptions): Promise<void> {
 
   // Ensure newline after response
   process.stdout.write('\n');
+  return returnedSessionKey;
 }
 
 function handleSseEvent(
@@ -365,10 +378,14 @@ export function registerChatCommand(program: Command): void {
     .description('Chat with an agent through the platform (for debugging)')
     .option('--no-thinking', 'Hide thinking/reasoning output')
     .option('--async', 'Use async polling mode (default is stream)')
+    .option('--session <key>', 'Resume an existing session')
+    .option('--list', 'List recent sessions with this agent')
     .option('--base-url <url>', 'Platform base URL', DEFAULT_BASE_URL)
     .action(async (agentInput: string, inlineMessage: string | undefined, opts: {
       thinking: boolean;
       async: boolean;
+      session?: string;
+      list?: boolean;
       baseUrl: string;
     }) => {
       const token = loadToken();
@@ -392,6 +409,45 @@ export function registerChatCommand(program: Command): void {
 
       const mode = opts.async ? 'async' as const : 'stream' as const;
 
+      // --list: show recent sessions
+      if (opts.list) {
+        try {
+          const res = await fetch(`${opts.baseUrl}/api/agents/${agentId}/sessions`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            log.error(`Failed to fetch sessions: HTTP ${res.status}`);
+            process.exit(1);
+          }
+          const { sessions } = await res.json() as {
+            sessions: Array<{
+              session_key: string;
+              title?: string;
+              last_active_at?: string;
+              is_active?: boolean;
+            }>;
+          };
+          if (!sessions?.length) {
+            log.info('No sessions found.');
+            return;
+          }
+          console.log(`\n${BOLD}Sessions for ${agentName}${RESET}\n`);
+          for (const s of sessions) {
+            const active = s.is_active ? `${GREEN}active${RESET}` : `${GRAY}ended${RESET}`;
+            const title = s.title || '(untitled)';
+            const time = s.last_active_at ? new Date(s.last_active_at).toLocaleString() : '';
+            const keyShort = s.session_key.length > 20 ? s.session_key.slice(0, 20) + '...' : s.session_key;
+            console.log(`  ${active}  ${title}  ${GRAY}${time}${RESET}`);
+            console.log(`         ${GRAY}--session ${keyShort}${RESET}`);
+          }
+          console.log('');
+        } catch (err) {
+          log.error((err as Error).message);
+          process.exit(1);
+        }
+        return;
+      }
+
       // Single message mode
       if (inlineMessage) {
         log.info(`Chatting with ${BOLD}${agentName}${RESET} (${mode})`);
@@ -402,6 +458,7 @@ export function registerChatCommand(program: Command): void {
             token,
             baseUrl: opts.baseUrl,
             showThinking: opts.thinking,
+            sessionKey: opts.session,
             mode,
           });
         } catch (err) {
@@ -417,7 +474,14 @@ export function registerChatCommand(program: Command): void {
         process.exit(1);
       }
 
+      let currentSessionKey: string | undefined = opts.session;
+
       log.banner(`Chat with ${agentName}`);
+      if (currentSessionKey) {
+        console.log(`${GRAY}Resuming session: ${currentSessionKey}${RESET}`);
+      } else {
+        console.log(`${GRAY}New session (will be created on first message)${RESET}`);
+      }
       console.log(`${GRAY}Type your message and press Enter. /upload <path> to send a file. /quit to exit.${RESET}\n`);
 
       const rl = createInterface({
@@ -495,14 +559,16 @@ export function registerChatCommand(program: Command): void {
         console.log('');
 
         try {
-          await streamChat({
+          const returnedKey = await streamChat({
             agentId,
             message: trimmed,
             token,
             baseUrl: opts.baseUrl,
             showThinking: opts.thinking,
+            sessionKey: currentSessionKey,
             mode,
           });
+          if (returnedKey) currentSessionKey = returnedKey;
         } catch (err) {
           if (abortController.signal.aborted) return;
           log.error((err as Error).message);
