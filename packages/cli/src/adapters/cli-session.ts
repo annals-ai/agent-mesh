@@ -59,6 +59,12 @@ class CliSession implements SessionHandle {
   /** Whether caller requested file transfer */
   private withFiles = false;
 
+  /** Claude Code session ID for --resume across messages */
+  private claudeSessionId: string | undefined;
+
+  /** Last message sent, used for fallback retry without --resume */
+  private lastMessage: string | undefined;
+
   constructor(
     private sessionId: string,
     config: AdapterConfig,
@@ -85,6 +91,9 @@ class CliSession implements SessionHandle {
     // Reset parser for new message
     this.parser = this.profile.createParser();
 
+    // Save message for potential fallback retry
+    this.lastMessage = message;
+
     // Set up per-client workspace (symlink-based isolation)
     if (clientId && this.config.project) {
       this.currentWorkspace = createClientWorkspace(this.config.project, clientId);
@@ -92,7 +101,7 @@ class CliSession implements SessionHandle {
       this.currentWorkspace = undefined;
     }
 
-    const args = this.profile.buildArgs(message);
+    const args = this.profile.buildArgs(message, this.claudeSessionId);
 
     // Download incoming attachments to workspace before launching.
     void this.downloadAttachments(attachments)
@@ -182,6 +191,17 @@ class CliSession implements SessionHandle {
       }
 
       if (code !== 0 && code !== null) {
+        // If --resume failed, clear session and retry without it
+        if (this.claudeSessionId && this.lastMessage && !this.chunksEmitted) {
+          log.warn(`--resume failed (code ${code}), retrying without session resume`);
+          this.claudeSessionId = undefined;
+          this.doneFired = false;
+          this.parser = this.profile.createParser();
+          const retryArgs = this.profile.buildArgs(this.lastMessage);
+          void this.launchProcess(retryArgs);
+          return;
+        }
+
         setTimeout(() => {
           if (this.doneFired) return;
           const detail = errorDetail || stderrText.trim();
@@ -196,6 +216,9 @@ class CliSession implements SessionHandle {
 
   private dispatchParsedEvent(event: ParsedEvent): void {
     switch (event.type) {
+      case 'init':
+        this.claudeSessionId = event.sessionId;
+        break;
       case 'chunk':
         if (!this.chunksEmitted) {
           this.emitChunk(event.text);

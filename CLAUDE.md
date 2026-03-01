@@ -92,7 +92,7 @@ abstract destroySession(id: string): Promise<void>
 
 ### Claude（唯一已实现的适配器）
 
-- 协议: `claude -p <message> --continue --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions`
+- 协议: `claude -p <message> [--resume <session_id>] --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions`
 - 每条消息 spawn 新进程（`spawnAgent` 是 async），stdout 读取流式事件
 - 事件: `assistant/text_delta` → `result` 或 `assistant/end` 结束
 - 30 分钟空闲超时 kill（`DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000`，可通过 `AGENT_BRIDGE_CLAUDE_IDLE_TIMEOUT_MS` 环境变量覆盖）

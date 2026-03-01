@@ -117,7 +117,7 @@ When a user sends a chat message:
 
 3. CLI: BridgeManager receives 'message'
    └── Creates adapter session (or reuses existing)
-       ├── Claude Code: spawns `claude -p <content> --continue --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions`
+       ├── Claude Code: spawns `claude -p <content> [--resume <session_id>] --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions`
        └── Claude Code: spawns `claude -p` subprocess
 
 4. Adapter streams response chunks
@@ -260,7 +260,7 @@ Only one adapter is currently implemented: **Claude** (CLI subprocess).
 
 | Aspect | Claude (CLI subprocess) |
 |--------|------------------------|
-| Protocol | `claude -p <message> --continue --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions` |
+| Protocol | `claude -p <message> [--resume <session_id>] --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions` |
 | Session model | New process per message |
 | Streaming | stdout stream-json events |
 | Key events | `assistant/text_delta` → `result` or `assistant/end` |

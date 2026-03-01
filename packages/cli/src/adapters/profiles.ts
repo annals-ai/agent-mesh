@@ -5,6 +5,7 @@ import { log } from '../utils/logger.js';
 // ── ParsedEvent + OutputParser interface ────────────────
 
 export type ParsedEvent =
+  | { type: 'init'; sessionId: string }
   | { type: 'chunk'; text: string }
   | { type: 'tool'; event: ToolEvent }
   | { type: 'done'; attachments?: OutputAttachment[] }
@@ -19,7 +20,7 @@ export interface OutputParser {
 export interface CliProfile {
   command: string;
   displayName: string;
-  buildArgs(message: string): string[];
+  buildArgs(message: string, resumeSessionId?: string): string[];
   createParser(): OutputParser;
   /** Extra paths the sandbox should allow writing (e.g. ~/.claude) */
   runtimeWritePaths: string[];
@@ -55,6 +56,12 @@ export class ClaudeOutputParser implements OutputParser {
   }
 
   private handleEvent(event: AnyEvent): ParsedEvent | null {
+    // ── system init — capture Claude Code session_id ──
+
+    if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
+      return { type: 'init', sessionId: event.session_id };
+    }
+
     // ── stream_event wrapper (--include-partial-messages mode) ──
 
     if (event.type === 'stream_event' && event.event) {
@@ -203,9 +210,9 @@ const CLAUDE_ENV_PASSTHROUGH_KEYS = [
 export const CLAUDE_PROFILE: CliProfile = {
   command: 'claude',
   displayName: 'Claude Code',
-  buildArgs: (msg) => [
+  buildArgs: (msg, resumeSessionId) => [
     '-p', msg,
-    '--continue',
+    ...(resumeSessionId ? ['--resume', resumeSessionId] : []),
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
