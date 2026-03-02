@@ -6,7 +6,7 @@ description: |
   Trigger words: mesh worker dev, bridge worker dev, CLI dev, adapter dev,
   agent adapter, bridge protocol, durable objects dev, mesh protocol,
   modify agent-mesh, mesh code, worker deploy, CLI publish.
-version: 0.0.4
+version: 0.0.5
 ---
 
 # Agent Mesh Dev — Code Development Guide

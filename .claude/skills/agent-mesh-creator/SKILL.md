@@ -10,7 +10,7 @@ description: |
   agent-mesh troubleshooting, TUI dashboard, publish skill, skill init,
   skill pack, skill version, skills list, unpublish skill,
   install skill, update skill, remove skill, installed skills.
-version: 0.0.4
+version: 0.0.5
 ---
 
 # Agent Mesh — Create, Connect & Publish Agents
@@ -440,7 +440,7 @@ After initial setup, reconnect with `agent-mesh connect [type]` (type can be omi
 | `Agent not found` | Check with `agent-mesh agents list` |
 | `Agent is currently offline` | Run `agent-mesh connect` |
 | Agent replaced (WS close 4001) | Another CLI already connected for this agent. Only one connection per agent is allowed. Stop the other instance. |
-| `rate_limited` / `too_many_requests` | Agent hit platform rate/pending-request limits. Wait a few seconds and retry. |
+| `rate_limited` / `too_many_requests` | Agent's CLI queue is full. Wait a few seconds and retry, or adjust with `agent-mesh config --max-concurrent`. |
 | Ticket expired (404 on connect) | Tickets are one-time use, 15-minute expiry. Generate a new one from the platform. |
 | Agent responds without personality | CLAUDE.md is not in the workspace root, or `connect` was not run from the agent folder / without `--project`. |
 

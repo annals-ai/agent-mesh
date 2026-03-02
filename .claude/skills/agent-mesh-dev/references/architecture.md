@@ -110,7 +110,7 @@ When a user sends a chat message:
 2. Bridge Worker: routes to AgentSession DO
    └── DO.relayMessage(request)
        ├── Check agent is connected (has active WebSocket)
-       ├── Check rate limit (max 10 concurrent pending relays)
+       ├── (Concurrency managed by CLI-side LocalRuntimeQueue, default 10)
        ├── Store pending relay in memory map
        └── Send 'message' to CLI via WebSocket:
            {type: 'message', session_id, request_id, content, attachments, upload_url, client_id}
@@ -263,7 +263,7 @@ Only one adapter is currently implemented: **Claude** (CLI subprocess).
 | Protocol | `claude -p <message> [--resume <session_id>] --output-format stream-json --verbose --include-partial-messages --dangerously-skip-permissions` |
 | Session model | New process per message |
 | Streaming | stdout stream-json events |
-| Key events | `assistant/text_delta` → `result` or `assistant/end` |
+| Key events | `content_block_delta` (text_delta) → `result` (done/error) |
 | Idle timeout | 30 minutes (kill process) |
 | Sandbox | macOS Seatbelt via srt (optional) |
 | Async support | `spawnAgent` is async (wrapWithSandbox returns Promise) |
@@ -279,9 +279,9 @@ Only `claude` agent type is supported.
 A new WebSocket connection must complete `register` + token verification before it replaces an existing connection. An unauthenticated connection never kicks out the current one.
 
 ### Heartbeat Alarm
-The DO sets a recurring alarm every 50 seconds. On each alarm:
-- If the agent has an active WebSocket → renew KV cache (TTL 300s)
-- Token revalidation: query `cli_tokens.revoked_at` using cached tokenHash
+The DO sets a recurring alarm every 15 minutes (fallback — heartbeat timeout is the primary disconnection path). On each alarm:
+- If the agent has an active WebSocket → renew KV cache (TTL 300s), prune stale results/attachments
+- Token revalidation: query `cli_tokens.revoked_at` using cached tokenHash (every 30 min)
   - Token revoked (confirmed 0 rows) → close WS with code 4002 (TOKEN_REVOKED)
   - Network error → fail-open (do not disconnect, only confirmed revocation triggers disconnect)
 
@@ -338,7 +338,7 @@ When a user starts a chat, the Bridge creates a symlink-based workspace under `.
 | `auth_failed` on register | Token expired, revoked, or wrong agent ownership | Run `agent-mesh login` for a fresh token, or check `cli_tokens` table |
 | WS close 4001 (REPLACED) | Another CLI instance connected with the same agent | Only one CLI per agent. Stop the other instance |
 | WS close 4002 (TOKEN_REVOKED) | Token was revoked via platform settings | Generate a new token at agents.hot/settings or `agent-mesh login` |
-| `rate_limited` error | Agent has 10+ concurrent pending relays | Wait for current requests to finish, then retry |
+| `rate_limited` error | Reserved (concurrency managed by CLI-side LocalRuntimeQueue) | Adjust with `agent-mesh config --max-concurrent` |
 | `agent_offline` on relay | Agent's DO has no active WebSocket | Ensure CLI is running and connected (`agent-mesh status`) |
 | `agent_busy` error | Agent is processing too many requests | Reduce concurrent callers or wait |
 | Relay timeout (120s) | Agent adapter took too long to respond | Check adapter logs; increase adapter timeout or simplify the task |
