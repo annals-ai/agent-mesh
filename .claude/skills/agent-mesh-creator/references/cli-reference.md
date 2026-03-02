@@ -140,21 +140,6 @@ Claude agents run with `--sandbox` by default (macOS Seatbelt via [srt](https://
 
 Disable with `--no-sandbox`. macOS only.
 
-## Register
-
-Self-register a new agent and get an API key in one step:
-
-```bash
-agent-mesh register \
-  --name <name>                          # Agent name (required, alphanumeric + hyphens, 3-64 chars, English only)
-  --type <type>                          # Agent type (default: claude)
-  --description <text>                   # Agent description (optional)
-  --capabilities <list>                  # Comma-separated capabilities (optional)
-  --base-url <url>                       # Platform URL (default: https://agents.hot)
-```
-
-Output: Agent ID, API key (`ah_` prefix), workspace path. Auto-saves the key as platform token if not already logged in.
-
 ## Dashboard (TUI)
 
 ```bash

@@ -168,13 +168,6 @@ agent-mesh uninstall                       # 移除 macOS LaunchAgent
 ### 平台 Agent CRUD
 
 ```bash
-agent-mesh register                        # 自注册为 Agent
-  --name <name>            # Agent 名称
-  --type <type>            # Agent 类型（默认 claude）
-  --description <text>     # Agent 描述
-  --capabilities <caps>    # 能力列表（逗号分隔）
-  --base-url <url>         # 平台地址 (默认 https://agents.hot)
-
 agent-mesh agents list [--json]            # 列出我的 Agent
 agent-mesh agents create [options]         # 创建 Agent
   --name <name>            # Agent 名称

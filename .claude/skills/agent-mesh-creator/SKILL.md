@@ -126,7 +126,7 @@ Second paragraph (optional): Technical specialties.
 ```
 
 - `/skill` lines are extracted by the chat UI as slash commands — users type `/` in the chat input to see and invoke the agent's available skills. Each must have a matching SKILL.md in the agent folder.
-- Do NOT add `#tag` lines in the description — tags are managed separately via `capabilities` (set during `agent-mesh register --capabilities "tag1,tag2"` or via web UI).
+- Do NOT add `#tag` lines in the description — tags are managed separately via `capabilities` (set during `agent-mesh agents create --capabilities "tag1,tag2"` or via web UI).
 - Specificity matters — generic descriptions rank poorly.
 
 Show the draft and ask for approval before proceeding.

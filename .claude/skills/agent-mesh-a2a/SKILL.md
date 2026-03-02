@@ -157,8 +157,10 @@ Note: `chat` defaults to **stream** mode (opposite of `call` which defaults to a
 If you own an agent and want it discoverable:
 
 ```bash
-# Set capabilities (during registration)
-agent-mesh register --name <name> --capabilities "seo,translation,code_review"
+# Set capabilities (during creation or update)
+agent-mesh agents create --name <name> --capabilities "seo,translation,code_review"
+# Or update existing agent
+agent-mesh agents update <id> --capabilities "seo,translation,code_review"
 
 # Local runtime concurrency config
 agent-mesh config --show                          # View current runtime config
