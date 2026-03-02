@@ -135,32 +135,7 @@ export class ClaudeOutputParser implements OutputParser {
       return null;
     }
 
-    // ── Legacy formats (for Claude Code versions without --include-partial-messages) ──
-
-    if (event.type === 'assistant' && event.subtype === 'text_delta' && event.delta?.text) {
-      return { type: 'chunk', text: event.delta.text };
-    }
-
-    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta?.text) {
-      return { type: 'chunk', text: event.delta.text };
-    }
-
-    // Full assistant message — return as chunk (caller decides whether to skip if already streaming)
-    if (event.type === 'assistant' && event.message?.content) {
-      if (event.error) return null;
-      const texts: string[] = [];
-      for (const block of event.message.content) {
-        if (block.type === 'text' && block.text) {
-          texts.push(block.text);
-        }
-      }
-      if (texts.length > 0) {
-        return { type: 'chunk', text: texts.join('') };
-      }
-      return null;
-    }
-
-    // Result event — completion
+    // Result event — completion (only done/error, never chunk)
     if (event.type === 'result') {
       if (event.is_error) {
         const errorText = typeof event.result === 'string' && event.result
@@ -168,16 +143,6 @@ export class ClaudeOutputParser implements OutputParser {
           : 'Claude returned an error';
         return { type: 'error', message: errorText };
       }
-
-      if (typeof event.result === 'string' && event.result) {
-        // Return result text as a chunk — caller will emit done after
-        return { type: 'chunk', text: event.result };
-      }
-      return { type: 'done' };
-    }
-
-    // End subtype
-    if (event.type === 'assistant' && event.subtype === 'end') {
       return { type: 'done' };
     }
 

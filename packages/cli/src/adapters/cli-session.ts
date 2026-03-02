@@ -220,13 +220,7 @@ class CliSession implements SessionHandle {
         this.claudeSessionId = event.sessionId;
         break;
       case 'chunk':
-        if (!this.chunksEmitted) {
-          this.emitChunk(event.text);
-        } else {
-          // If chunks already emitted and this is from a "result" fallback,
-          // still emit — the parser already handles dedup for assistant messages
-          this.emitChunk(event.text);
-        }
+        this.emitChunk(event.text);
         break;
       case 'tool':
         this.emitToolEvent(event.event);
