@@ -41,6 +41,8 @@ const MAX_RTC_SIGNAL_BUFFERS = 100;   // max transfer_ids in rtcSignalBuffer
 const MAX_SIGNALS_PER_TRANSFER = 50;  // max buffered signals per transfer_id
 const MAX_STORED_RESULTS = 100;       // max result: keys in DO storage
 const MAX_RELAY_BODY_BYTES = 5_242_880; // 5 MB max body for relay/a2a
+const TOKEN_REVALIDATE_INTERVAL_MS = 10 * 60_000; // 10 min — revocation handled by /disconnect
+const RATE_LIMIT_CACHE_TTL_MS = 5 * 60_000; // 5 min
 
 interface PendingRelay {
   controller: ReadableStreamDefaultController<string>;
@@ -70,6 +72,7 @@ interface SessionSocketAttachment {
   activeSessions?: number;
   tokenHash?: string;
   userId?: string;
+  asyncTasks?: Record<string, number>; // requestId → lastActivity (epoch ms)
 }
 
 export class AgentSession implements DurableObject {
@@ -91,7 +94,9 @@ export class AgentSession implements DurableObject {
   private rtcSignalBuffer = new Map<string, Array<{ signal_type: string; payload: string }>>();
   private rtcSignalCleanupScheduled: Set<string> | null = null;
   private lastPlatformSyncAt = 0;
-  private static readonly PLATFORM_SYNC_INTERVAL_MS = 120_000; // 2 min
+  private lastTokenRevalidateAt = 0;
+  private rateLimitCache = new Map<string, { allowA2a: boolean; maxCallsPerHour: number; fetchedAt: number }>();
+  private static readonly PLATFORM_SYNC_INTERVAL_MS = 300_000; // 5 min — matches alarm cycle
 
   constructor(
     private state: DurableObjectState,
@@ -304,16 +309,15 @@ export class AgentSession implements DurableObject {
         if (this.agentId && Date.now() - this.lastPlatformSyncAt >= AgentSession.PLATFORM_SYNC_INTERVAL_MS) {
           this.lastPlatformSyncAt = Date.now();
           this.syncHeartbeat(this.agentId);
-          // Prune old result: keys from DO storage (24h TTL + max 100)
-          void this.pruneOldResults();
-          // API key revalidation (DO cached tokenHash → 1 query on revoked_at)
-          if (this.cachedTokenHash) {
-            const stillValid = await this.revalidateToken();
-            if (!stillValid) {
-              try { ws.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked'); } catch {}
-              await this.markOffline();
-              return;
-            }
+        }
+        // API key revalidation on separate (longer) interval
+        if (this.cachedTokenHash && Date.now() - this.lastTokenRevalidateAt >= TOKEN_REVALIDATE_INTERVAL_MS) {
+          this.lastTokenRevalidateAt = Date.now();
+          const stillValid = await this.revalidateToken();
+          if (!stillValid) {
+            try { ws.close(WS_CLOSE_TOKEN_REVOKED, 'Token revoked'); } catch {}
+            await this.markOffline();
+            return;
           }
         }
         break;
@@ -473,6 +477,11 @@ export class AgentSession implements DurableObject {
         lastActivity: Date.now(),
       };
       await this.state.storage.put(`async:${body.request_id}`, JSON.stringify(taskMeta));
+      // Track in attachment for cheap timeout checks (no storage.list needed)
+      const meta = this.getSocketAttachment(ws);
+      const asyncTasks = meta.asyncTasks || {};
+      asyncTasks[body.request_id] = Date.now();
+      this.setSocketAttachment(ws, { ...meta, asyncTasks });
     }
 
     try {
@@ -480,6 +489,12 @@ export class AgentSession implements DurableObject {
     } catch {
       if (isAsync) {
         try { await this.state.storage.delete(`async:${body.request_id}`); } catch {}
+        // Clean up attachment
+        const meta = this.getSocketAttachment(ws);
+        if (meta.asyncTasks) {
+          delete meta.asyncTasks[body.request_id];
+          this.setSocketAttachment(ws, meta);
+        }
       }
       return json(502, { error: 'agent_offline', message: 'Failed to send message to agent' });
     }
@@ -579,6 +594,15 @@ export class AgentSession implements DurableObject {
       if (msg.type === 'chunk') {
         // Update in-memory activity timestamp only — no storage write to save DO quota
         task.lastActivity = Date.now();
+        // Also update attachment for timeout tracking
+        const ws = this.getPrimarySocket();
+        if (ws) {
+          const meta = this.getSocketAttachment(ws);
+          if (meta.asyncTasks?.[msg.request_id]) {
+            meta.asyncTasks[msg.request_id] = Date.now();
+            this.setSocketAttachment(ws, meta);
+          }
+        }
         return;
       }
       if (msg.type === 'done') {
@@ -694,6 +718,15 @@ export class AgentSession implements DurableObject {
     } catch { /* callback failed — result still available via DO polling */ }
 
     await this.state.storage.delete(`async:${requestId}`);
+    // Clean up attachment
+    const ws = this.getPrimarySocket();
+    if (ws) {
+      const meta = this.getSocketAttachment(ws);
+      if (meta.asyncTasks) {
+        delete meta.asyncTasks[requestId];
+        this.setSocketAttachment(ws, meta);
+      }
+    }
   }
 
   private async failAsyncTask(requestId: string, task: AsyncTaskMeta, code: string, message: string): Promise<void> {
@@ -725,16 +758,39 @@ export class AgentSession implements DurableObject {
     } catch {}
 
     await this.state.storage.delete(`async:${requestId}`);
+    // Clean up attachment
+    const ws = this.getPrimarySocket();
+    if (ws) {
+      const meta = this.getSocketAttachment(ws);
+      if (meta.asyncTasks) {
+        delete meta.asyncTasks[requestId];
+        this.setSocketAttachment(ws, meta);
+      }
+    }
   }
 
   private async checkAsyncTaskTimeouts(): Promise<void> {
-    const asyncEntries = await this.state.storage.list({ prefix: 'async:' });
-    for (const [key, value] of asyncEntries) {
-      const task: AsyncTaskMeta = JSON.parse(value as string);
-      if (Date.now() - task.lastActivity > ASYNC_TASK_TIMEOUT_MS) {
-        const requestId = key.replace('async:', '');
-        await this.failAsyncTask(requestId, task, 'timeout', 'No activity for 5 minutes');
+    const ws = this.getPrimarySocket();
+    if (!ws) return;
+    const meta = this.getSocketAttachment(ws);
+    const tasks = meta.asyncTasks;
+    if (!tasks) return;
+
+    let changed = false;
+    for (const [requestId, lastActivity] of Object.entries(tasks)) {
+      if (Date.now() - lastActivity > ASYNC_TASK_TIMEOUT_MS) {
+        // Only read storage on actual timeout (rare)
+        const stored = await this.state.storage.get<string>(`async:${requestId}`);
+        if (stored) {
+          const task: AsyncTaskMeta = JSON.parse(stored);
+          await this.failAsyncTask(requestId, task, 'timeout', 'No activity for 5 minutes');
+        }
+        delete tasks[requestId];
+        changed = true;
       }
+    }
+    if (changed) {
+      this.setSocketAttachment(ws, { ...meta, asyncTasks: tasks });
     }
   }
 
@@ -976,7 +1032,12 @@ export class AgentSession implements DurableObject {
           // Quota exhausted — don't crash, next alarm retry will clean up
         }
       } else {
-        // Agent still alive — renew alarm for another 5 min cycle
+        // Agent still alive — run periodic maintenance + renew alarm
+        try {
+          await this.pruneOldResults();
+        } catch {
+          // Best-effort — don't block alarm renewal
+        }
         try {
           this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
         } catch {
@@ -1000,30 +1061,9 @@ export class AgentSession implements DurableObject {
       // Quota exhausted — next alarm will retry cleanup
     }
 
-    // Case 3: Clean up expired result entries (24h TTL)
+    // Case 3: Clean up expired result entries (reuse existing method)
     try {
-      const resultEntries = await this.state.storage.list({ prefix: 'result:' });
-      if (resultEntries.size > 0) {
-        const keysToDelete: string[] = [];
-        for (const [key, value] of resultEntries) {
-          try {
-            const result = JSON.parse(value as string);
-            const completedAt = new Date(result.completed_at).getTime();
-            if (Date.now() - completedAt > 24 * 60 * 60 * 1000) {
-              keysToDelete.push(key);
-            }
-          } catch {
-            keysToDelete.push(key); // corrupt entry, remove
-          }
-        }
-        if (keysToDelete.length > 0) {
-          await this.state.storage.delete(keysToDelete);
-        }
-        // If there are still non-expired results, reschedule
-        if (resultEntries.size > keysToDelete.length) {
-          this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000);
-        }
-      }
+      await this.pruneOldResults();
     } catch {
       // Quota exhausted — result cleanup deferred to next alarm
     }
@@ -1573,28 +1613,40 @@ export class AgentSession implements DurableObject {
   // ========================================================
   // A2A helpers: rate limits, call recording
   // ========================================================
-  private async checkTargetRateLimit(targetAgentId: string, callerAgentId: string): Promise<boolean> {
+  private async checkTargetRateLimit(targetAgentId: string, _callerAgentId: string): Promise<boolean> {
     try {
-      // Fetch target agent's rate_limits
-      const res = await fetch(
-        `${this.env.SUPABASE_URL}/rest/v1/rate_limits?agent_id=eq.${encodeURIComponent(targetAgentId)}&select=allow_a2a,max_calls_per_hour`,
-        {
-          headers: {
-            'apikey': this.env.SUPABASE_SERVICE_KEY,
-            'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
-          },
+      let allowA2a: boolean;
+      let maxCallsPerHour: number;
+
+      const cached = this.rateLimitCache.get(targetAgentId);
+      if (cached && Date.now() - cached.fetchedAt < RATE_LIMIT_CACHE_TTL_MS) {
+        allowA2a = cached.allowA2a;
+        maxCallsPerHour = cached.maxCallsPerHour;
+      } else {
+        const res = await fetch(
+          `${this.env.SUPABASE_URL}/rest/v1/rate_limits?agent_id=eq.${encodeURIComponent(targetAgentId)}&select=allow_a2a,max_calls_per_hour`,
+          {
+            headers: {
+              'apikey': this.env.SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${this.env.SUPABASE_SERVICE_KEY}`,
+            },
+          }
+        );
+        if (!res.ok) return true; // Fail-open
+
+        const rows = await res.json() as Array<{ allow_a2a: boolean; max_calls_per_hour: number }>;
+        if (rows.length === 0) {
+          this.rateLimitCache.set(targetAgentId, { allowA2a: true, maxCallsPerHour: 0, fetchedAt: Date.now() });
+          return true;
         }
-      );
-      if (!res.ok) return true; // Fail-open
+        allowA2a = rows[0].allow_a2a;
+        maxCallsPerHour = rows[0].max_calls_per_hour;
+        this.rateLimitCache.set(targetAgentId, { allowA2a, maxCallsPerHour, fetchedAt: Date.now() });
+      }
 
-      const rows = await res.json() as Array<{ allow_a2a: boolean; max_calls_per_hour: number }>;
-      if (rows.length === 0) return true; // No rate limits configured → allow
+      if (!allowA2a) return false;
 
-      const limits = rows[0];
-      if (!limits.allow_a2a) return false;
-
-      // Check hourly call count
-      if (limits.max_calls_per_hour > 0) {
+      if (maxCallsPerHour > 0) {
         const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
         const countRes = await fetch(
           `${this.env.SUPABASE_URL}/rest/v1/agent_calls?target_agent_id=eq.${encodeURIComponent(targetAgentId)}&created_at=gte.${encodeURIComponent(oneHourAgo)}&select=id`,
@@ -1610,7 +1662,7 @@ export class AgentSession implements DurableObject {
         const countHeader = countRes.headers.get('content-range');
         if (countHeader) {
           const match = countHeader.match(/\/(\d+)/);
-          if (match && parseInt(match[1], 10) >= limits.max_calls_per_hour) {
+          if (match && parseInt(match[1], 10) >= maxCallsPerHour) {
             return false;
           }
         }
