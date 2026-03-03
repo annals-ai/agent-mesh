@@ -50,14 +50,17 @@ agent-mesh config --show               # View local runtime settings
 The CLI includes an official MCP server entry:
 
 ```bash
-# via main CLI
+# via npx (recommended, no global install)
+npx -y @annals/agent-mesh mcp serve
+
+# via main CLI (if globally installed)
 agent-mesh mcp serve
 
-# equivalent standalone bin
+# equivalent standalone bin (global install)
 agent-mesh-mcp --transport stdio
 
 # streamable HTTP
-agent-mesh mcp serve --transport http --host 127.0.0.1 --port 3920 --path /mcp
+npx -y @annals/agent-mesh mcp serve --transport http --host 127.0.0.1 --port 3920 --path /mcp
 ```
 
 Auth model:

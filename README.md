@@ -205,14 +205,17 @@ Agent Mesh ships an official MCP server for direct integration with MCP clients.
 ### Start MCP Server
 
 ```bash
-# Default transport: stdio
+# Default transport: stdio (no global install required)
+npx -y @annals/agent-mesh mcp serve
+
+# Same command if already installed globally
 agent-mesh mcp serve
 
-# Equivalent standalone bin (same package)
+# Equivalent standalone bin (same package, global install)
 agent-mesh-mcp --transport stdio
 
 # Streamable HTTP (localhost-only for safety)
-agent-mesh mcp serve --transport http --host 127.0.0.1 --port 3920 --path /mcp
+npx -y @annals/agent-mesh mcp serve --transport http --host 127.0.0.1 --port 3920 --path /mcp
 ```
 
 ### Auth Behavior (same as CLI)
@@ -238,8 +241,8 @@ Claude Desktop (stdio):
 {
   "mcpServers": {
     "agent-mesh": {
-      "command": "agent-mesh-mcp",
-      "args": ["--transport", "stdio"]
+      "command": "npx",
+      "args": ["-y", "@annals/agent-mesh", "mcp", "serve", "--transport", "stdio"]
     }
   }
 }
@@ -251,8 +254,8 @@ Codex (stdio):
 {
   "mcpServers": {
     "agent-mesh": {
-      "command": "agent-mesh",
-      "args": ["mcp", "serve", "--transport", "stdio"]
+      "command": "npx",
+      "args": ["-y", "@annals/agent-mesh", "mcp", "serve", "--transport", "stdio"]
     }
   }
 }
@@ -264,8 +267,8 @@ Cursor (stdio):
 {
   "mcpServers": {
     "agent-mesh": {
-      "command": "agent-mesh-mcp",
-      "args": ["--transport", "stdio"]
+      "command": "npx",
+      "args": ["-y", "@annals/agent-mesh", "mcp", "serve", "--transport", "stdio"]
     }
   }
 }
